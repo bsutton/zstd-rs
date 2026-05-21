@@ -42,9 +42,11 @@ pub fn compress_fastest<M: Matcher>(
         let mut compressed = Vec::new();
         state.matcher.commit_space(uncompressed_data);
         compress_block(state, &mut compressed);
-        // If the compressed data is larger than the maximum
-        // allowable block size, instead store uncompressed
-        if compressed.len() >= MAX_BLOCK_SIZE as usize {
+        let compressed_size = compressed.len();
+        // If compression does not shrink the block, store it raw instead.
+        // Also preserve the format guard that compressed blocks must not
+        // exceed the maximum block size.
+        if compressed_size >= block_size as usize || compressed_size > MAX_BLOCK_SIZE as usize {
             let header = BlockHeader {
                 last_block,
                 block_type: crate::blocks::block::BlockType::Raw,
@@ -57,7 +59,7 @@ pub fn compress_fastest<M: Matcher>(
             let header = BlockHeader {
                 last_block,
                 block_type: crate::blocks::block::BlockType::Compressed,
-                block_size: compressed.len() as u32,
+                block_size: compressed_size as u32,
             };
             // Write the header, then the block
             header.serialize(output);
