@@ -6,6 +6,8 @@ This document records the changes made between versions, starting with version 0
 
 * Avoid emitting compressed blocks when the compressed payload is not smaller
   than the raw block.
+* Choose the smallest encoded literals section among raw, RLE, new Huffman
+  table, and previous Huffman table candidates.
 
 # After 0.8.2
 * Introduce the `rust-version` field

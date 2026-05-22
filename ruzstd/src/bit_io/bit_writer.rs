@@ -43,15 +43,6 @@ impl<V: AsMut<Vec<u8>>> BitWriter<V> {
         self.bit_idx + self.bits_in_partial
     }
 
-    /// Reset to an index. Currently only supports resetting to a byte aligned index
-    pub fn reset_to(&mut self, index: usize) {
-        assert!(index.is_multiple_of(8));
-        self.partial = 0;
-        self.bits_in_partial = 0;
-        self.bit_idx = index;
-        self.output.as_mut().resize(index / 8, 0);
-    }
-
     /// Change the bits at the index. `bits` contains the ǹum_bits` new bits that should be written
     /// Instead of the current content. `bits` *MUST* only contain zeroes in the upper bits outside of the `0..num_bits` range.
     pub fn change_bits(&mut self, idx: usize, bits: impl Into<u64>, num_bits: usize) {

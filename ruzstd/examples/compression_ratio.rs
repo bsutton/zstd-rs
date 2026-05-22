@@ -8,6 +8,7 @@ fn main() {
     let fixtures = [
         ("zeros_128k", zeros(128 * 1024)),
         ("repeated_text_128k", repeated_text(128 * 1024)),
+        ("similar_text_blocks_1m", similar_text_blocks(1024 * 1024)),
         ("xorshift_8k", xorshift(8 * 1024)),
         ("xorshift_64k", xorshift(64 * 1024)),
         ("xorshift_128k", xorshift(128 * 1024)),
@@ -33,6 +34,27 @@ fn zeros(len: usize) -> Vec<u8> {
 fn repeated_text(len: usize) -> Vec<u8> {
     let phrase = b"systemd-journald.service After=systemd-journald-dev-log.socket\n";
     phrase.iter().copied().cycle().take(len).collect()
+}
+
+fn similar_text_blocks(len: usize) -> Vec<u8> {
+    let mut data = Vec::with_capacity(len);
+    let mut row = 0usize;
+    while data.len() < len {
+        let line = format!(
+            "{{\"ts\":\"2026-05-{:02}T{:02}:{:02}:00Z\",\"level\":\"{}\",\"service\":\"svc-{:02}\",\"message\":\"cache lookup completed for tenant {}\",\"value\":{}}}\n",
+            1 + row % 28,
+            row % 24,
+            row % 60,
+            if row.is_multiple_of(19) { "WARN" } else { "INFO" },
+            row % 16,
+            row % 97,
+            row.wrapping_mul(31) % 100_000,
+        );
+        data.extend_from_slice(line.as_bytes());
+        row += 1;
+    }
+    data.truncate(len);
+    data
 }
 
 fn xorshift(len: usize) -> Vec<u8> {

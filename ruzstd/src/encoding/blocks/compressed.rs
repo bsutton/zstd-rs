@@ -33,14 +33,9 @@ pub fn compress_block<M: Matcher>(state: &mut CompressState<M>, output: &mut Vec
     // literals section
 
     let mut writer = BitWriter::from(output);
-    if literals_vec.len() > 1024 {
-        if let Some(table) =
-            compress_literals(&literals_vec, state.last_huff_table.as_ref(), &mut writer)
-        {
-            state.last_huff_table.replace(table);
-        }
-    } else {
-        raw_literals(&literals_vec, &mut writer);
+    if let Some(table) = encode_literals(&literals_vec, state.last_huff_table.as_ref(), &mut writer)
+    {
+        state.last_huff_table.replace(table);
     }
 
     // sequences section
@@ -304,36 +299,117 @@ fn encode_offset(len: u32) -> (u8, u32, usize) {
     (log as u8, lower, log as usize)
 }
 
-fn raw_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>) {
-    writer.write_bits(0u8, 2);
-    writer.write_bits(0b11u8, 2);
-    writer.write_bits(literals.len() as u32, 20);
-    writer.append_bytes(literals);
-}
-
-fn compress_literals(
+fn encode_literals(
     literals: &[u8],
     last_table: Option<&huff0_encoder::HuffmanTable>,
     writer: &mut BitWriter<&mut Vec<u8>>,
 ) -> Option<huff0_encoder::HuffmanTable> {
-    let reset_idx = writer.index();
-
-    let new_encoder_table = huff0_encoder::HuffmanTable::build_from_data(literals);
-
-    let (encoder_table, new_table) = if let Some(_table) = last_table {
-        if let Some(diff) = _table.can_encode(&new_encoder_table) {
-            // TODO this is a very simple heuristic, maybe we should try to do better
-            if diff > 5 {
-                (&new_encoder_table, true)
-            } else {
-                (_table, false)
-            }
-        } else {
-            (&new_encoder_table, true)
-        }
-    } else {
-        (&new_encoder_table, true)
+    let mut best = LiteralCandidate {
+        bytes: raw_literals(literals),
+        new_table: None,
     };
+
+    if let Some(candidate) = rle_literals(literals) {
+        best = best.min(candidate);
+    }
+
+    let new_encoder_table = if has_multiple_symbols(literals) {
+        Some(huff0_encoder::HuffmanTable::build_from_data(literals))
+    } else {
+        None
+    };
+
+    if let Some(new_encoder_table) = new_encoder_table {
+        if let Some(last_table) = last_table {
+            if last_table.can_encode(&new_encoder_table).is_some() {
+                best = best.min(LiteralCandidate {
+                    bytes: huffman_literals(literals, last_table, false),
+                    new_table: None,
+                });
+            }
+        }
+        let new_table_bytes = huffman_literals(literals, &new_encoder_table, true);
+        best = best.min(LiteralCandidate {
+            bytes: new_table_bytes,
+            new_table: Some(new_encoder_table),
+        });
+    }
+
+    writer.append_bytes(&best.bytes);
+    best.new_table
+}
+
+struct LiteralCandidate {
+    bytes: Vec<u8>,
+    new_table: Option<huff0_encoder::HuffmanTable>,
+}
+
+impl LiteralCandidate {
+    fn min(self, other: Self) -> Self {
+        if other.bytes.len() < self.bytes.len() {
+            other
+        } else {
+            self
+        }
+    }
+}
+
+fn raw_literals(literals: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut writer = BitWriter::from(&mut bytes);
+    write_raw_or_rle_literals_header(0, literals.len(), &mut writer);
+    writer.append_bytes(literals);
+    writer.dump();
+    bytes
+}
+
+fn rle_literals(literals: &[u8]) -> Option<LiteralCandidate> {
+    let literal = *literals.first()?;
+    if !literals.iter().all(|value| *value == literal) {
+        return None;
+    }
+
+    let mut bytes = Vec::new();
+    let mut writer = BitWriter::from(&mut bytes);
+    write_raw_or_rle_literals_header(1, literals.len(), &mut writer);
+    writer.write_bits(literal, 8);
+    writer.dump();
+    Some(LiteralCandidate {
+        bytes,
+        new_table: None,
+    })
+}
+
+fn write_raw_or_rle_literals_header(
+    block_type: u8,
+    regenerated_size: usize,
+    writer: &mut BitWriter<&mut Vec<u8>>,
+) {
+    writer.write_bits(block_type, 2);
+    match regenerated_size {
+        0..=31 => {
+            writer.write_bits(0u8, 1);
+            writer.write_bits(regenerated_size as u8, 5);
+        }
+        32..=4095 => {
+            writer.write_bits(1u8, 2);
+            writer.write_bits(regenerated_size as u16, 12);
+        }
+        4096..=1_048_575 => {
+            writer.write_bits(3u8, 2);
+            writer.write_bits(regenerated_size as u32, 20);
+        }
+        _ => unimplemented!("too many literals"),
+    }
+}
+
+fn huffman_literals(
+    literals: &[u8],
+    encoder_table: &huff0_encoder::HuffmanTable,
+    new_table: bool,
+) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut writer = BitWriter::from(&mut bytes);
 
     if new_table {
         writer.write_bits(2u8, 2); // compressed literals type
@@ -354,7 +430,7 @@ fn compress_literals(
     let size_index = writer.index();
     writer.write_bits(0u32, size_bits);
     let index_before = writer.index();
-    let mut encoder = huff0_encoder::HuffmanEncoder::new(encoder_table, writer);
+    let mut encoder = huff0_encoder::HuffmanEncoder::new(encoder_table, &mut writer);
     if size_format == 0 {
         encoder.encode(literals, new_table)
     } else {
@@ -362,16 +438,34 @@ fn compress_literals(
     };
     let encoded_len = (writer.index() - index_before) / 8;
     writer.change_bits(size_index, encoded_len as u64, size_bits);
-    let total_len = (writer.index() - reset_idx) / 8;
+    writer.dump();
+    bytes
+}
 
-    // If encoded len is bigger than the raw literals we are better off just writing the raw literals here
-    if total_len >= literals.len() {
-        writer.reset_to(reset_idx);
-        raw_literals(literals, writer);
-        None
-    } else if new_table {
-        Some(new_encoder_table)
-    } else {
-        None
+fn has_multiple_symbols(literals: &[u8]) -> bool {
+    let Some(first) = literals.first() else {
+        return false;
+    };
+    literals.iter().any(|value| value != first)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_literals_use_smallest_header_that_fits() {
+        assert_eq!(raw_literals(&[]).len(), 1);
+        assert_eq!(raw_literals(&[1; 31]).len(), 32);
+        assert_eq!(raw_literals(&[1; 32]).len(), 34);
+        assert_eq!(raw_literals(&[1; 4096]).len(), 4099);
+    }
+
+    #[test]
+    fn repeated_literals_can_use_rle() {
+        let rle = rle_literals(&[7; 100]).expect("repeated literals should use RLE");
+        assert_eq!(rle.bytes.len(), 3);
+        assert!(rle.new_table.is_none());
+        assert!(rle_literals(&[7, 8, 7]).is_none());
     }
 }

@@ -1,5 +1,7 @@
+use alloc::collections::BinaryHeap;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
+use core::cmp::Reverse;
 
 use crate::{
     bit_io::BitWriter,
@@ -172,6 +174,20 @@ impl HuffmanTable {
 
     pub fn build_from_counts(counts: &[usize]) -> Self {
         assert!(counts.len() <= 256);
+        if let Some(bit_lengths) = bit_lengths_from_counts(counts) {
+            let max_bits = bit_lengths.iter().copied().max().unwrap_or(0);
+            let weights = bit_lengths
+                .iter()
+                .copied()
+                .map(|bits| if bits == 0 { 0 } else { max_bits - bits + 1 })
+                .collect::<Vec<_>>();
+            return Self::build_from_weights(&weights);
+        }
+
+        Self::build_from_counts_by_rank(counts)
+    }
+
+    fn build_from_counts_by_rank(counts: &[usize]) -> Self {
         let zeros = counts.iter().filter(|x| **x == 0).count();
         let mut weights = distribute_weights(counts.len() - zeros);
         let limit = weights.len().ilog2() as usize + 2;
@@ -265,6 +281,76 @@ impl HuffmanTable {
         }
         Some(sum)
     }
+}
+
+#[derive(Clone)]
+struct HuffmanNode {
+    symbol: Option<usize>,
+    left: Option<usize>,
+    right: Option<usize>,
+}
+
+fn bit_lengths_from_counts(counts: &[usize]) -> Option<Vec<usize>> {
+    let symbol_count = counts.iter().filter(|count| **count > 0).count();
+    if symbol_count < 2 {
+        return None;
+    }
+
+    let mut nodes = Vec::<HuffmanNode>::new();
+    let mut heap = BinaryHeap::<Reverse<(u64, usize, usize)>>::new();
+    let mut order = 0usize;
+
+    for (symbol, count) in counts.iter().copied().enumerate() {
+        if count == 0 {
+            continue;
+        }
+        let node_idx = nodes.len();
+        nodes.push(HuffmanNode {
+            symbol: Some(symbol),
+            left: None,
+            right: None,
+        });
+        heap.push(Reverse((count as u64, order, node_idx)));
+        order += 1;
+    }
+
+    while heap.len() > 1 {
+        let Reverse((left_count, _left_order, left_idx)) = heap.pop().unwrap();
+        let Reverse((right_count, _right_order, right_idx)) = heap.pop().unwrap();
+        let node_idx = nodes.len();
+        nodes.push(HuffmanNode {
+            symbol: None,
+            left: Some(left_idx),
+            right: Some(right_idx),
+        });
+        heap.push(Reverse((left_count + right_count, order, node_idx)));
+        order += 1;
+    }
+
+    let Reverse((_count, _order, root_idx)) = heap.pop().unwrap();
+    let mut bit_lengths = alloc::vec![0; counts.len()];
+    collect_bit_lengths(root_idx, 0, &nodes, &mut bit_lengths);
+
+    if bit_lengths.iter().copied().max().unwrap_or(0) > 11 {
+        None
+    } else {
+        Some(bit_lengths)
+    }
+}
+
+fn collect_bit_lengths(
+    node_idx: usize,
+    depth: usize,
+    nodes: &[HuffmanNode],
+    bit_lengths: &mut [usize],
+) {
+    let node = &nodes[node_idx];
+    if let Some(symbol) = node.symbol {
+        bit_lengths[symbol] = depth.max(1);
+        return;
+    }
+    collect_bit_lengths(node.left.unwrap(), depth + 1, nodes, bit_lengths);
+    collect_bit_lengths(node.right.unwrap(), depth + 1, nodes, bit_lengths);
 }
 
 /// Assert that the provided value is greater than zero, and returns index of the first set bit
@@ -472,8 +558,21 @@ fn counts() {
 }
 
 #[test]
+fn counts_use_frequency_magnitude() {
+    let counts = &[1_000, 1, 1, 1];
+    let table = HuffmanTable::build_from_counts(counts).codes;
+
+    assert!(
+        table[0].1 < table[1].1,
+        "dominant symbols should get shorter codes"
+    );
+    assert!(table[0].1 < table[2].1);
+    assert!(table[0].1 < table[3].1);
+}
+
+#[test]
 fn from_data() {
-    let counts = &[3, 0, 4, 1, 5];
+    let counts = &[3, 0, 4, 1, 2];
     let table = HuffmanTable::build_from_counts(counts).codes;
 
     let data = &[0, 2, 4, 4, 0, 3, 2, 2, 0, 2];
