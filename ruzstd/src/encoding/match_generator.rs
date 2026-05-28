@@ -495,10 +495,9 @@ impl MatchGenerator {
                 let last_entry_idx = self.last_entry_index();
                 let last_entry = &self.window[last_entry_idx];
                 let literals = &last_entry.data[self.last_idx_in_sequence..start_idx];
-                let lit_len = Self::bounded_u32(literals.len());
                 let offset_value = Self::bounded_u32(offset);
                 self.offset_history
-                    .encode_offset_value(offset_value, lit_len);
+                    .update_after_match(offset_value, !literals.is_empty());
 
                 // Update the indexes, all indexes upto and including the current index have been included in a sequence now
                 self.suffix_idx = start_idx + match_len;

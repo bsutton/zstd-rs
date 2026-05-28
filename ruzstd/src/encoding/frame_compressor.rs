@@ -130,6 +130,28 @@ impl OffsetHistory {
         offset_value
     }
 
+    #[inline(always)]
+    pub(crate) fn update_after_match(&mut self, offset: u32, has_literals: bool) {
+        if has_literals {
+            if offset == self.newest {
+                return;
+            }
+            if offset == self.second {
+                self.second = self.newest;
+                self.newest = offset;
+                return;
+            }
+        } else if offset == self.second {
+            self.second = self.newest;
+            self.newest = offset;
+            return;
+        }
+
+        self.third = self.second;
+        self.second = self.newest;
+        self.newest = offset;
+    }
+
     fn update_from_offset_value(&mut self, offset_value: u32, lit_len: u32, actual_offset: u32) {
         if lit_len > 0 {
             match offset_value {
@@ -373,7 +395,7 @@ impl<R: Read, W: Write, M: Matcher> FrameCompressor<R, W, M> {
 mod tests {
     use alloc::vec;
 
-    use super::FrameCompressor;
+    use super::{FrameCompressor, OffsetHistory};
     use crate::common::MAGIC_NUM;
     use crate::decoding::FrameDecoder;
     use alloc::vec::Vec;
@@ -388,6 +410,32 @@ mod tests {
 
         compressor.compress();
         assert!(output.starts_with(&MAGIC_NUM.to_le_bytes()));
+    }
+
+    #[test]
+    fn direct_repeat_history_update_matches_encoded_update_with_literals() {
+        for offset in [1, 4, 8, 9] {
+            let mut encoded = OffsetHistory::new();
+            let mut direct = OffsetHistory::new();
+
+            encoded.encode_offset_value(offset, 3);
+            direct.update_after_match(offset, true);
+
+            assert_eq!(direct, encoded);
+        }
+    }
+
+    #[test]
+    fn direct_repeat_history_update_matches_encoded_update_without_literals() {
+        for offset in [4, 8, 0, 9] {
+            let mut encoded = OffsetHistory::new();
+            let mut direct = OffsetHistory::new();
+
+            encoded.encode_offset_value(offset, 0);
+            direct.update_after_match(offset, false);
+
+            assert_eq!(direct, encoded);
+        }
     }
 
     #[test]
