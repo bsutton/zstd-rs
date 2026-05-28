@@ -89,6 +89,7 @@ Quality constraints:
 - Cached the encoder FSE table accuracy log at table construction time and used that cached value when flushing sequence states. Added a focused invariant test for the predefined tables so `acc_log` stays tied to `table_size`.
 - Changed sparse indexing after long matches to store the final sparse hash at `match_end - 2`, matching the C fast parser's post-match hash fill shape. Added focused coverage that long matches index exactly the start, start+2, and end-2 positions.
 - Carried verified minimum-match prefixes into full match-length scans so accepted repeat and hash candidates do not compare the first five bytes twice. Added focused tests for the normal skipped-prefix case and the previous-window boundary fallback.
+- Replaced repeated stable sorting in Huffman length-limited tree construction with a deterministic min-heap. Existing Huffman tie-behavior tests cover the ordering invariants, and a same-window direct benchmark against the previous commit confirmed exact bytes with decodecorpus CPU slightly better and JSON neutral.
 
 ## Verification So Far
 
@@ -112,6 +113,8 @@ Latest successful commands:
 - `perf report --stdio -i /tmp/ruzstd-json-touched-u32-clear.perf.data --sort=symbol --no-children`
 - `perf record -F 999 -g -o /tmp/ruzstd-json-direct-repeat-update.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/json_logs_32m.jsonl /tmp/ruzstd-json-profile.zst -l 1`
 - `perf report --stdio -i /tmp/ruzstd-json-direct-repeat-update.perf.data --sort=symbol --no-children`
+- `perf record -m 64 -F 999 -g -o /tmp/ruzstd-decodecorpus-heap-huff.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/decodecorpus_pack.bin /tmp/ruzstd-decodecorpus-profile.zst -l 1`
+- `perf report --stdio -i /tmp/ruzstd-decodecorpus-heap-huff.perf.data --sort=symbol --no-children`
 
 ## Latest Benchmark Snapshot
 
@@ -184,6 +187,7 @@ Interpretation:
 - Moving the sparse long-match tail hash from `match_end - MIN_MATCH_LEN` to `match_end - 2`, matching the C fast parser, improved decodecorpus by 65 bytes with no size change on the other fixtures. Two benchmark runs kept decodecorpus at 0.24s and JSON in the 0.16-0.17s noise band, so the C-shaped indexing position was kept.
 - Carrying a verified minimum-match prefix into full match-length scans preserved exact fixture byte counts. The benchmark stayed neutral in the current noise band, but the change avoids rechecking the first five bytes for accepted candidates while preserving the full scan for previous-window boundary cases.
 - Tested probing only the first two repeat-offset candidates in matcher search, closer to C fast's active repeat-offset checks. It regressed decodecorpus from 5,160,978 bytes to 5,166,985 bytes and JSON from 826,471 bytes to 854,443 bytes with no measurable CPU win, so the three-candidate matcher probe was kept.
+- Replacing repeated stable sorts in Huffman length-limited tree construction with a deterministic min-heap preserved exact fixture byte counts. The full table runs were noisy, but a direct five-run comparison against the previous commit showed decodecorpus median CPU improving from about 0.24-0.25s to 0.23-0.24s and JSON staying neutral. The follow-up perf sample removed the previously visible `core::slice::sort::stable::drift::sort` symbol, leaving Huffman table construction around 1.2% of decodecorpus samples.
 
 ## Next Steps
 

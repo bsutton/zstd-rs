@@ -1,5 +1,6 @@
+use alloc::collections::BinaryHeap;
 use alloc::vec::Vec;
-use core::cmp::Ordering;
+use core::cmp::{Ordering, Reverse};
 
 use crate::{
     bit_io::BitWriter,
@@ -327,16 +328,17 @@ fn length_limited_code_lengths(counts: &[usize], max_bits: usize) -> Option<Vec<
         return None;
     }
 
-    let mut active = (0..nodes.len()).collect::<Vec<_>>();
+    let active_key =
+        |idx, node: &HuffmanNode| Reverse((node.count, node.symbol, Reverse(idx), idx));
+
+    let mut active = BinaryHeap::with_capacity(nodes.len());
+    for (idx, node) in nodes.iter().enumerate() {
+        active.push(active_key(idx, node));
+    }
+
     while active.len() > 1 {
-        active.sort_by(|left, right| {
-            nodes[*right]
-                .count
-                .cmp(&nodes[*left].count)
-                .then_with(|| nodes[*right].symbol.cmp(&nodes[*left].symbol))
-        });
-        let left = active.pop().unwrap();
-        let right = active.pop().unwrap();
+        let Reverse((_, _, _, left)) = active.pop().unwrap();
+        let Reverse((_, _, _, right)) = active.pop().unwrap();
         let parent = nodes.len();
         nodes[left].parent = Some(parent);
         nodes[right].parent = Some(parent);
@@ -345,7 +347,7 @@ fn length_limited_code_lengths(counts: &[usize], max_bits: usize) -> Option<Vec<
             symbol: None,
             parent: None,
         });
-        active.push(parent);
+        active.push(active_key(parent, &nodes[parent]));
     }
 
     let mut lengths = alloc::vec![0; counts.len()];
