@@ -225,6 +225,7 @@ Interpretation:
 - Tested forcing `encode_offset()` inline after JSON profiles showed it as a small sequence-side symbol. Output bytes were unchanged, but decodecorpus measured 0.23s on the first run and only returned to 0.20s on the repeat, so the optimizer's original inlining decision remains better.
 - Tested replacing matcher prefix comparison's `chunks_exact(N)` shape with stable fixed-array `as_chunks::<N>()` as a safe SIMD-adjacent experiment. Output bytes were unchanged, but decodecorpus measured 0.22s then 0.20s and JSON measured 0.11s then 0.12s, so the existing `chunks_exact` shape remains better.
 - Tested a C-fast-style end-of-block search cleanup that stops probing the last few bytes of large blocks. It improved decodecorpus size by 833 bytes but regressed JSON size by 4,048 bytes and did not improve CPU, so the retained matcher still searches down to the minimum match-length tail.
+- Tested direct branches for common offset codes 1, 2, and 3 as a narrower alternative to the rejected offset-code cache. Output bytes were unchanged, but decodecorpus measured 0.23s on the first run and only recovered to 0.20s on the repeat, so the branch-free `ilog2` offset-code path remains better.
 
 ## Next Steps
 
