@@ -137,6 +137,10 @@ Latest successful commands:
 - `perf report --stdio -i /tmp/ruzstd-decodecorpus-after-bitwriter.perf.data --sort=symbol --no-children`
 - `perf record -m 64 -F 999 -g -o /tmp/ruzstd-json-after-bitwriter.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/json_logs_32m.jsonl /tmp/ruzstd-json-profile.zst -l 1`
 - `perf report --stdio -i /tmp/ruzstd-json-after-bitwriter.perf.data --sort=symbol --no-children`
+- `perf record -m 64 -F 999 -g -o /tmp/ruzstd-decodecorpus-after-keyvalue.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/decodecorpus_pack.bin /tmp/ruzstd-decodecorpus-profile.zst -l 1`
+- `perf report --stdio -i /tmp/ruzstd-decodecorpus-after-keyvalue.perf.data --sort=symbol --no-children`
+- `perf record -m 64 -F 999 -g -o /tmp/ruzstd-json-after-keyvalue.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/json_logs_32m.jsonl /tmp/ruzstd-json-profile.zst -l 1`
+- `perf report --stdio -i /tmp/ruzstd-json-after-keyvalue.perf.data --sort=symbol --no-children`
 
 ## Latest Benchmark Snapshot
 
@@ -166,6 +170,7 @@ Interpretation:
 
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; the current branch remains smaller than C zstd on all three compressible fixtures and four bytes smaller on xorshift.
 - Precomputed suffix key values preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.20s then 0.21s and JSON at 0.11s both times; keep it as a small safe matcher cleanup that avoids re-reading the current five-byte suffix for every window entry during hash lookup.
+- Refreshed profiles after suffix-key reuse still show matcher search as the dominant cost: about 73% of decodecorpus samples and 66% of JSON samples. JSON also showed sequence encoding around 11%, so sequence-side scalar cleanup remains a secondary target when matcher experiments stop moving.
 - Exact-block EOF lookahead removed the extra empty final raw block for exact block-multiple inputs. This improved `repeated_text_32m.txt` and `xorshift_32m.bin` by 3 bytes each, with decodecorpus and JSON byte-identical and CPU in the existing noise band across two runs.
 - BitWriter exact-fill flushing preserved exact fixture byte counts. Two table runs kept decodecorpus at 0.21s, JSON at 0.11s, and repeated/xorshift in their existing bands; retain it because it removes a cold helper call from a common bitstream boundary and has focused bit-level coverage.
 - Refreshed profiles after the BitWriter exact-fill change still show matcher search as the dominant CPU cost: about 70% of decodecorpus samples and 76% of JSON samples. The former `write_bits_64_cold` hotspot dropped to about 0.5% of decodecorpus samples, so further CPU work should stay focused on matcher search/counting unless future profiles shift.
@@ -255,6 +260,7 @@ Interpretation:
 - Tested replacing exact-EOF one-byte lookahead with a full pending-block lookahead to avoid tiny reads on full-block streams. Output bytes were unchanged, but decodecorpus repeatedly regressed to 0.22s and RSS rose slightly, so the simpler one-byte lookahead remains better.
 - Tested replacing hot five-byte minimum-match slice comparisons with an explicit safe byte-by-byte helper, as a safe approximation of C zstd's fixed-width `MEM_read32` prechecks. Output bytes stayed unchanged and focused matcher tests passed, but decodecorpus regressed to 0.24s then 0.23s and JSON to 0.12s across two table runs, so the compiler's original slice-comparison shape remains better.
 - Tested reducing the matcher text-classifier sample count from 256 to 128 to lower per-block classifier work while preserving the text/binary parser split. Output bytes stayed unchanged and matcher classifier tests passed, but the measured CPU band was indistinguishable from the 256-sample A/B run, so the original more conservative 256-sample classifier remains.
+- Tested precomputing the non-zero-literal repeat-candidate array for the no-match skip guard, since skipped probe positions always have at least one literal before them. Output bytes stayed unchanged and focused matcher tests passed, but JSON stayed at 0.12s and decodecorpus drifted to 0.22s on the repeat run, so the original per-position helper remains better.
 
 ## Next Steps
 
