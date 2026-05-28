@@ -47,6 +47,7 @@ Quality constraints:
 - Added a matcher fast path for incompressible raw blocks that marks the block processed without indexing every suffix. This preserves safe behavior for custom matchers via a default trait method while allowing the default matcher to avoid wasted history work.
 - Added shortest-form raw literals headers for 0-31 and 32-4095 byte raw literal sections, matching the Zstd format and reducing per-block overhead.
 - Enabled overlapping same-block match extension using the current block's original bytes. This lets the matcher emit long matches with small offsets instead of artificial doubling sequences.
+- Reworked overlapping match extension to compare contiguous slices in chunks instead of one byte at a time, staying in safe Rust and adding focused tests for same-block overlap, previous-window lookups, and chunk-boundary mismatches.
 
 ## Verification So Far
 
@@ -54,6 +55,8 @@ Latest successful commands after the raw-fallback history fix:
 
 - `cargo fmt --all --check`
 - `cargo test -q -p ruzstd encoding::blocks::compressed`
+- `cargo test -q -p ruzstd encoding::match_generator`
+- `cargo test -q -p ruzstd fastest_reuses_history_across_blocks`
 - `cargo clippy -q -p ruzstd --lib -- -D warnings`
 - `cargo test -q -p ruzstd`
 - `cargo build --release -p ruzstd-cli`
@@ -69,24 +72,25 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, and overlapping match extension:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, and chunked slice comparison:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,166,308 | 5,385,951 | 0.14s | 0.25s | 0.04s |
-| `json_logs_32m.jsonl` | 3,392,237 | 2,105,463 | 1,138,701 | 0.18s | 0.24s | 0.06s |
-| `repeated_text_32m.txt` | 31,757 | 3,391 | 3,116 | 0.11s | 0.20s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.61s | 0.03s | 0.05s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,165,276 | 5,385,951 | 0.13s | 0.28s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 2,102,500 | 1,138,701 | 0.18s | 0.26s | 0.04s |
+| `repeated_text_32m.txt` | 31,757 | 2,875 | 3,116 | 0.11s | 0.20s | 0.02s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.59s | 0.03s | 0.05s |
 
 Interpretation:
 
-- Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; repeated text is now close to C zstd.
+- Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; repeated text is now smaller than C zstd on this fixture.
 - The incompressible fixture is now near C zstd CPU after the no-index raw fast path.
-- The larger window improves compression but raises CPU and RSS on compressible fixtures; next work should focus on matcher search strategy and early-exit heuristics.
+- The larger window and overlapping extension improve compression but raise CPU and RSS on compressible fixtures; next work should focus on matcher search strategy, repeat-offset probing, and early-exit heuristics.
 - Perf sample on `repeated_text_32m.txt` showed time dominated by `MatchGeneratorDriver::start_matching`; the repeat-offset callback is inlined into that symbol, but the larger future CPU opportunity is still matcher logic.
 
 ## Next Steps
 
-1. Decide whether to keep both implemented items together when committing.
-2. If optimizing CPU next, profile matcher match-extension paths and compare against C zstd's architecture-specific match/copy routines.
-3. Do not start SIMD work in the repeat-offset or FSE selection paths; the useful SIMD target is matcher byte comparison/match extension.
+1. Implement matcher-side repeat-offset probing, because the JSON gap still appears dominated by offset-code distribution rather than literal compression.
+2. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change.
+3. If optimizing CPU next, profile matcher search and extension paths and compare against C zstd's architecture-specific match/copy routines.
+4. Do not start SIMD work in the repeat-offset or FSE selection paths; the useful SIMD target is matcher byte comparison/match extension.

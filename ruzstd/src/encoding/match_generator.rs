@@ -185,7 +185,6 @@ struct WindowEntry {
 struct MatchCandidateContext<'data> {
     suffix_idx: usize,
     data_slice: &'data [u8],
-    key: &'data [u8],
     #[cfg(debug_assertions)]
     last_entry_len: usize,
     #[cfg(debug_assertions)]
@@ -295,7 +294,6 @@ impl MatchGenerator {
             let match_context = MatchCandidateContext {
                 suffix_idx: self.suffix_idx,
                 data_slice,
-                key,
                 #[cfg(debug_assertions)]
                 last_entry_len: last_entry.data.len(),
                 #[cfg(debug_assertions)]
@@ -305,7 +303,7 @@ impl MatchGenerator {
                 if let Some(candidates) = match_entry.suffixes.candidates(key) {
                     for match_index in candidates.newest.into_iter().chain([candidates.oldest]) {
                         let Some(found) =
-                            Self::match_candidate(match_entry, match_index, &match_context)
+                            self.match_candidate(match_entry, match_index, &match_context)
                         else {
                             continue;
                         };
@@ -358,30 +356,17 @@ impl MatchGenerator {
         }
     }
 
-    /// Find the common prefix length between two byte slices
-    #[inline(always)]
-    fn common_prefix_len(a: &[u8], b: &[u8]) -> usize {
-        Self::mismatch_chunks::<8>(a, b)
-    }
-
-    #[inline(always)]
     fn match_candidate(
+        &self,
         match_entry: &WindowEntry,
         match_index: usize,
         context: &MatchCandidateContext<'_>,
     ) -> Option<(usize, usize)> {
-        let match_slice = &match_entry.data[match_index..];
-
-        if match_slice.len() < MIN_MATCH_LEN || &match_slice[..MIN_MATCH_LEN] != context.key {
+        let offset = match_entry.base_offset + context.suffix_idx - match_index;
+        let match_len = self.match_len_at_offset(offset, context);
+        if match_len < MIN_MATCH_LEN {
             return None;
         }
-
-        let match_len = MIN_MATCH_LEN
-            + Self::common_prefix_len(
-                &match_slice[MIN_MATCH_LEN..],
-                &context.data_slice[MIN_MATCH_LEN..],
-            );
-        let offset = match_entry.base_offset + context.suffix_idx - match_index;
 
         #[cfg(debug_assertions)]
         {
@@ -389,14 +374,58 @@ impl MatchGenerator {
             let start = context.concat_window.len() - unprocessed - offset;
             let end = start + match_len;
             let check_slice = &context.concat_window[start..end];
-            debug_assert_eq!(check_slice, &match_slice[..match_len]);
+            debug_assert_eq!(check_slice, &context.data_slice[..match_len]);
         }
 
         Some((offset, match_len))
     }
 
-    /// Find the common prefix length between two byte slices with a configurable chunk length
-    /// This enables vectorization optimizations
+    fn match_len_at_offset(&self, offset: usize, context: &MatchCandidateContext<'_>) -> usize {
+        if offset == 0 {
+            return 0;
+        }
+
+        let mut len = 0usize;
+        while len < context.data_slice.len() {
+            let source_relative = context.suffix_idx as isize + len as isize - offset as isize;
+            let Some(source) = self.slice_at_relative(source_relative) else {
+                break;
+            };
+
+            let target = &context.data_slice[len..];
+            let matched = Self::common_prefix_len(source, target);
+            len += matched;
+            if matched < source.len().min(target.len()) {
+                break;
+            }
+        }
+        len
+    }
+
+    fn slice_at_relative(&self, relative_to_current: isize) -> Option<&[u8]> {
+        if relative_to_current >= 0 {
+            return self.last_entry().data.get(relative_to_current as usize..);
+        }
+
+        for entry in &self.window {
+            let start = -(entry.base_offset as isize);
+            let end = start + entry.data.len() as isize;
+            if (start..end).contains(&relative_to_current) {
+                return Some(&entry.data[(relative_to_current - start) as usize..]);
+            }
+        }
+
+        None
+    }
+
+    /// Find the common prefix length between two byte slices.
+    #[inline(always)]
+    fn common_prefix_len(a: &[u8], b: &[u8]) -> usize {
+        Self::mismatch_chunks::<8>(a, b)
+    }
+
+    /// Find the common prefix length between two byte slices with a configurable chunk length.
+    /// The chunked shape is easy for the optimizer to vectorize while staying in safe Rust.
     fn mismatch_chunks<const N: usize>(xs: &[u8], ys: &[u8]) -> usize {
         let off = core::iter::zip(xs.chunks_exact(N), ys.chunks_exact(N))
             .take_while(|(x, y)| x == y)
@@ -484,6 +513,78 @@ impl MatchGenerator {
             reuse_space(leaked_vec, suffixes);
         }
     }
+}
+
+#[test]
+fn match_len_extends_overlapping_same_block() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        alloc::vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    let context = MatchCandidateContext {
+        suffix_idx: 1,
+        data_slice: &last_entry.data[1..],
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+
+    assert_eq!(matcher.match_len_at_offset(1, &context), 9);
+}
+
+#[test]
+fn match_len_stops_at_chunk_boundary_mismatch() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        b"abcdefghabcdefghZ".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    let context = MatchCandidateContext {
+        suffix_idx: 8,
+        data_slice: &last_entry.data[8..],
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+
+    assert_eq!(matcher.match_len_at_offset(8, &context), 8);
+}
+
+#[test]
+fn match_len_reads_from_previous_window_entry() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        b"prefix_MATCHTAIL".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+    matcher.skip_matching();
+    matcher.add_data(
+        b"MATCHTAILx".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    let context = MatchCandidateContext {
+        suffix_idx: 0,
+        data_slice: &last_entry.data,
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+
+    assert_eq!(matcher.match_len_at_offset(b"MATCHTAIL".len(), &context), 9);
 }
 
 #[test]
