@@ -12,6 +12,7 @@ use crate::{
 const INITIAL_LITERALS_CAPACITY: usize = 1024;
 const INITIAL_SEQUENCES_CAPACITY: usize = 256;
 const COMPRESS_LITERALS_SIZE_MIN: usize = 63;
+const REPEAT_LITERALS_SIZE_MIN: usize = 6;
 const LITERAL_LENGTH_SMALL_CODES: [(u8, u32, usize); 64] = small_literal_length_codes();
 const MATCH_LENGTH_SMALL_CODES: [(u8, u32, usize); 128] = small_match_length_codes();
 
@@ -46,7 +47,7 @@ pub fn compress_block<M: Matcher>(
     // literals section
 
     let mut writer = BitWriter::from(output);
-    if literals_vec.len() > COMPRESS_LITERALS_SIZE_MIN {
+    if should_compress_literals(literals_vec.len(), state.last_huff_table.is_some()) {
         if let Some(table) =
             compress_literals(&literals_vec, state.last_huff_table.as_ref(), &mut writer)
         {
@@ -214,6 +215,15 @@ fn encode_fse_table_modes(
         }
     }
     mode_to_bits(ll_mode) << 6 | mode_to_bits(of_mode) << 4 | mode_to_bits(ml_mode) << 2
+}
+
+fn should_compress_literals(len: usize, has_previous_table: bool) -> bool {
+    let min_size = if has_previous_table {
+        REPEAT_LITERALS_SIZE_MIN
+    } else {
+        COMPRESS_LITERALS_SIZE_MIN
+    };
+    len > min_size
 }
 
 fn encode_sequences(
@@ -639,6 +649,13 @@ mod tests {
     }
 
     fn compressed_frame_with_literal_payload(literals: Vec<u8>) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        compressed_frame_with_literal_payload_and_last_table(literals, None)
+    }
+
+    fn compressed_frame_with_literal_payload_and_last_table(
+        literals: Vec<u8>,
+        last_huff_table: Option<huff0_encoder::HuffmanTable>,
+    ) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
         assert!(!literals.is_empty());
 
         let mut state = CompressState {
@@ -646,7 +663,7 @@ mod tests {
                 literals: literals.clone(),
                 emitted: false,
             },
-            last_huff_table: None,
+            last_huff_table,
             fse_tables: FseTables::new(),
             offset_history: OffsetHistory::new(),
         };
@@ -835,6 +852,18 @@ mod tests {
     }
 
     #[test]
+    fn previous_huffman_table_lowers_literal_compression_threshold() {
+        assert!(!should_compress_literals(COMPRESS_LITERALS_SIZE_MIN, false));
+        assert!(should_compress_literals(
+            COMPRESS_LITERALS_SIZE_MIN + 1,
+            false
+        ));
+
+        assert!(!should_compress_literals(REPEAT_LITERALS_SIZE_MIN, true));
+        assert!(should_compress_literals(REPEAT_LITERALS_SIZE_MIN + 1, true));
+    }
+
+    #[test]
     fn rle_sequence_modes_round_trip_through_decoder() {
         let sequences = [
             crate::blocks::sequence_section::Sequence {
@@ -993,6 +1022,33 @@ mod tests {
             compressed_frame_with_literal_payload(alloc::vec![42; 2048]);
 
         assert_eq!(block_payload[0] & 0b11, 1, "literal section should be RLE");
+
+        let mut rust_decoded = Vec::with_capacity(expected.len());
+        let mut decoder = crate::decoding::FrameDecoder::new();
+        decoder
+            .decode_all_to_vec(&frame, &mut rust_decoded)
+            .unwrap();
+        assert_eq!(rust_decoded, expected);
+
+        let mut c_decoded = Vec::new();
+        zstd::stream::copy_decode(frame.as_slice(), &mut c_decoded).unwrap();
+        assert_eq!(c_decoded, expected);
+    }
+
+    #[test]
+    fn small_rle_literals_use_previous_table_threshold_and_round_trip() {
+        let previous_table =
+            huff0_encoder::HuffmanTable::build_from_counts(&[8, 1, 1, 1, 1, 1, 1, 1]);
+        let (block_payload, frame, expected) = compressed_frame_with_literal_payload_and_last_table(
+            alloc::vec![42; 7],
+            Some(previous_table),
+        );
+
+        assert_eq!(
+            block_payload[0] & 0b11,
+            1,
+            "small repeated literals should use RLE when a previous table lowers the threshold"
+        );
 
         let mut rust_decoded = Vec::with_capacity(expected.len());
         let mut decoder = crate::decoding::FrameDecoder::new();
