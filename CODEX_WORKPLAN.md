@@ -59,6 +59,8 @@ Quality constraints:
 - Added repeat-offset-biased match selection. Repeat candidates may win when they are only slightly shorter than a normal match; margins 1, 2, 3, and 4 were benchmarked, and margin 2 was the best measured aggregate point.
 - Added matcher-internal tests for the compact two-candidate suffix store so the `oldest`/`newest` invariant is covered directly.
 - Added fastest-compressor mixed-frame regression tests that round-trip through both the Rust decoder and C zstd decoder. These cover text-like compressed blocks, binary-looking blocks, incompressible/raw blocks, and reuse of repetitive history after an incompressible block.
+- Added a repeat-offset early-exit heuristic: if a repeat-offset candidate already reaches the block end, or has at least 10 bytes, the matcher skips hash-table search for that position. Thresholds 5, 10, 16, and 64 were benchmarked; 10 gave the best measured CPU/size balance while keeping every fixture smaller than C zstd.
+- Added focused tests for the repeat-offset early-exit decision.
 
 ## Verification So Far
 
@@ -75,39 +77,37 @@ Latest successful commands:
 - `cargo build --release -p ruzstd-cli`
 - `/tmp/zstd_bench_current_branch.py`
 
-Still pending:
-
-- Decide whether to keep both implemented items together when committing.
-
 ## Latest Benchmark Snapshot
 
 Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, and repeat-offset-biased match selection:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, and the 10-byte repeat-offset search early exit:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,107,099 | 5,385,951 | 0.13s | 0.40s | 0.05s |
-| `json_logs_32m.jsonl` | 3,392,237 | 905,506 | 1,138,701 | 0.18s | 0.27s | 0.04s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,108,563 | 5,385,951 | 0.13s | 0.42s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 950,143 | 1,138,701 | 0.18s | 0.19s | 0.05s |
 | `repeated_text_32m.txt` | 31,757 | 2,875 | 3,116 | 0.12s | 0.20s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.58s | 0.03s | 0.05s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.59s | 0.03s | 0.06s |
 
 Interpretation:
 
-- Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; repeated text and JSON are now smaller than C zstd on these fixtures, and repeat-offset-biased match selection is the largest JSON improvement so far.
+- Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; repeated text and JSON remain smaller than C zstd on these fixtures.
+- The repeat-offset search early exit trades about 44 KiB of JSON compression and about 1.5 KiB of decodecorpus compression for a large JSON CPU improvement, reducing the measured current aggregate CPU from about 0.90s to about 0.84s on the fixture set.
 - Backward extension is a net size win across the fixture set, but it slightly worsened JSON size versus repeat-offset probing alone; keep that tradeoff visible when evaluating future match selection changes.
 - The incompressible fixture is now near C zstd CPU after the no-index raw fast path.
-- The larger window, overlapping extension, and repeat-offset probing improve compression but raise CPU and RSS on compressible fixtures; next work should focus on matcher search strategy and early-exit heuristics.
+- The larger window, overlapping extension, and repeat-offset probing improve compression but raise CPU and RSS on compressible fixtures; next work should continue reducing matcher search cost without giving back the remaining compression advantage over C zstd.
 - Perf sample on `repeated_text_32m.txt` showed time dominated by `MatchGeneratorDriver::start_matching`; the repeat-offset callback is inlined into that symbol, but the larger future CPU opportunity is still matcher logic.
 - Profiling after the repeat-offset bias still shows `MatchGeneratorDriver::start_matching` and `match_len_at_offset` as the dominant CPU cost. A safe hand-written `u64` prefix mismatch loop was tested, but it was slower than the existing chunk-iterator comparison and was not kept.
 - Tested C zstd level-1's `minMatch = 7` setting. It improved JSON slightly but regressed decodecorpus much more, so the current global `MIN_MATCH_LEN = 5` remains the better fixture-wide choice.
 - Tested rejecting short non-repeat matches below length 7 with offset cutoffs 64, 1024, 4096, and 16384. This improved JSON size by up to about 15 KiB and CPU modestly, but regressed decodecorpus by more than the JSON gain at every cutoff, so it was not kept.
+- Tested repeat-offset search early-exit thresholds 5, 10, 16, and 64. Threshold 64 had no useful CPU benefit, thresholds 5/10/16 all reduced JSON CPU sharply, and threshold 10 gave the best measured aggregate CPU/size balance.
 
 ## Next Steps
 
-1. Profile matcher search and extension paths, especially repeat-offset probes on compressible data, and compare against C zstd's fast matcher.
-2. Investigate safe early-exit heuristics in match selection; keep compression-ratio guardrails in tests and benchmarks.
+1. Profile matcher search and extension paths again after the repeat-offset early exit; `match_len_at_offset` should still be the main target.
+2. Investigate further safe early-exit or candidate-pruning heuristics in match selection; keep compression-ratio guardrails in tests and benchmarks.
 3. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change.
 4. Do not start SIMD work in the repeat-offset or FSE selection paths; the useful SIMD target is matcher byte comparison/match extension.

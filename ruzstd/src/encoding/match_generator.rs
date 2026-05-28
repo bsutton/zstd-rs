@@ -17,6 +17,7 @@ use super::Sequence;
 const MIN_MATCH_LEN: usize = 5;
 const TEXT_MIN_NON_REPEAT_MATCH_LEN: usize = 10;
 const REPEAT_MATCH_LEN_MARGIN: usize = 2;
+const REPEAT_SEARCH_EARLY_EXIT_LEN: usize = 10;
 
 /// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
 pub struct MatchGeneratorDriver {
@@ -232,6 +233,12 @@ impl MatchCandidate {
     fn worth_emitting(self, min_non_repeat_match_len: usize) -> bool {
         self.repeat_offset || self.match_len >= min_non_repeat_match_len
     }
+
+    fn can_skip_window_search(self, block_len: usize) -> bool {
+        self.repeat_offset
+            && (self.start_idx + self.match_len == block_len
+                || self.match_len >= REPEAT_SEARCH_EARLY_EXIT_LEN)
+    }
 }
 
 pub(crate) struct MatchGenerator {
@@ -377,29 +384,35 @@ impl MatchGenerator {
                 }
             }
 
-            'window_search: for match_entry in self.window.iter() {
-                if let Some(candidates) = match_entry.suffixes.candidates(key) {
-                    for match_index in candidates.newest.into_iter().chain([candidates.oldest]) {
-                        let Some(found) =
-                            self.match_candidate(match_entry, match_index, &match_context)
-                        else {
-                            continue;
-                        };
-                        if !found.worth_emitting(match_context.min_non_repeat_match_len) {
-                            continue;
-                        }
+            let repeat_match_reaches_end_or_is_long =
+                candidate.is_some_and(|found| found.can_skip_window_search(last_entry.data.len()));
 
-                        if candidate
-                            .map(|current| found.is_better_than(current))
-                            .unwrap_or(true)
+            if !repeat_match_reaches_end_or_is_long {
+                'window_search: for match_entry in self.window.iter() {
+                    if let Some(candidates) = match_entry.suffixes.candidates(key) {
+                        for match_index in candidates.newest.into_iter().chain([candidates.oldest])
                         {
-                            candidate = Some(found);
-                        }
+                            let Some(found) =
+                                self.match_candidate(match_entry, match_index, &match_context)
+                            else {
+                                continue;
+                            };
+                            if !found.worth_emitting(match_context.min_non_repeat_match_len) {
+                                continue;
+                            }
 
-                        if found.start_idx + found.match_len == last_entry.data.len()
-                            && found.offset == 1
-                        {
-                            break 'window_search;
+                            if candidate
+                                .map(|current| found.is_better_than(current))
+                                .unwrap_or(true)
+                            {
+                                candidate = Some(found);
+                            }
+
+                            if found.start_idx + found.match_len == last_entry.data.len()
+                                && found.offset == 1
+                            {
+                                break 'window_search;
+                            }
                         }
                     }
                 }
@@ -901,6 +914,37 @@ fn longer_normal_candidate_wins_beyond_repeat_offset_margin() {
     };
 
     assert!(normal.is_better_than(repeat));
+}
+
+#[test]
+fn long_repeat_offset_candidate_skips_window_search() {
+    let repeat = MatchCandidate {
+        start_idx: 10,
+        offset: 16,
+        match_len: REPEAT_SEARCH_EARLY_EXIT_LEN,
+        repeat_offset: true,
+    };
+    let normal = MatchCandidate {
+        start_idx: 10,
+        offset: 16,
+        match_len: REPEAT_SEARCH_EARLY_EXIT_LEN,
+        repeat_offset: false,
+    };
+
+    assert!(repeat.can_skip_window_search(128));
+    assert!(!normal.can_skip_window_search(128));
+}
+
+#[test]
+fn repeat_offset_candidate_skips_window_search_at_block_end() {
+    let repeat = MatchCandidate {
+        start_idx: 10,
+        offset: 16,
+        match_len: MIN_MATCH_LEN,
+        repeat_offset: true,
+    };
+
+    assert!(repeat.can_skip_window_search(10 + MIN_MATCH_LEN));
 }
 
 #[test]
