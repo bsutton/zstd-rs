@@ -202,6 +202,7 @@ Interpretation:
 - Tested caching each sequence's derived literal-length, match-length, and offset FSE symbols/add-bits in a local `EncodedSequence` representation. Output bytes were unchanged and focused tests passed, but decodecorpus CPU regressed to 0.22s across two table runs and RSS rose to about 12.1 MB, so the runtime change was not kept.
 - Tested a previous-window first-segment fast path for match-length scans, mirroring C zstd's two-segment count shape. Output bytes were unchanged and focused tests passed, but decodecorpus regressed to 0.21s then 0.22s while JSON stayed neutral, so the simpler generic relative-window loop remains better.
 - Tested increasing the per-block sequence vector initial capacity from 256 to 512 after profiles showed a small `Vec::grow_one` sample on JSON. Output bytes were unchanged, but decodecorpus measured 0.23s then 0.20s and JSON worsened to 0.12s then 0.13s, so the original conservative capacity remains better.
+- Tested replacing suffix-store `TryFrom`/checked-add index packing with an explicit upper-bound branch and cold panic path. Output bytes were unchanged and focused tests passed, but decodecorpus stayed at 0.22s across two runs with no clear aggregate CPU win, so the original checked conversion remains.
 
 ## Next Steps
 
