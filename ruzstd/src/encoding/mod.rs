@@ -105,6 +105,14 @@ pub trait Matcher {
     fn skip_matching_for_incompressible(&mut self) {
         self.skip_matching();
     }
+    /// Mark the last committed space as processed after it was emitted as an RLE block.
+    ///
+    /// The default behavior preserves the existing matcher contract by indexing the block
+    /// normally. Matchers can specialize this because every minimum-match suffix in an RLE
+    /// block has the same key.
+    fn skip_matching_for_rle(&mut self) {
+        self.skip_matching();
+    }
     /// The size of the window the decoder will need to execute all sequences produced by this matcher
     ///
     /// May change after a call to reset with a different compression level

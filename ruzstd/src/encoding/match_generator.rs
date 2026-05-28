@@ -114,6 +114,10 @@ impl Matcher for MatchGeneratorDriver {
     fn skip_matching_for_incompressible(&mut self) {
         self.match_generator.skip_matching_for_incompressible();
     }
+
+    fn skip_matching_for_rle(&mut self) {
+        self.match_generator.skip_matching_for_rle();
+    }
 }
 
 /// This stores the index of a suffix of a string by hashing the first few bytes of that suffix
@@ -922,6 +926,20 @@ impl MatchGenerator {
 
     fn skip_matching_for_incompressible(&mut self) {
         let len = self.last_entry().data.len();
+        self.suffix_idx = len;
+        self.last_idx_in_sequence = len;
+    }
+
+    fn skip_matching_for_rle(&mut self) {
+        let len = self.last_entry().data.len();
+        if len >= MIN_MATCH_LEN {
+            let first_suffix = self.suffix_idx;
+            self.add_suffix_at(first_suffix);
+            let last_suffix = len - MIN_MATCH_LEN;
+            if last_suffix != first_suffix {
+                self.add_suffix_at(last_suffix);
+            }
+        }
         self.suffix_idx = len;
         self.last_idx_in_sequence = len;
     }
@@ -1750,6 +1768,57 @@ fn no_match_step_does_not_skip_next_repeat_offset_match() {
     );
 
     assert!(matcher.repeat_offset_can_match_at(1));
+}
+
+#[test]
+fn rle_history_indexes_only_extreme_suffixes() {
+    let mut matcher = MatchGenerator::new(1024);
+    matcher.add_data(
+        alloc::vec![0; 512],
+        SuffixStore::with_capacity(1024),
+        |_, _| {},
+    );
+
+    matcher.skip_matching_for_rle();
+
+    let suffixes = &matcher.last_entry().suffixes;
+    let indexed = suffixes.slots.iter().filter(|slot| slot.is_some()).count();
+    assert_eq!(indexed, 1, "RLE block should only need one suffix key");
+
+    let candidates = suffixes
+        .candidates(&[0; MIN_MATCH_LEN])
+        .expect("RLE suffix key should exist");
+    assert_eq!(candidates.oldest, 0);
+    assert_eq!(candidates.newest, Some(512 - MIN_MATCH_LEN));
+}
+
+#[test]
+fn sparse_rle_history_still_matches_following_repeated_block() {
+    let mut matcher = MatchGenerator::new(1024);
+    matcher.add_data(
+        alloc::vec![0; 512],
+        SuffixStore::with_capacity(1024),
+        |_, _| {},
+    );
+    matcher.skip_matching_for_rle();
+    matcher.offset_history = OffsetHistory::from_offsets(2048, 2049, 2050);
+    matcher.add_data(
+        alloc::vec![0; 32],
+        SuffixStore::with_capacity(1024),
+        |_, _| {},
+    );
+
+    matcher.next_sequence(|seq| {
+        assert_eq!(
+            seq,
+            Sequence::Triple {
+                literals: &[],
+                offset: MIN_MATCH_LEN,
+                match_len: 32,
+            },
+        );
+    });
+    assert!(!matcher.next_sequence(|_| {}));
 }
 
 #[test]

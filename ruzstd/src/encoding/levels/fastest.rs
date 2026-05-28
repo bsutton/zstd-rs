@@ -33,7 +33,7 @@ pub fn compress_fastest<M: Matcher>(
     if uncompressed_data.iter().all(|x| uncompressed_data[0].eq(x)) {
         let rle_byte = uncompressed_data[0];
         state.matcher.commit_space(uncompressed_data);
-        state.matcher.skip_matching();
+        state.matcher.skip_matching_for_rle();
         let header = BlockHeader {
             last_block,
             block_type: crate::blocks::block::BlockType::RLE,
