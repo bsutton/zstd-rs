@@ -88,6 +88,7 @@ Quality constraints:
 - Changed negative relative window lookups to scan previous window entries newest-first, skipping the current block because non-negative relative lookups already handle current-block matches. Cross-block repeat and hash matches most often target the most recent previous block, matching the C fast parser's prefix-oriented shape. Added a focused test with two previous entries so most-recent previous-window matching stays covered.
 - Cached the encoder FSE table accuracy log at table construction time and used that cached value when flushing sequence states. Added a focused invariant test for the predefined tables so `acc_log` stays tied to `table_size`.
 - Changed sparse indexing after long matches to store the final sparse hash at `match_end - 2`, matching the C fast parser's post-match hash fill shape. Added focused coverage that long matches index exactly the start, start+2, and end-2 positions.
+- Carried verified minimum-match prefixes into full match-length scans so accepted repeat and hash candidates do not compare the first five bytes twice. Added focused tests for the normal skipped-prefix case and the previous-window boundary fallback.
 
 ## Verification So Far
 
@@ -118,23 +119,23 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, and C-style end-2 sparse match indexing:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, and C-style end-2 sparse match indexing:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,160,978 | 5,385,951 | 0.14s | 0.24s | 0.04s |
-| `json_logs_32m.jsonl` | 3,392,237 | 826,471 | 1,138,701 | 0.18s | 0.17s | 0.04s |
-| `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.12s | 0.00s | 0.02s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,160,978 | 5,385,951 | 0.13s | 0.24s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 826,471 | 1,138,701 | 0.17s | 0.17s | 0.04s |
+| `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.11s | 0.00s | 0.01s |
 | `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.59s | 0.02s | 0.06s |
 
 Peak RSS from the same run:
 
 | Fixture | Upstream RSS | Current RSS | C zstd -1 RSS |
 | --- | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 6,480 KB | 10,576 KB | 22,160 KB |
-| `json_logs_32m.jsonl` | 5,940 KB | 9,484 KB | 18,644 KB |
-| `repeated_text_32m.txt` | 5,616 KB | 9,120 KB | 17,796 KB |
-| `xorshift_32m.bin` | 6,092 KB | 9,256 KB | 25,480 KB |
+| `decodecorpus_pack.bin` | 6,548 KB | 10,736 KB | 21,996 KB |
+| `json_logs_32m.jsonl` | 5,752 KB | 9,480 KB | 19,076 KB |
+| `repeated_text_32m.txt` | 5,516 KB | 9,120 KB | 17,804 KB |
+| `xorshift_32m.bin` | 6,124 KB | 9,212 KB | 25,552 KB |
 
 Interpretation:
 
@@ -181,6 +182,7 @@ Interpretation:
 - Tested scanning hash-candidate window entries newest-first. Output bytes were unchanged and one run improved JSON to 0.16s, but the repeat run returned JSON to 0.18s while decodecorpus stayed at 0.25s, so the change was treated as noise and not kept.
 - Caching the encoder FSE `acc_log` preserved exact fixture byte counts. The table run measured decodecorpus unchanged at 0.24s and JSON at 0.16s; treat the JSON improvement cautiously as run-to-run noise, but keep the change because it removes repeated `ilog2` work and has focused invariant coverage.
 - Moving the sparse long-match tail hash from `match_end - MIN_MATCH_LEN` to `match_end - 2`, matching the C fast parser, improved decodecorpus by 65 bytes with no size change on the other fixtures. Two benchmark runs kept decodecorpus at 0.24s and JSON in the 0.16-0.17s noise band, so the C-shaped indexing position was kept.
+- Carrying a verified minimum-match prefix into full match-length scans preserved exact fixture byte counts. The benchmark stayed neutral in the current noise band, but the change avoids rechecking the first five bytes for accepted candidates while preserving the full scan for previous-window boundary cases.
 
 ## Next Steps
 

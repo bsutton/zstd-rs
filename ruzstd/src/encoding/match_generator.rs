@@ -427,10 +427,16 @@ impl MatchGenerator {
                 if offset == 0 {
                     continue;
                 }
-                if !self.has_min_match_at_offset(offset, &match_context) {
+                let Some(verified_prefix_len) =
+                    self.verified_min_match_prefix_len(offset, &match_context)
+                else {
                     continue;
-                }
-                let match_len = self.match_len_at_offset(offset, &match_context);
+                };
+                let match_len = self.match_len_at_offset_with_prefix(
+                    offset,
+                    &match_context,
+                    verified_prefix_len,
+                );
                 if match_len >= MIN_MATCH_LEN {
                     let found = MatchCandidate {
                         start_idx: self.suffix_idx,
@@ -542,7 +548,7 @@ impl MatchGenerator {
         }
 
         let offset = match_entry.base_offset + context.suffix_idx - match_index;
-        let match_len = self.match_len_at_offset(offset, context);
+        let match_len = self.match_len_at_offset_with_prefix(offset, context, MIN_MATCH_LEN);
         if match_len < MIN_MATCH_LEN {
             return None;
         }
@@ -700,7 +706,7 @@ impl MatchGenerator {
         (start_idx, match_len)
     }
 
-    #[inline(always)]
+    #[cfg(test)]
     fn match_len_at_offset(&self, offset: usize, context: &MatchCandidateContext<'_>) -> usize {
         if offset == 0 {
             return 0;
@@ -723,22 +729,62 @@ impl MatchGenerator {
         len
     }
 
-    #[inline(always)]
+    #[cfg(test)]
     fn has_min_match_at_offset(&self, offset: usize, context: &MatchCandidateContext<'_>) -> bool {
+        self.verified_min_match_prefix_len(offset, context)
+            .is_some()
+    }
+
+    #[inline(always)]
+    fn verified_min_match_prefix_len(
+        &self,
+        offset: usize,
+        context: &MatchCandidateContext<'_>,
+    ) -> Option<usize> {
         if offset == 0 {
-            return false;
+            return None;
         }
 
         let source_relative = context.suffix_idx as isize - offset as isize;
-        let Some(source) = self.slice_at_relative(source_relative) else {
-            return false;
-        };
+        let source = self.slice_at_relative(source_relative)?;
 
         if source.len() < MIN_MATCH_LEN {
-            return true;
+            return Some(0);
         }
 
-        source[..MIN_MATCH_LEN] == context.data_slice[..MIN_MATCH_LEN]
+        if source[..MIN_MATCH_LEN] == context.data_slice[..MIN_MATCH_LEN] {
+            Some(MIN_MATCH_LEN)
+        } else {
+            None
+        }
+    }
+
+    #[inline(always)]
+    fn match_len_at_offset_with_prefix(
+        &self,
+        offset: usize,
+        context: &MatchCandidateContext<'_>,
+        verified_prefix_len: usize,
+    ) -> usize {
+        if offset == 0 {
+            return 0;
+        }
+
+        let mut len = verified_prefix_len;
+        while len < context.data_slice.len() {
+            let source_relative = context.suffix_idx as isize + len as isize - offset as isize;
+            let Some(source) = self.slice_at_relative(source_relative) else {
+                break;
+            };
+
+            let target = &context.data_slice[len..];
+            let matched = Self::common_prefix_len(source, target);
+            len += matched;
+            if matched < source.len().min(target.len()) {
+                break;
+            }
+        }
+        len
     }
 
     #[inline(always)]
@@ -1043,6 +1089,67 @@ fn match_len_reads_from_previous_window_entry() {
     };
 
     assert_eq!(matcher.match_len_at_offset(b"MATCHTAIL".len(), &context), 9);
+}
+
+#[test]
+fn verified_min_match_prefix_skips_rechecked_bytes() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        b"abcdefghabcdefghZ".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    let context = MatchCandidateContext {
+        suffix_idx: 8,
+        anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
+        data_slice: &last_entry.data[8..],
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+
+    assert_eq!(
+        matcher.verified_min_match_prefix_len(8, &context),
+        Some(MIN_MATCH_LEN)
+    );
+    assert_eq!(
+        matcher.match_len_at_offset_with_prefix(8, &context, MIN_MATCH_LEN),
+        matcher.match_len_at_offset(8, &context)
+    );
+}
+
+#[test]
+fn short_previous_entry_prefix_falls_back_to_full_match_scan() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(b"ATCH".to_vec(), SuffixStore::with_capacity(100), |_, _| {});
+    matcher.skip_matching();
+    matcher.add_data(
+        b"MATCHTAIL".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    let context = MatchCandidateContext {
+        suffix_idx: 0,
+        anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
+        data_slice: &last_entry.data,
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+
+    assert_eq!(matcher.verified_min_match_prefix_len(1, &context), Some(0));
+    assert_eq!(
+        matcher.match_len_at_offset_with_prefix(1, &context, 0),
+        matcher.match_len_at_offset(1, &context)
+    );
 }
 
 #[test]
