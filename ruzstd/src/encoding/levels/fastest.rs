@@ -60,6 +60,7 @@ pub fn compress_fastest<M: Matcher>(
         let previous_offsets = state.offset_history;
         let block_start = output.len();
         output.extend_from_slice(&[0; 3]);
+        output.reserve(compressed_block_reserve(block_size));
         let compressed_start = output.len();
         let new_huffman_table = compress_block(state, output);
         let compressed_size = output.len() - compressed_start;
@@ -93,6 +94,10 @@ pub fn compress_fastest<M: Matcher>(
             }
         }
     }
+}
+
+fn compressed_block_reserve(block_size: u32) -> usize {
+    (block_size as usize / 2).max(1024)
 }
 
 fn write_raw_block(last_block: bool, block_size: u32, data: &[u8], output: &mut Vec<u8>) {
