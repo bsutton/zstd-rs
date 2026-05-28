@@ -361,13 +361,10 @@ impl MatchGenerator {
             };
 
             let literal_len = Self::bounded_u32(self.suffix_idx - self.last_idx_in_sequence);
-            for offset in self
-                .offset_history
-                .repeat_offset_candidates(literal_len)
-                .iter()
-                .copied()
-                .flatten()
-            {
+            for offset in self.repeat_offset_candidates(literal_len) {
+                if offset == 0 {
+                    continue;
+                }
                 let offset = offset as usize;
                 if !self.has_min_match_at_offset(offset, &match_context) {
                     continue;
@@ -521,12 +518,29 @@ impl MatchGenerator {
             concat_window: &self.concat_window,
         };
 
-        self.offset_history
-            .repeat_offset_candidates(literal_len)
-            .iter()
-            .copied()
-            .flatten()
-            .any(|offset| self.has_min_match_at_offset(offset as usize, &context))
+        for offset in self.repeat_offset_candidates(literal_len) {
+            if offset != 0 && self.has_min_match_at_offset(offset as usize, &context) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[inline(always)]
+    fn repeat_offset_candidates(&self, literal_len: u32) -> [u32; 3] {
+        if literal_len > 0 {
+            [
+                self.offset_history.newest,
+                self.offset_history.second,
+                self.offset_history.third,
+            ]
+        } else {
+            [
+                self.offset_history.second,
+                self.offset_history.third,
+                self.offset_history.newest.saturating_sub(1),
+            ]
+        }
     }
 
     #[inline(always)]
