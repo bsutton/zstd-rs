@@ -8,3 +8,5 @@ fuzz_decodecorpus
 perf.data*
 ruzstd/fuzz/corpus
 .idea
+.mcp_logs/mcp_command_server.log
+ruzstd/target/criterion/**
