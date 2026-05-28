@@ -48,18 +48,21 @@ pub fn compress_fastest<M: Matcher>(
         );
     } else {
         // Compress as a standard compressed block
-        let mut compressed = Vec::new();
         state.matcher.commit_space(uncompressed_data);
         let previous_ll = state.fse_tables.ll_previous.clone();
         let previous_ml = state.fse_tables.ml_previous.clone();
         let previous_of = state.fse_tables.of_previous.clone();
         let previous_offsets = state.offset_history;
-        let new_huffman_table = compress_block(state, &mut compressed);
-        let compressed_size = compressed.len();
+        let block_start = output.len();
+        output.extend_from_slice(&[0; 3]);
+        let compressed_start = output.len();
+        let new_huffman_table = compress_block(state, output);
+        let compressed_size = output.len() - compressed_start;
         // If compression does not shrink the block, store it raw instead.
         // Also preserve the format guard that compressed blocks must not
         // exceed the maximum block size.
         if compressed_size >= block_size as usize || compressed_size > MAX_BLOCK_SIZE as usize {
+            output.truncate(block_start);
             state.fse_tables.ll_previous = previous_ll;
             state.fse_tables.ml_previous = previous_ml;
             state.fse_tables.of_previous = previous_of;
@@ -79,12 +82,10 @@ pub fn compress_fastest<M: Matcher>(
                 block_type: crate::blocks::block::BlockType::Compressed,
                 block_size: compressed_size as u32,
             };
+            output[block_start..compressed_start].copy_from_slice(&header.serialize_to_bytes());
             if let Some(table) = new_huffman_table {
                 state.last_huff_table = Some(table);
             }
-            // Write the header, then the block
-            header.serialize(output);
-            output.extend(compressed);
         }
     }
 }
