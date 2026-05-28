@@ -13,6 +13,7 @@ const INITIAL_LITERALS_CAPACITY: usize = 1024;
 const INITIAL_SEQUENCES_CAPACITY: usize = 256;
 const COMPRESS_LITERALS_SIZE_MIN: usize = 63;
 const REPEAT_LITERALS_SIZE_MIN: usize = 6;
+const HUFFMAN_4_STREAMS_MIN: usize = 256;
 const LITERAL_LENGTH_SMALL_CODES: [(u8, u32, usize); 64] = small_literal_length_codes();
 const MATCH_LENGTH_SMALL_CODES: [(u8, u32, usize); 128] = small_match_length_codes();
 
@@ -507,8 +508,8 @@ fn compress_literals(
     }
 
     let (size_format, size_bits) = match literals.len() {
-        0..6 => (0b00u8, 10),
-        6..1024 => (0b01, 10),
+        0..HUFFMAN_4_STREAMS_MIN => (0b00u8, 10),
+        HUFFMAN_4_STREAMS_MIN..1024 => (0b01, 10),
         1024..16384 => (0b10, 14),
         16384..262144 => (0b11, 18),
         _ => unimplemented!("too many literals"),
@@ -1154,6 +1155,38 @@ mod tests {
             block_payload[0] & 0b11,
             2,
             "small skewed literal section should use Huffman compression"
+        );
+
+        let mut rust_decoded = Vec::with_capacity(expected.len());
+        let mut decoder = crate::decoding::FrameDecoder::new();
+        decoder
+            .decode_all_to_vec(&frame, &mut rust_decoded)
+            .unwrap();
+        assert_eq!(rust_decoded, expected);
+
+        let mut c_decoded = Vec::new();
+        zstd::stream::copy_decode(frame.as_slice(), &mut c_decoded).unwrap();
+        assert_eq!(c_decoded, expected);
+    }
+
+    #[test]
+    fn small_huffman_literals_use_single_stream_and_round_trip() {
+        let mut literals = alloc::vec![b'a'; 128];
+        for idx in (15..literals.len()).step_by(16) {
+            literals[idx] = b'b';
+        }
+
+        let (block_payload, frame, expected) = compressed_frame_with_literal_payload(literals);
+
+        assert_eq!(
+            block_payload[0] & 0b11,
+            2,
+            "small skewed literal section should use Huffman compression"
+        );
+        assert_eq!(
+            (block_payload[0] >> 2) & 0b11,
+            0,
+            "small Huffman literal payloads should use the single-stream header"
         );
 
         let mut rust_decoded = Vec::with_capacity(expected.len());

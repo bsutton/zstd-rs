@@ -126,6 +126,7 @@ Test coverage bar:
 - Added C-style repeat-offset availability pruning before repeat probes enter relative-window lookup. Repeat offsets that point before the retained window are now skipped explicitly, matching C fast's invalid-repcode guard while keeping the safe relative lookup for valid boundary-crossing matches.
 - Reduced the default suffix hash table to the C zstd level-1 fast-parser scale: a 128 KiB block now uses 8 Ki hash slots. This gives back some retained compression headroom but keeps every PR fixture smaller than C zstd while materially reducing CPU and RSS. Added focused coverage for the driver sizing invariant and for keeping `Option<Candidates>` compact with the two-`NonZeroU32` representation.
 - Changed hash-candidate window search to scan newest entries first and to stop once a candidate reaches the block end. This mirrors C fast's most-recent hash-table behavior and avoids continuing after the maximum possible match length is found. Added focused helper coverage for non-offset-1 block-end early exit and full matcher coverage that the newest previous block-end candidate wins.
+- Switched Huffman-compressed literal payloads below 256 bytes to single-stream encoding, matching C zstd's `singleStream = srcSize < 256` selection while keeping 4-stream encoding for larger payloads. Added an emitted-bitstream test that verifies the single-stream literal header and round-trips the frame through both the Rust and C zstd decoders.
 
 ## Verification So Far
 
@@ -135,6 +136,7 @@ Latest successful commands:
 - `cargo test -q -p ruzstd bit_writer`
 - `cargo test -q -p ruzstd fse`
 - `cargo test -q -p ruzstd encoding::blocks::compressed`
+- `cargo test -q -p ruzstd encoding::blocks::compressed::tests::small_huffman_literals_use_single_stream_and_round_trip`
 - `cargo test -q -p ruzstd encoding::match_generator`
 - `cargo test -q -p ruzstd encoding::frame_compressor::tests::fastest_reused_compressor_handles_tiny_then_compressible_frame`
 - `cargo test -q -p ruzstd encoding::levels::fastest_tests`
@@ -180,28 +182,29 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, C-style small literal-compression threshold, exact-block EOF lookahead, BitWriter exact-fill fast path, precomputed suffix key values, countdown sequence encoding, inlined literal/match length-code helpers, sparse RLE history indexing, hardened suffix-store sizing, repeat-offset availability pruning, C-sized suffix hash tables, and newest-first block-end hash search:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, C-style small literal-compression threshold, exact-block EOF lookahead, BitWriter exact-fill fast path, precomputed suffix key values, countdown sequence encoding, inlined literal/match length-code helpers, sparse RLE history indexing, hardened suffix-store sizing, repeat-offset availability pruning, C-sized suffix hash tables, newest-first block-end hash search, and C-style single-stream Huffman literals below 256 bytes:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,368,546 | 5,385,951 | 0.14s | 0.17s | 0.04s |
-| `json_logs_32m.jsonl` | 3,392,237 | 742,727 | 1,138,701 | 0.17s | 0.11s | 0.04s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,368,523 | 5,385,951 | 0.14s | 0.17s | 0.05s |
+| `json_logs_32m.jsonl` | 3,392,237 | 742,727 | 1,138,701 | 0.18s | 0.11s | 0.05s |
 | `repeated_text_32m.txt` | 31,757 | 2,874 | 3,116 | 0.12s | 0.00s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,210 | 33,555,214 | 0.59s | 0.02s | 0.06s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,210 | 33,555,214 | 0.62s | 0.02s | 0.06s |
 
 Peak RSS from the same run:
 
 | Fixture | Upstream RSS | Current RSS | C zstd -1 RSS |
 | --- | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 6,476 KB | 5,032 KB | 22,120 KB |
-| `json_logs_32m.jsonl` | 5,736 KB | 4,648 KB | 18,984 KB |
-| `repeated_text_32m.txt` | 5,684 KB | 4,400 KB | 17,852 KB |
-| `xorshift_32m.bin` | 6,224 KB | 4,512 KB | 25,588 KB |
+| `decodecorpus_pack.bin` | 6,368 KB | 5,172 KB | 21,928 KB |
+| `json_logs_32m.jsonl` | 5,760 KB | 4,640 KB | 18,868 KB |
+| `repeated_text_32m.txt` | 5,592 KB | 4,348 KB | 17,872 KB |
+| `xorshift_32m.bin` | 6,212 KB | 4,540 KB | 25,448 KB |
 
 Interpretation:
 
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; the current branch remains smaller than C zstd on all three compressible fixtures and four bytes smaller on xorshift.
-- C-sized suffix hash tables trade retained compression headroom for a large CPU/RSS win. Divisors 2, 4, 8, 16, and 32 were tested. Divisor 16 keeps `decodecorpus_pack.bin` 17,405 bytes smaller than C zstd and keeps JSON 395,974 bytes smaller than C while reducing current RSS below upstream on the table run. Divisor 32 improved CPU further but regressed decodecorpus to 5,488,132 bytes, larger than C zstd, so it was rejected.
+- Single-stream Huffman literals below 256 bytes improved `decodecorpus_pack.bin` by 23 bytes, preserved the other PR fixture byte counts, and kept CPU in the existing noise band. Keep it because it matches C zstd's literal-stream selection and has full Rust/C emitted-bitstream coverage.
+- C-sized suffix hash tables trade retained compression headroom for a large CPU/RSS win. Divisors 2, 4, 8, 16, and 32 were tested. Divisor 16 keeps `decodecorpus_pack.bin` 17,428 bytes smaller than C zstd and keeps JSON 395,974 bytes smaller than C while reducing current RSS below upstream on the table run. Divisor 32 improved CPU further but regressed decodecorpus to 5,488,132 bytes, larger than C zstd, so it was rejected.
 - Newest-first block-end hash search preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.17s both times, JSON at 0.10s then 0.11s, repeated text at 0.00s, and xorshift at 0.02s. Keep it as a C-shaped control-flow cleanup with focused block-end early-exit coverage.
 - Repeat-offset availability pruning preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.21s then 0.20s, JSON at 0.12s both times, repeated text at 0.00s/0.01s, and xorshift at 0.02s both times. Keep it as covered C-style stale-repeat pruning rather than a fixture-specific speed win.
 - Hardened suffix-store sizing preserved exact fixture byte counts. The table run measured decodecorpus at 0.21s, JSON at 0.12s, repeated text at 0.00s, and xorshift at 0.02s. Keep it as a covered matcher-pool correctness fix rather than a fixture-specific speed win.
@@ -316,6 +319,8 @@ Interpretation:
 - Tested replacing the incompressibility gate's sampled-key linear duplicate search with a fixed 512-slot open-addressed set. Output bytes stayed unchanged and focused fastest tests plus clippy passed, but two table runs showed no stable CPU win: decodecorpus measured 0.20s then 0.21s, JSON stayed at 0.11s, and xorshift stayed at 0.02s. The simpler linear scan remains.
 - Refreshed profiles after C-sized suffix hash tables. Matcher search still dominates at about 71% of decodecorpus samples and 74% of JSON samples; sequence encoding is a smaller secondary target around 6%.
 - Retested suffix-candidate key tags after the smaller C-sized hash table increased collision pressure. Full tag filtering preserved bytes and improved decodecorpus to 0.16s on one run, but JSON regressed badly to 0.14s. Narrowing tags to binary-looking blocks still regressed JSON to 0.14s with no decodecorpus win over the retained C-sized hash baseline, so the untagged two-candidate store remains better.
+- Tested a text-only 4 Ki effective suffix hash table after the global 4 Ki table was rejected. It improved decodecorpus by 5 bytes but regressed JSON from 742,727 bytes to 748,825 bytes with no CPU gain, so text-like blocks keep the retained 8 Ki C-fast hash scale.
+- Tested narrowing the no-match skip guard so it only protects the primary repeat-offset candidate from being skipped. Decodecorpus grew by 544 bytes and JSON grew by 8,536 bytes with no JSON CPU improvement, so the guard continues checking all three repeat candidates.
 
 ## Next Steps
 
@@ -344,6 +349,7 @@ Interpretation:
 - Current branch has focused matcher coverage that whole-block RLE history indexes only the extreme suffixes for the repeated key and still matches a following repeated block when repeat offsets are out of range.
 - Current branch has emitted-bitstream coverage that the previous-Huffman-table literal threshold allows a small repeated literal payload to use an RLE literal section and round-trip through both the Rust decoder and the C zstd decoder.
 - Current branch has emitted-bitstream coverage that a high-alphabet literal payload with no estimated Huffman gain uses raw literals and round-trips through both the Rust decoder and the C zstd decoder.
+- Current branch has emitted-bitstream coverage that Huffman-compressed literal payloads below 256 bytes use the single-stream header and round-trip through both the Rust decoder and the C zstd decoder.
 - Current branch has frame-header coverage for 8-byte frame content sizes so large known-size frames serialize a valid descriptor.
 - Current branch has frame-level coverage that exact full-block inputs do not emit an extra empty final block and that one-byte EOF lookahead preserves the first byte of the following block.
 - Current branch has focused fastest-block coverage that empty direct block inputs emit a valid raw block without indexing byte 0.
