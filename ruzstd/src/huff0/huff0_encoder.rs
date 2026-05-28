@@ -106,7 +106,7 @@ impl<V: AsMut<Vec<u8>>> HuffmanEncoder<'_, '_, V> {
     }
 
     pub(super) fn weights(&self) -> Vec<u8> {
-        let max = self.table.codes.iter().map(|(_, nb)| nb).max().unwrap();
+        let max = self.table.max_num_bits;
         let weights = self
             .table
             .codes
@@ -158,6 +158,7 @@ impl<V: AsMut<Vec<u8>>> HuffmanEncoder<'_, '_, V> {
 pub struct HuffmanTable {
     /// Index is the symbol, values are the bitstring in the lower bits of the u32 and the amount of bits in the u8
     codes: Vec<(u32, u8)>,
+    max_num_bits: u8,
 }
 
 impl HuffmanTable {
@@ -211,6 +212,7 @@ impl HuffmanTable {
         // Prepare huffman table with placeholders
         let mut table = HuffmanTable {
             codes: Vec::with_capacity(weights.len()),
+            max_num_bits: 0,
         };
         for _ in 0..weights.len() {
             table.codes.push((0, 0));
@@ -238,6 +240,7 @@ impl HuffmanTable {
                 current_weight = entry.weight;
             }
             table.codes[entry.symbol as usize] = (current_code as u32, current_num_bits as u8);
+            table.max_num_bits = table.max_num_bits.max(current_num_bits as u8);
             current_code += 1;
         }
 
@@ -661,6 +664,22 @@ fn counts() {
     assert!(table[0].1 >= table[2].1);
     assert!(table[2].1 >= table[12].1);
     assert!(table[12].1 >= table[4].1);
+}
+
+#[test]
+fn cached_max_num_bits_matches_codes() {
+    let cases: &[&[usize]] = &[
+        &[3, 0, 4, 1, 5],
+        &[16, 16, 16, 16, 16, 16, 16, 16],
+        &[1, 1, 2, 3, 5, 8, 13, 21],
+        &[0, 7, 7, 7, 7, 7, 0],
+    ];
+
+    for counts in cases {
+        let table = HuffmanTable::build_from_counts(counts);
+        let max_num_bits = table.codes.iter().map(|(_, bits)| *bits).max().unwrap_or(0);
+        assert_eq!(table.max_num_bits, max_num_bits);
+    }
 }
 
 #[test]
