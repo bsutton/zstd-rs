@@ -107,24 +107,26 @@ impl OffsetHistory {
         (self.newest, self.second, self.third)
     }
 
-    pub(crate) fn repeat_offset_candidates(self, lit_len: u32) -> [Option<u32>; 3] {
-        if lit_len > 0 {
-            [Some(self.newest), Some(self.second), Some(self.third)]
-        } else {
-            [
-                Some(self.second),
-                Some(self.third),
-                self.newest.checked_sub(1),
-            ]
-        }
-    }
-
     pub(crate) fn encode_offset_value(&mut self, offset: u32, lit_len: u32) -> u32 {
-        let repeat_offsets = self.repeat_offset_candidates(lit_len);
-        let offset_value = repeat_offsets
-            .iter()
-            .position(|candidate| *candidate == Some(offset))
-            .map_or(offset + 3, |index| index as u32 + 1);
+        let offset_value = if lit_len > 0 {
+            if offset == self.newest {
+                1
+            } else if offset == self.second {
+                2
+            } else if offset == self.third {
+                3
+            } else {
+                offset + 3
+            }
+        } else if offset == self.second {
+            1
+        } else if offset == self.third {
+            2
+        } else if self.newest.checked_sub(1) == Some(offset) {
+            3
+        } else {
+            offset + 3
+        };
 
         self.update_from_offset_value(offset_value, lit_len, offset);
         offset_value
