@@ -9,7 +9,7 @@ Implement and verify the two follow-up compression improvements after merging th
 1. Encoder-side Zstd repeat-offset history for sequence offsets.
 2. Conservative sequence FSE table selection, using the C zstd implementation as the guide.
 
-Keep the branch correct against the local Rust decoder and C zstd decoder, then benchmark against upstream and C zstd.
+Keep the branch correct against the local Rust decoder and C zstd decoder, then benchmark against upstream and C zstd. Treat excellent test coverage as part of the goal: a performance win is not complete unless its correctness invariants are covered or the workplan explicitly justifies why benchmark-only coverage is appropriate.
 
 Quality constraints:
 
@@ -95,6 +95,7 @@ Quality constraints:
 - Removed the redundant modulo from suffix hash lookup. The shifted multiplicative hash is already bounded by `len_log`, matching C zstd's mask-style hash-table indexing while staying safe for the existing non-power-of-two test capacities.
 - Added a same-block forward match-length fast path. When the match source is already in the current block, the matcher now compares the current-block source and target slices directly with the existing safe chunked prefix comparison instead of repeatedly resolving relative window slices. This follows C zstd's contiguous `ZSTD_count()` shape while preserving overlap behavior.
 - Preallocated a modest 1024 entries for suffix-store touched-slot tracking. This avoids first-use growth in the touched-slot clearing path while staying well below the 32K full-clear threshold and adding only a small bounded allocation per suffix store.
+- Added focused matcher coverage for same-block minimum-match precheck hits and misses. This locks down repeat-offset precheck behavior even though the generic relative-window implementation remains the fastest measured runtime path.
 
 ## Verification So Far
 
@@ -209,6 +210,7 @@ Interpretation:
 - Tested replacing FSE probability-normalization `unwrap()` calls with explicit helper loops and cold invariant panics. After matching iterator tie behavior, output bytes were unchanged, but decodecorpus measured 0.22s then 0.21s and JSON stayed at 0.12s, so the original iterator form remains better for this setup path.
 - Tested C-fast-style sparse miss indexing that only stores the current suffix when the no-match probe skips ahead. CPU improved slightly on decodecorpus, but size regressed badly: decodecorpus grew to 5,387,388 bytes, JSON to 862,050 bytes, and repeated text to 2,965 bytes. The retained parser continues indexing skipped miss positions to preserve compression.
 - Tested replacing Huffman `build_from_weights()`'s temporary sorted `Vec` with a fixed 256-entry stack array sorted over the filled prefix. Output bytes were unchanged and Huffman tests passed, but decodecorpus measured 0.23s then 0.21s with no clear win, so the existing temporary `Vec` remains better.
+- Tested adding same-block direct paths to the repeat-offset minimum-match prechecks, mirroring the retained same-block full match-length fast path. Output bytes were unchanged and focused tests passed, but decodecorpus regressed to 0.22s then 0.21s and JSON regressed to 0.12s across both runs, so the generic relative-window precheck remains better.
 
 ## Next Steps
 

@@ -1156,6 +1156,49 @@ fn verified_min_match_prefix_skips_rechecked_bytes() {
 }
 
 #[test]
+fn same_block_min_match_precheck_handles_hits_and_misses() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        b"abcdeXabcdeYabcdnZ".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    let matching_context = MatchCandidateContext {
+        suffix_idx: 6,
+        anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
+        data_slice: &last_entry.data[6..],
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+    let mismatching_context = MatchCandidateContext {
+        suffix_idx: 12,
+        anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
+        data_slice: &last_entry.data[12..],
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+
+    assert_eq!(
+        matcher.verified_min_match_prefix_len(6, &matching_context),
+        Some(MIN_MATCH_LEN)
+    );
+    assert!(matcher.has_min_match_at_index_offset(6, 6));
+    assert_eq!(
+        matcher.verified_min_match_prefix_len(6, &mismatching_context),
+        None
+    );
+    assert!(!matcher.has_min_match_at_index_offset(12, 6));
+}
+
+#[test]
 fn same_block_prefix_fast_path_handles_overlap() {
     let mut matcher = MatchGenerator::new(100);
     matcher.add_data(
