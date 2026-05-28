@@ -746,7 +746,8 @@ impl MatchGenerator {
             return self.last_entry().data.get(relative_to_current as usize..);
         }
 
-        for entry in self.window.iter().rev() {
+        let previous_entries = self.last_entry_index();
+        for entry in self.window[..previous_entries].iter().rev() {
             let start = -(entry.base_offset as isize);
             let end = start + entry.data.len() as isize;
             if (start..end).contains(&relative_to_current) {
