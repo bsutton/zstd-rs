@@ -685,6 +685,34 @@ impl MatchGenerator {
 }
 
 #[test]
+fn suffix_store_reports_single_candidate_once() {
+    let mut suffixes = SuffixStore::with_capacity(64);
+
+    suffixes.insert(b"abcde", 7);
+
+    let candidates = suffixes
+        .candidates(b"abcde")
+        .expect("candidate should exist");
+    assert_eq!(candidates.oldest, 7);
+    assert_eq!(candidates.newest, None);
+}
+
+#[test]
+fn suffix_store_preserves_oldest_and_latest_candidates() {
+    let mut suffixes = SuffixStore::with_capacity(64);
+
+    suffixes.insert(b"abcde", 3);
+    suffixes.insert(b"abcde", 8);
+    suffixes.insert(b"abcde", 15);
+
+    let candidates = suffixes
+        .candidates(b"abcde")
+        .expect("candidate should exist");
+    assert_eq!(candidates.oldest, 3);
+    assert_eq!(candidates.newest, Some(15));
+}
+
+#[test]
 fn match_len_extends_overlapping_same_block() {
     let mut matcher = MatchGenerator::new(100);
     matcher.add_data(

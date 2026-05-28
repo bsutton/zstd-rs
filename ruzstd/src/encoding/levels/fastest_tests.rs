@@ -56,6 +56,51 @@ fn incompressible_gate_distinguishes_random_from_repetitive_data() {
 }
 
 #[test]
+fn fastest_round_trips_mixed_text_binary_and_random_blocks() {
+    let mut data = Vec::new();
+    extend_repeated_to_len(
+        &mut data,
+        b"tenant=alpha path=/v1/archive status=200 bytes=4812\n",
+        128 * 1024,
+    );
+    data.extend_from_slice(&xorshift(128 * 1024));
+    extend_repeated_to_len(
+        &mut data,
+        b"\x00\x01\x02\x03\x04binary-record\x00\x01\x02\x03\x04payload\n",
+        128 * 1024,
+    );
+
+    let fastest = assert_fastest_round_trips_with_rust_and_c(&data);
+    assert!(
+        fastest.len() < data.len(),
+        "mixed frame should still be smaller than raw data: {} >= {}",
+        fastest.len(),
+        data.len()
+    );
+}
+
+#[test]
+fn fastest_reuses_repetitive_history_after_incompressible_block() {
+    let mut repeated = Vec::new();
+    extend_repeated_to_len(
+        &mut repeated,
+        b"user=123 action=checkout region=apac total=19.95\n",
+        128 * 1024,
+    );
+
+    let mut data = repeated.clone();
+    data.extend_from_slice(&xorshift(128 * 1024));
+    data.extend_from_slice(&repeated);
+
+    let fastest = assert_fastest_round_trips_with_rust_and_c(&data);
+    assert!(
+        fastest.len() < data.len() / 2,
+        "repeated blocks around an incompressible block should compress well: {} bytes",
+        fastest.len()
+    );
+}
+
+#[test]
 fn raw_fallback_restores_matcher_repeat_offsets() {
     let previous_offsets = OffsetHistory::from_offsets(7, 11, 13);
     let mut state = CompressState {
@@ -75,6 +120,22 @@ fn raw_fallback_restores_matcher_repeat_offsets() {
     );
 }
 
+fn assert_fastest_round_trips_with_rust_and_c(data: &[u8]) -> Vec<u8> {
+    let fastest = compress_to_vec(data, CompressionLevel::Fastest);
+
+    let mut decoded = Vec::with_capacity(data.len());
+    FrameDecoder::new()
+        .decode_all_to_vec(fastest.as_slice(), &mut decoded)
+        .unwrap();
+    assert_eq!(decoded, data);
+
+    let mut decoded_by_c = Vec::new();
+    zstd::stream::copy_decode(fastest.as_slice(), &mut decoded_by_c).unwrap();
+    assert_eq!(decoded_by_c, data);
+
+    fastest
+}
+
 fn assert_fastest_does_not_exceed_raw(len: usize) {
     let data = xorshift(len);
     let raw = compress_to_vec(data.as_slice(), CompressionLevel::Uncompressed);
@@ -86,6 +147,15 @@ fn assert_fastest_does_not_exceed_raw(len: usize) {
         fastest.len(),
         raw.len()
     );
+}
+
+fn extend_repeated_to_len(data: &mut Vec<u8>, phrase: &[u8], len: usize) {
+    let target_len = data.len() + len;
+    while data.len() < target_len {
+        let remaining = target_len - data.len();
+        let take = remaining.min(phrase.len());
+        data.extend_from_slice(&phrase[..take]);
+    }
 }
 
 fn xorshift(len: usize) -> Vec<u8> {

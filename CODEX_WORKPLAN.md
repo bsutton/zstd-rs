@@ -16,7 +16,10 @@ Quality constraints:
 - Keep the Rust implementation high quality, well structured, and idiomatic.
 - Avoid `unsafe` code. Treat safe Rust as a goal constraint, not just a preference.
 - Prefer clear state machines and small helpers over clever code that is harder to verify.
-- Maintain excellent test coverage for each compression feature, including tests that exercise emitted bitstreams and decoder interoperability, not only helper-level behavior.
+- Maintain excellent test coverage for each compression feature.
+- Cover private invariants with focused unit tests, especially compact matcher state such as suffix candidates and repeat-offset history.
+- Cover emitted bitstreams with end-to-end tests through the Rust decoder and the C zstd decoder; helper-level tests alone are not enough.
+- Every new compression heuristic should get either a regression test for the intended behavior or an explicit workplan note explaining why benchmark-only coverage is appropriate.
 
 ## C zstd Guidance Used
 
@@ -54,16 +57,18 @@ Quality constraints:
 - Added a text-like block classifier that uses a longer non-repeat match threshold on mostly printable blocks while preserving short non-repeat matches for binary-looking blocks. Thresholds 7, 8, 9, 10, and 12 were benchmarked; 10 was the best measured aggregate point on the current fixture set.
 - Broadened predefined FSE table use from tiny blocks to small non-RLE sequence blocks. A broad "always predefined when possible" experiment heavily regressed JSON, so this stays intentionally narrow.
 - Added repeat-offset-biased match selection. Repeat candidates may win when they are only slightly shorter than a normal match; margins 1, 2, 3, and 4 were benchmarked, and margin 2 was the best measured aggregate point.
+- Added matcher-internal tests for the compact two-candidate suffix store so the `oldest`/`newest` invariant is covered directly.
+- Added fastest-compressor mixed-frame regression tests that round-trip through both the Rust decoder and C zstd decoder. These cover text-like compressed blocks, binary-looking blocks, incompressible/raw blocks, and reuse of repetitive history after an incompressible block.
 
 ## Verification So Far
 
-Latest successful commands after the raw-fallback history fix:
+Latest successful commands:
 
 - `cargo fmt --all --check`
 - `cargo test -q -p ruzstd encoding::blocks::compressed`
 - `cargo test -q -p ruzstd encoding::match_generator`
-- `cargo test -q -p ruzstd fastest_reuses_history_across_blocks`
 - `cargo test -q -p ruzstd encoding::levels::fastest_tests`
+- `cargo test -q -p ruzstd fastest_reuses_history_across_blocks`
 - `cargo test -q -p ruzstd huff0::huff0_encoder::encoded_len`
 - `cargo clippy -q -p ruzstd --lib -- -D warnings`
 - `cargo test -q -p ruzstd`
@@ -102,7 +107,7 @@ Interpretation:
 
 ## Next Steps
 
-1. Investigate the remaining JSON size gap against C zstd; repeat-offset probing closed a large part of it, so the next suspect is match selection/cost modeling rather than raw literal handling.
-2. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change.
-3. Profile matcher search and extension paths, especially repeat-offset probes on compressible data, and compare against C zstd's fast matcher.
+1. Profile matcher search and extension paths, especially repeat-offset probes on compressible data, and compare against C zstd's fast matcher.
+2. Investigate safe early-exit heuristics in match selection; keep compression-ratio guardrails in tests and benchmarks.
+3. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change.
 4. Do not start SIMD work in the repeat-offset or FSE selection paths; the useful SIMD target is matcher byte comparison/match extension.
