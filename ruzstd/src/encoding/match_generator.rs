@@ -25,6 +25,8 @@ const SPARSE_MATCH_END_INDEX_BACKOFF: usize = 2;
 const INITIAL_TOUCHED_SLOT_CAPACITY: usize = 1024;
 const TOUCHED_SLOT_CLEAR_LIMIT: usize = 32 * 1024;
 const SUFFIX_STORE_CAPACITY_DIVISOR: usize = 16;
+const FASTEST_WINDOW_BLOCKS: usize = 4;
+const BEST_WINDOW_BLOCKS: usize = 16;
 
 /// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
 pub struct MatchGeneratorDriver {
@@ -53,9 +55,10 @@ impl MatchGeneratorDriver {
 }
 
 impl Matcher for MatchGeneratorDriver {
-    fn reset(&mut self, _level: CompressionLevel) {
+    fn reset(&mut self, level: CompressionLevel) {
         let vec_pool = &mut self.vec_pool;
         let suffix_pool = &mut self.suffix_pool;
+        let fast_window_size = self.slice_size * FASTEST_WINDOW_BLOCKS;
 
         self.match_generator.reset(|mut data, mut suffixes| {
             data.resize(data.capacity(), 0);
@@ -63,6 +66,10 @@ impl Matcher for MatchGeneratorDriver {
             suffixes.clear();
             suffix_pool.push(suffixes);
         });
+        self.match_generator.set_window_sizes(
+            self.slice_size * Self::window_blocks(level),
+            fast_window_size,
+        );
     }
 
     fn window_size(&self) -> u64 {
@@ -118,6 +125,18 @@ impl Matcher for MatchGeneratorDriver {
 
     fn skip_matching_for_rle(&mut self) {
         self.match_generator.skip_matching_for_rle();
+    }
+}
+
+impl MatchGeneratorDriver {
+    fn window_blocks(level: CompressionLevel) -> usize {
+        match level {
+            CompressionLevel::Best => BEST_WINDOW_BLOCKS,
+            CompressionLevel::Uncompressed
+            | CompressionLevel::Fastest
+            | CompressionLevel::Default
+            | CompressionLevel::Better => FASTEST_WINDOW_BLOCKS,
+        }
     }
 }
 
@@ -321,6 +340,7 @@ impl MatchCandidate {
 
 pub(crate) struct MatchGenerator {
     max_window_size: usize,
+    fast_window_size: usize,
     /// Data window we are operating on to find matches
     /// The data we want to find matches for is in the last slice
     window: Vec<WindowEntry>,
@@ -340,6 +360,7 @@ impl MatchGenerator {
     fn new(max_size: usize) -> Self {
         Self {
             max_window_size: max_size,
+            fast_window_size: max_size,
             window: Vec::new(),
             window_size: 0,
             #[cfg(debug_assertions)]
@@ -362,6 +383,12 @@ impl MatchGenerator {
         self.window.drain(..).for_each(|entry| {
             reuse_space(entry.data, entry.suffixes);
         });
+    }
+
+    fn set_window_sizes(&mut self, max_size: usize, fast_size: usize) {
+        debug_assert!(self.window.is_empty());
+        self.max_window_size = max_size;
+        self.fast_window_size = fast_size.min(max_size);
     }
 
     #[inline(always)]
@@ -970,7 +997,11 @@ impl MatchGenerator {
     ) {
         assert!(self.window.is_empty() || self.suffix_idx == self.last_entry().data.len());
         assert!(data.len() <= u32::MAX as usize);
-        self.reserve(data.len(), reuse_space);
+        let len = data.len();
+        let min_non_repeat_match_len = Self::min_non_repeat_match_len(&data);
+        let active_window_size =
+            self.active_window_size_for_min_match_len(min_non_repeat_match_len);
+        self.reserve(data.len(), active_window_size, reuse_space);
         #[cfg(debug_assertions)]
         self.concat_window.extend_from_slice(&data);
 
@@ -980,8 +1011,6 @@ impl MatchGenerator {
             }
         }
 
-        let len = data.len();
-        let min_non_repeat_match_len = Self::min_non_repeat_match_len(&data);
         self.window.push(WindowEntry {
             data,
             suffixes,
@@ -993,11 +1022,25 @@ impl MatchGenerator {
         self.min_non_repeat_match_len = min_non_repeat_match_len;
     }
 
+    fn active_window_size_for_min_match_len(&self, min_non_repeat_match_len: usize) -> usize {
+        if min_non_repeat_match_len == TEXT_MIN_NON_REPEAT_MATCH_LEN {
+            self.max_window_size
+        } else {
+            self.fast_window_size
+        }
+    }
+
     /// Reserve space for a new window entry
     /// If any resources are released by pushing the new entry they are returned via the callback
-    fn reserve(&mut self, amount: usize, mut reuse_space: impl FnMut(Vec<u8>, SuffixStore)) {
+    fn reserve(
+        &mut self,
+        amount: usize,
+        max_window_size: usize,
+        mut reuse_space: impl FnMut(Vec<u8>, SuffixStore),
+    ) {
         assert!(self.max_window_size >= amount);
-        while self.window_size + amount > self.max_window_size {
+        assert!(max_window_size >= amount);
+        while self.window_size + amount > max_window_size {
             let removed = self.window.remove(0);
             self.window_size -= removed.data.len();
             #[cfg(debug_assertions)]
@@ -1777,6 +1820,41 @@ fn driver_uses_c_fast_sized_suffix_store() {
         matcher.match_generator.last_entry().suffixes.slots.len(),
         128 / SUFFIX_STORE_CAPACITY_DIVISOR
     );
+}
+
+#[test]
+fn driver_uses_larger_window_for_best_level() {
+    let mut matcher = MatchGeneratorDriver::new(128, 2);
+
+    matcher.reset(CompressionLevel::Fastest);
+    assert_eq!(matcher.window_size(), (128 * FASTEST_WINDOW_BLOCKS) as u64);
+
+    matcher.reset(CompressionLevel::Best);
+    assert_eq!(matcher.window_size(), (128 * BEST_WINDOW_BLOCKS) as u64);
+}
+
+#[test]
+fn best_level_keeps_large_active_window_for_text_blocks_only() {
+    let mut matcher = MatchGenerator::new(4 * 1024);
+    matcher.set_window_sizes(4 * 1024, 2 * 1024);
+
+    for _ in 0..3 {
+        matcher.add_data(
+            alloc::vec![b'a'; 1024],
+            SuffixStore::with_capacity(128),
+            |_, _| {},
+        );
+        matcher.skip_matching();
+    }
+    assert_eq!(matcher.window_size, 3 * 1024);
+
+    matcher.reset(|_, _| {});
+    matcher.set_window_sizes(4 * 1024, 2 * 1024);
+    for _ in 0..3 {
+        matcher.add_data(xorshift(1024), SuffixStore::with_capacity(128), |_, _| {});
+        matcher.skip_matching_for_incompressible();
+    }
+    assert_eq!(matcher.window_size, 2 * 1024);
 }
 
 #[test]
