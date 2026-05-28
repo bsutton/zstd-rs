@@ -19,6 +19,7 @@ const TEXT_MIN_NON_REPEAT_MATCH_LEN: usize = 10;
 const REPEAT_MATCH_LEN_MARGIN: usize = 2;
 const REPEAT_SEARCH_EARLY_EXIT_LEN: usize = 10;
 const DENSE_MATCH_INDEX_LIMIT: usize = 128;
+const NO_MATCH_PROBE_STEP: usize = 2;
 
 /// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
 pub struct MatchGeneratorDriver {
@@ -455,10 +456,18 @@ impl MatchGenerator {
             }
 
             let suffix_idx = self.suffix_idx;
-            let last_entry = self.last_entry_mut();
-            let key = &last_entry.data[suffix_idx..suffix_idx + MIN_MATCH_LEN];
-            last_entry.suffixes.insert(key, suffix_idx);
-            self.suffix_idx += 1;
+            let last_entry_len = last_entry.data.len();
+            let can_skip_next_probe = suffix_idx + NO_MATCH_PROBE_STEP + MIN_MATCH_LEN
+                <= last_entry_len
+                && !self.repeat_offset_can_match_at(suffix_idx + 1, last_entry);
+            self.add_suffix_at(suffix_idx);
+            let step = if can_skip_next_probe {
+                self.add_suffix_at(suffix_idx + 1);
+                NO_MATCH_PROBE_STEP
+            } else {
+                1
+            };
+            self.suffix_idx += step;
         }
     }
 
@@ -497,6 +506,27 @@ impl MatchGenerator {
             match_len,
             repeat_offset: false,
         })
+    }
+
+    fn repeat_offset_can_match_at(&self, suffix_idx: usize, last_entry: &WindowEntry) -> bool {
+        let literal_len = Self::bounded_u32(suffix_idx - self.last_idx_in_sequence);
+        let context = MatchCandidateContext {
+            suffix_idx,
+            anchor_idx: self.last_idx_in_sequence,
+            min_non_repeat_match_len: self.min_non_repeat_match_len,
+            data_slice: &last_entry.data[suffix_idx..],
+            #[cfg(debug_assertions)]
+            last_entry_len: last_entry.data.len(),
+            #[cfg(debug_assertions)]
+            concat_window: &self.concat_window,
+        };
+
+        self.offset_history
+            .repeat_offset_candidates(literal_len)
+            .iter()
+            .copied()
+            .flatten()
+            .any(|offset| self.has_min_match_at_offset(offset as usize, &context))
     }
 
     #[inline(always)]
@@ -1107,6 +1137,26 @@ fn repeat_offset_candidate_skips_window_search_at_block_end() {
     };
 
     assert!(repeat.can_skip_window_search(10 + MIN_MATCH_LEN));
+}
+
+#[test]
+fn no_match_step_does_not_skip_next_repeat_offset_match() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        b"MATCHTAIL".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+    matcher.skip_matching_for_incompressible();
+    matcher.offset_history = OffsetHistory::from_offsets(10, 4, 8);
+    matcher.add_data(
+        b"xMATCHTAIL".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    assert!(matcher.repeat_offset_can_match_at(1, last_entry));
 }
 
 #[test]
