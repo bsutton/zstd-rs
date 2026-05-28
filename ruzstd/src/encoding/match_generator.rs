@@ -445,8 +445,9 @@ impl MatchGenerator {
             };
 
             let literal_len = self.suffix_idx - self.last_idx_in_sequence;
+            let previous_window_len = self.window_size - block_len;
             for offset in self.repeat_offset_candidates(literal_len) {
-                if offset == 0 {
+                if !Self::repeat_offset_is_available(offset, previous_window_len, self.suffix_idx) {
                     continue;
                 }
                 let Some(verified_prefix_len) =
@@ -542,7 +543,9 @@ impl MatchGenerator {
             let suffix_idx = self.suffix_idx;
             let probe_step = self.no_match_probe_step();
             let can_skip_next_probe = suffix_idx + probe_step + MIN_MATCH_LEN <= block_len
-                && (1..probe_step).all(|skip| !self.repeat_offset_can_match_at(suffix_idx + skip));
+                && (1..probe_step).all(|skip| {
+                    !self.repeat_offset_can_match_at(suffix_idx + skip, previous_window_len)
+                });
             self.add_suffix_at(suffix_idx);
             let step = if can_skip_next_probe {
                 for skip in 1..probe_step {
@@ -625,14 +628,25 @@ impl MatchGenerator {
     }
 
     #[inline(always)]
-    fn repeat_offset_can_match_at(&self, suffix_idx: usize) -> bool {
+    fn repeat_offset_can_match_at(&self, suffix_idx: usize, previous_window_len: usize) -> bool {
         let literal_len = suffix_idx - self.last_idx_in_sequence;
         for offset in self.repeat_offset_candidates(literal_len) {
-            if offset != 0 && self.has_min_match_at_index_offset(suffix_idx, offset) {
+            if Self::repeat_offset_is_available(offset, previous_window_len, suffix_idx)
+                && self.has_min_match_at_index_offset(suffix_idx, offset)
+            {
                 return true;
             }
         }
         false
+    }
+
+    #[inline(always)]
+    fn repeat_offset_is_available(
+        offset: usize,
+        previous_window_len: usize,
+        suffix_idx: usize,
+    ) -> bool {
+        offset != 0 && offset <= previous_window_len + suffix_idx
     }
 
     #[inline(always)]
@@ -1795,7 +1809,14 @@ fn no_match_step_does_not_skip_next_repeat_offset_match() {
         |_, _| {},
     );
 
-    assert!(matcher.repeat_offset_can_match_at(1));
+    assert!(matcher.repeat_offset_can_match_at(1, "MATCHTAIL".len()));
+}
+
+#[test]
+fn unavailable_repeat_offsets_are_rejected_before_lookup() {
+    assert!(!MatchGenerator::repeat_offset_is_available(0, 8, 4));
+    assert!(!MatchGenerator::repeat_offset_is_available(13, 8, 4));
+    assert!(MatchGenerator::repeat_offset_is_available(12, 8, 4));
 }
 
 #[test]
