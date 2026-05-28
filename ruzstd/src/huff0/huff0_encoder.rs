@@ -249,20 +249,6 @@ impl HuffmanTable {
         table
     }
 
-    pub fn can_encode(&self, other: &Self) -> Option<usize> {
-        if other.codes.len() > self.codes.len() {
-            return None;
-        }
-        let mut sum = 0;
-        for ((_, other_num_bits), (_, self_num_bits)) in other.codes.iter().zip(self.codes.iter()) {
-            if *other_num_bits != 0 && *self_num_bits == 0 {
-                return None;
-            }
-            sum += other_num_bits.abs_diff(*self_num_bits) as usize;
-        }
-        Some(sum)
-    }
-
     pub(crate) fn can_encode_counts(&self, counts: &[usize]) -> bool {
         if counts.len() > self.codes.len() {
             return false;

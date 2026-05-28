@@ -523,13 +523,7 @@ fn compress_literals(
     };
     let choice = last_table
         .and_then(|previous_table| {
-            repeat_huffman_choice(
-                previous_table,
-                &new_encoder_table,
-                &literal_stats,
-                literals,
-                new_choice,
-            )
+            repeat_huffman_choice(previous_table, &literal_stats, literals, new_choice)
         })
         .unwrap_or(new_choice);
 
@@ -578,14 +572,11 @@ impl LiteralEncodingChoice<'_> {
 
 fn repeat_huffman_choice<'table>(
     previous_table: &'table huff0_encoder::HuffmanTable,
-    new_encoder_table: &huff0_encoder::HuffmanTable,
     literal_stats: &LiteralStats,
     literals: &[u8],
     new_choice: LiteralEncodingChoice<'_>,
 ) -> Option<LiteralEncodingChoice<'table>> {
-    if !previous_table.can_encode_counts(literal_stats.counts())
-        || previous_table.can_encode(new_encoder_table).is_none()
-    {
+    if !previous_table.can_encode_counts(literal_stats.counts()) {
         return None;
     }
 
