@@ -9,13 +9,16 @@ use crate::{
     huff0::huff0_encoder,
 };
 
+const INITIAL_LITERALS_CAPACITY: usize = 1024;
+const INITIAL_SEQUENCES_CAPACITY: usize = 256;
+
 /// A block of [`crate::common::BlockType::Compressed`]
 pub fn compress_block<M: Matcher>(
     state: &mut CompressState<M>,
     output: &mut Vec<u8>,
 ) -> Option<huff0_encoder::HuffmanTable> {
-    let mut literals_vec = Vec::new();
-    let mut sequences = Vec::new();
+    let mut literals_vec = Vec::with_capacity(INITIAL_LITERALS_CAPACITY);
+    let mut sequences = Vec::with_capacity(INITIAL_SEQUENCES_CAPACITY);
     let mut new_huffman_table = None;
     let offset_history = &mut state.offset_history;
     let (newest, second, third) = offset_history.as_offsets();

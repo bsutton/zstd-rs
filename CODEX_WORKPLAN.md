@@ -81,6 +81,7 @@ Quality constraints:
 - Removed a redundant literal-statistics pass by tracking the largest symbol count while building the histogram, and simplified Huffman encoded-length estimation to a direct loop. This keeps output bytes unchanged while reducing entropy-path bookkeeping.
 - Cached the encoder Huffman table's actual maximum code length when building the table, avoiding a scan over `codes` each time table-description weights are generated. Added a focused invariant test so the cached value stays tied to the generated codes.
 - Removed the temporary compressed-block buffer in the fastest path. Compressed attempts now write directly behind a 3-byte header placeholder in the caller's output buffer, then either patch the compressed header or truncate and emit raw fallback after restoring entropy/repeat state.
+- Added conservative initial capacities for per-block literals and sequence buffers to avoid early growth in compressed blocks without reserving a full 128 KiB block.
 
 ## Verification So Far
 
@@ -145,6 +146,7 @@ Interpretation:
 - Tested combining the repeated FSE table-selection scans into one pass. Output bytes were unchanged, but JSON CPU repeatedly regressed to about 0.20s, so the original separate scans were kept.
 - Caching the Huffman max code length preserved exact fixture byte counts and benchmarked neutral-to-slightly-positive within noise: decodecorpus measured 0.26s then 0.27s in clean runs, JSON measured 0.19s then 0.18s.
 - Direct compressed-block output preserved exact fixture byte counts and removed one allocation/copy from accepted compressed blocks. Clean benchmark passes measured decodecorpus at 0.26s and JSON at 0.18s.
+- Conservative literals/sequences preallocation preserved exact fixture byte counts and improved decodecorpus CPU to 0.25s across two clean runs while keeping JSON at 0.18s. RSS stayed within the existing measurement band.
 
 ## Next Steps
 
