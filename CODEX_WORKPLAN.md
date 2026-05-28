@@ -26,6 +26,7 @@ Quality constraints:
 - Repeat offsets: mirror the decoder/spec rules and the C compressor's repeat-code choice/update behavior.
 - FSE table modes: follow the conservative fast-path idea from C zstd: use predefined tables for tiny sequence counts, repeat previous tables only when the symbols are valid, and avoid broad heuristics without cost modeling.
 - SIMD/hardware-vector work should target the matcher later, especially match extension/comparison. The repeat-offset and table-selection paths are scalar/control-heavy and are not good SIMD candidates.
+- On the current `rustc 1.94.1` toolchain, `std::simd`/portable SIMD is still unstable, so direct SIMD in the encoder would require nightly, an additional dependency, or unsafe target intrinsics. Those conflict with the current safe-Rust/no-new-risk constraints unless a future change explicitly revisits that tradeoff.
 
 ## Completed
 
@@ -222,13 +223,14 @@ Interpretation:
 - Tested increasing the per-block literals vector initial capacity from 1024 to 2048 after profiles showed occasional allocation growth in compressed block assembly. Output bytes were unchanged, but decodecorpus regressed to 0.22s then 0.21s and JSON regressed to 0.12s both runs, so the existing conservative literal capacity remains better.
 - Hoisting the matcher block length preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.21s then 0.20s and JSON at 0.12s then 0.11s; keep it as a small neutral hot-loop cleanup that reduces repeated length reads without changing search behavior.
 - Tested forcing `encode_offset()` inline after JSON profiles showed it as a small sequence-side symbol. Output bytes were unchanged, but decodecorpus measured 0.23s on the first run and only returned to 0.20s on the repeat, so the optimizer's original inlining decision remains better.
+- Tested replacing matcher prefix comparison's `chunks_exact(N)` shape with stable fixed-array `as_chunks::<N>()` as a safe SIMD-adjacent experiment. Output bytes were unchanged, but decodecorpus measured 0.22s then 0.20s and JSON measured 0.11s then 0.12s, so the existing `chunks_exact` shape remains better.
 
 ## Next Steps
 
 1. Profile matcher search and extension paths again after the repeat-offset precheck; `match_len_at_offset` should still be a main target, but sequence encoding now shows up more clearly on JSON.
 2. Investigate further safe early-exit or candidate-pruning heuristics in match selection; keep compression-ratio guardrails in tests and benchmarks.
 3. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change; excellent coverage is a hard acceptance criterion for retained work.
-4. Do not start SIMD work in the repeat-offset or FSE selection paths; the useful SIMD target is matcher byte comparison/match extension.
+4. SIMD remains a matcher byte-comparison topic, but current stable safe-Rust options have not beaten the retained chunked comparison; avoid unsafe/nightly SIMD unless the project explicitly accepts that tradeoff.
 
 ## Coverage Audit
 
