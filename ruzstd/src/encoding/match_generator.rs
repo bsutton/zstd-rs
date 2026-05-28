@@ -238,7 +238,7 @@ impl SuffixStore {
             | (u64::from(suffix[4]) << 32);
         let index = value.wrapping_mul(0x9E37_79B1_85EB_CA87);
         let index = index >> (64 - self.len_log);
-        index as usize % self.slots.len()
+        index as usize
     }
 }
 
@@ -1011,6 +1011,20 @@ fn suffix_store_switches_to_full_clear_after_many_touched_slots() {
 
     assert!(suffixes.clear_all_slots);
     assert!(suffixes.touched_slots.is_empty());
+}
+
+#[test]
+fn suffix_store_key_is_bounded_without_modulo() {
+    let suffixes = SuffixStore::with_capacity(100);
+
+    for suffix in [
+        b"abcde".as_slice(),
+        b"vwxyz".as_slice(),
+        b"12345".as_slice(),
+        b"\xff\xff\xff\xff\xff".as_slice(),
+    ] {
+        assert!(suffixes.key(suffix) < suffixes.slots.len());
+    }
 }
 
 #[test]
