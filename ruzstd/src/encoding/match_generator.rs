@@ -56,8 +56,7 @@ impl Matcher for MatchGeneratorDriver {
         self.match_generator.reset(|mut data, mut suffixes| {
             data.resize(data.capacity(), 0);
             vec_pool.push(data);
-            suffixes.slots.clear();
-            suffixes.slots.resize(suffixes.slots.capacity(), None);
+            suffixes.clear();
             suffix_pool.push(suffixes);
         });
     }
@@ -92,8 +91,7 @@ impl Matcher for MatchGeneratorDriver {
             .add_data(space, suffixes, |mut data, mut suffixes| {
                 data.resize(data.capacity(), 0);
                 vec_pool.push(data);
-                suffixes.slots.clear();
-                suffixes.slots.resize(suffixes.slots.capacity(), None);
+                suffixes.clear();
                 suffix_pool.push(suffixes);
             });
     }
@@ -119,6 +117,7 @@ impl Matcher for MatchGeneratorDriver {
 /// This means that collisions just overwrite and that you need to check validity after a get
 struct SuffixStore {
     slots: Vec<Option<Candidates>>,
+    touched_slots: Vec<u32>,
     len_log: u32,
 }
 
@@ -139,6 +138,7 @@ impl SuffixStore {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             slots: alloc::vec![None; capacity],
+            touched_slots: Vec::new(),
             len_log: capacity.ilog2(),
         }
     }
@@ -153,10 +153,25 @@ impl SuffixStore {
                 newest: idx,
             });
         } else {
+            self.touched_slots.push(Self::stored_slot_key(key));
             self.slots[key] = Some(Candidates {
                 oldest: idx,
                 newest: idx,
             });
+        }
+    }
+
+    fn clear(&mut self) {
+        for key in self.touched_slots.drain(..) {
+            self.slots[key as usize] = None;
+        }
+    }
+
+    #[inline(always)]
+    fn stored_slot_key(key: usize) -> u32 {
+        match u32::try_from(key) {
+            Ok(key) => key,
+            Err(_) => Self::invalid_stored_index(),
         }
     }
 
@@ -867,6 +882,33 @@ fn suffix_store_preserves_oldest_and_latest_candidates() {
         .expect("candidate should exist");
     assert_eq!(candidates.oldest, 3);
     assert_eq!(candidates.newest, Some(15));
+}
+
+#[test]
+fn suffix_store_clear_removes_touched_candidates() {
+    let mut suffixes = SuffixStore::with_capacity(64);
+
+    suffixes.insert(b"abcde", 3);
+    suffixes.insert(b"fghij", 8);
+    suffixes.clear();
+
+    assert!(suffixes.candidates(b"abcde").is_none());
+    assert!(suffixes.candidates(b"fghij").is_none());
+}
+
+#[test]
+fn suffix_store_reuses_slots_after_clear() {
+    let mut suffixes = SuffixStore::with_capacity(64);
+
+    suffixes.insert(b"abcde", 3);
+    suffixes.clear();
+    suffixes.insert(b"abcde", 9);
+
+    let candidates = suffixes
+        .candidates(b"abcde")
+        .expect("candidate should exist after reinsertion");
+    assert_eq!(candidates.oldest, 9);
+    assert_eq!(candidates.newest, None);
 }
 
 #[test]
