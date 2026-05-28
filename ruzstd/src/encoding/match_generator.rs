@@ -22,6 +22,7 @@ const DENSE_MATCH_INDEX_LIMIT: usize = 128;
 const NO_MATCH_PROBE_STEP: usize = 2;
 const TEXT_NO_MATCH_PROBE_STEP: usize = 3;
 const SPARSE_MATCH_END_INDEX_BACKOFF: usize = 2;
+const INITIAL_TOUCHED_SLOT_CAPACITY: usize = 1024;
 const TOUCHED_SLOT_CLEAR_LIMIT: usize = 32 * 1024;
 
 /// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
@@ -141,7 +142,7 @@ impl SuffixStore {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             slots: alloc::vec![None; capacity],
-            touched_slots: Vec::new(),
+            touched_slots: Vec::with_capacity(INITIAL_TOUCHED_SLOT_CAPACITY),
             clear_all_slots: false,
             len_log: capacity.ilog2(),
         }
@@ -1018,6 +1019,17 @@ fn suffix_store_switches_to_full_clear_after_many_touched_slots() {
 
     assert!(suffixes.clear_all_slots);
     assert!(suffixes.touched_slots.is_empty());
+}
+
+#[test]
+fn suffix_store_preallocates_touched_slots_modestly() {
+    let suffixes = SuffixStore::with_capacity(64);
+
+    assert_eq!(
+        suffixes.touched_slots.capacity(),
+        INITIAL_TOUCHED_SLOT_CAPACITY
+    );
+    assert!(suffixes.touched_slots.capacity() < TOUCHED_SLOT_CLEAR_LIMIT);
 }
 
 #[test]
