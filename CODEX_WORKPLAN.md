@@ -111,6 +111,7 @@ Quality constraints:
 - Added a hot BitWriter path for writes that exactly fill the 64-bit staging buffer, avoiding the cold overflow helper in that common boundary case. Added focused bit-level coverage that exact 64-bit fills flush correctly and preserve following writes.
 - Split suffix hashing into a precomputed five-byte key value plus per-store slot mapping. Window search now reads the current suffix bytes once and reuses that value across all window entries, matching C zstd's local-hash shape while preserving each store's own table size. Added focused coverage that precomputed key lookup matches normal suffix lookup.
 - Changed sequence bitstream encoding's reverse walk from a reversed range iterator to an explicit countdown loop, matching C zstd's indexed reverse-loop shape. Existing compressed-block and end-to-end Rust/C decoder tests cover the emitted bitstream.
+- Tightened focused coverage after the coverage audit: suffix-store zero index candidates now round-trip through the one-based `NonZeroU32` representation, empty committed matcher entries emit no sequences and can be followed by normal data, and mixed predefined sequence modes round-trip through the decoder.
 
 ## Verification So Far
 
@@ -300,7 +301,9 @@ Interpretation:
 - Current branch has focused coverage for the explicit suffix-candidate helper, including best-candidate replacement and the offset-1 block-end early exit.
 - Current branch has exhaustive helper-level coverage for the cached common literal-length and match-length sequence code tables, including the first uncached boundary for each table.
 - Current branch has helper-level coverage for offset-code generation across the small repeat-code range plus the first uncached boundary from the rejected offset-code cache experiment.
-- Current branch's sequence bitstream loop shape is covered by compressed-block tests and end-to-end Rust/C decoder round-trips rather than a separate loop-unit test, because the retained change is a mechanical reverse-iteration cleanup with no new public invariant.
+- Current branch's sequence bitstream loop shape is covered by compressed-block tests, end-to-end Rust/C decoder round-trips, and a mixed predefined-mode sequence-section decoder round-trip that uses varied literal-length, match-length, and offset symbols.
+- Current branch has focused coverage for the one-based `NonZeroU32` suffix candidate representation, including index zero.
+- Current branch has focused coverage that an empty committed matcher entry emits no sequence and does not prevent processing a following entry.
 - Current branch has emitted-bitstream tests that round-trip fastest compression through the Rust decoder and the C zstd decoder, including mixed text/binary/random frames, history reuse after incompressible blocks, and cross-block repetitive data.
 - Current branch has focused fastest-level coverage that whole-block RLE emission uses an RLE block header and round-trips through both the Rust decoder and the C zstd decoder.
 - Current branch has emitted-bitstream coverage that the previous-Huffman-table literal threshold allows a small repeated literal payload to use an RLE literal section and round-trip through both the Rust decoder and the C zstd decoder.

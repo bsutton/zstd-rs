@@ -993,6 +993,19 @@ fn suffix_store_reports_single_candidate_once() {
 }
 
 #[test]
+fn suffix_store_round_trips_zero_index_candidate() {
+    let mut suffixes = SuffixStore::with_capacity(64);
+
+    suffixes.insert(b"abcde", 0);
+
+    let candidates = suffixes
+        .candidates(b"abcde")
+        .expect("zero index candidate should exist");
+    assert_eq!(candidates.oldest, 0);
+    assert_eq!(candidates.newest, None);
+}
+
+#[test]
 fn suffix_store_preserves_oldest_and_latest_candidates() {
     let mut suffixes = SuffixStore::with_capacity(64);
 
@@ -1636,6 +1649,21 @@ fn binary_blocks_keep_default_no_match_probe_step() {
     matcher.add_data(xorshift(2048), SuffixStore::with_capacity(2048), |_, _| {});
 
     assert_eq!(matcher.no_match_probe_step(), NO_MATCH_PROBE_STEP);
+}
+
+#[test]
+fn empty_committed_entry_has_no_sequences() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(Vec::new(), SuffixStore::with_capacity(100), |_, _| {});
+
+    assert!(!matcher.next_sequence(|_| panic!("empty entry should not emit sequences")));
+
+    matcher.add_data(
+        b"abcdeabcde".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+    assert!(matcher.next_sequence(|_| {}));
 }
 
 #[test]

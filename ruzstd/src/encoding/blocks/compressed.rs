@@ -615,7 +615,7 @@ impl LiteralStats {
 mod tests {
     use super::*;
     use crate::encoding::frame_compressor::{CompressState, FseTables, OffsetHistory};
-    use crate::fse::fse_encoder::{default_ll_table, default_of_table};
+    use crate::fse::fse_encoder::{default_ll_table, default_ml_table, default_of_table};
 
     fn offset_history(newest: u32, second: u32, third: u32) -> OffsetHistory {
         OffsetHistory {
@@ -900,6 +900,68 @@ mod tests {
         let ll_mode = FseTableMode::Rle(encode_literal_length(sequences[0].ll).0);
         let ml_mode = FseTableMode::Rle(encode_match_len(sequences[0].ml).0);
         let of_mode = FseTableMode::Rle(encode_offset(sequences[0].of).0);
+        let mut encoded = Vec::new();
+        let mut writer = BitWriter::from(&mut encoded);
+
+        encode_seqnum(sequences.len(), &mut writer);
+        writer.write_bits(encode_fse_table_modes(&ll_mode, &ml_mode, &of_mode), 8);
+        encode_table(&ll_mode, &mut writer);
+        encode_table(&of_mode, &mut writer);
+        encode_table(&ml_mode, &mut writer);
+        encode_sequences(&sequences, &mut writer, &ll_mode, &ml_mode, &of_mode);
+        writer.flush();
+
+        let mut header = crate::blocks::sequence_section::SequencesHeader::new();
+        let header_size = header.parse_from_header(&encoded).unwrap();
+        let mut scratch = crate::decoding::scratch::FSEScratch::new();
+        let mut decoded = Vec::new();
+
+        crate::decoding::sequence_section_decoder::decode_sequences(
+            &header,
+            &encoded[header_size as usize..],
+            &mut scratch,
+            &mut decoded,
+        )
+        .unwrap();
+
+        assert_eq!(decoded.len(), sequences.len());
+        for (actual, expected) in decoded.iter().zip(sequences) {
+            assert_eq!(actual.ll, expected.ll);
+            assert_eq!(actual.ml, expected.ml);
+            assert_eq!(actual.of, expected.of);
+        }
+    }
+
+    #[test]
+    fn mixed_predefined_sequence_modes_round_trip_through_decoder() {
+        let sequences = [
+            crate::blocks::sequence_section::Sequence {
+                ll: 0,
+                ml: 3,
+                of: 1,
+            },
+            crate::blocks::sequence_section::Sequence {
+                ll: 1,
+                ml: 4,
+                of: 2,
+            },
+            crate::blocks::sequence_section::Sequence {
+                ll: 4,
+                ml: 8,
+                of: 4,
+            },
+            crate::blocks::sequence_section::Sequence {
+                ll: 12,
+                ml: 16,
+                of: 8,
+            },
+        ];
+        let ll_default = default_ll_table();
+        let ml_default = default_ml_table();
+        let of_default = default_of_table();
+        let ll_mode = FseTableMode::Predefined(&ll_default);
+        let ml_mode = FseTableMode::Predefined(&ml_default);
+        let of_mode = FseTableMode::Predefined(&of_default);
         let mut encoded = Vec::new();
         let mut writer = BitWriter::from(&mut encoded);
 
