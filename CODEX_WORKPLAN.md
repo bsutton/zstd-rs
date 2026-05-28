@@ -238,6 +238,7 @@ Interpretation:
 - Tested packing a short suffix fingerprint into the high bits of each stored two-candidate suffix index so hash-slot collisions can be filtered before candidate byte comparison, then narrowed it to binary-looking blocks only. Output bytes stayed unchanged and decodecorpus improved to 0.19s, but JSON regressed to 0.12s across runs, so the untagged two-candidate store remains the best aggregate choice.
 - RLE literal-section emission did not change the current PR fixture byte counts, so those fixtures do not exercise all-same large literal payloads. Two table runs stayed in the current noise band with decodecorpus at 0.20s/0.19s and JSON at 0.12s both times; keep the change as covered format/compression-quality work rather than as a fixture-specific benchmark win.
 - Tested raising the previous-FSE-table repeat threshold from the current small-block limit of 64 sequences to C fast's broader 1000-sequence heuristic, while keeping the all-symbols-encodable guard. Decodecorpus grew by 107 bytes and CPU regressed to 0.22s with no JSON size benefit, so the local narrower repeat-table policy remains better.
+- Tested preallocating the temporary buffer used to estimate Huffman table-description length after the small-literal threshold made literal compression more visible in profiles. Fixture bytes were unchanged, but two table runs were CPU-neutral and JSON drifted from 0.11s to 0.12s on the repeat, so the original minimal `Vec::new()` remains better.
 
 ## Next Steps
 
