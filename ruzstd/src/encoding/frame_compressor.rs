@@ -506,6 +506,37 @@ mod tests {
     }
 
     #[test]
+    fn fastest_reused_compressor_handles_tiny_then_compressible_frame() {
+        let mut compressor = FrameCompressor::new(super::CompressionLevel::Fastest);
+
+        let tiny = b"a";
+        let mut tiny_output = Vec::new();
+        compressor.set_source(tiny.as_slice());
+        compressor.set_drain(&mut tiny_output);
+        compressor.compress();
+        let tiny_frame = compressor.take_drain().expect("tiny frame drain is set");
+        assert_decodes_with_rust_and_c(tiny_frame, tiny);
+
+        let mut compressible = Vec::with_capacity(64 * 1024);
+        while compressible.len() < 64 * 1024 {
+            compressible.extend_from_slice(b"abcde-record-payload\n");
+        }
+        compressible.truncate(64 * 1024);
+
+        let mut output = Vec::new();
+        compressor.set_source(compressible.as_slice());
+        compressor.set_drain(&mut output);
+        compressor.compress();
+        let output_frame = compressor.take_drain().expect("output drain is set");
+        assert_decodes_with_rust_and_c(output_frame, &compressible);
+        assert!(
+            output_frame.len() < compressible.len() / 4,
+            "reused fastest compressor should still compress repetitive data: {} bytes",
+            output_frame.len()
+        );
+    }
+
+    #[test]
     fn exact_full_block_is_marked_last_without_empty_block() {
         let mock_data = vec![7; 128 * 1024];
         let mut output: Vec<u8> = Vec::new();
@@ -657,6 +688,18 @@ mod tests {
             chksum_from_data1, chksum_from_data2,
             "frame 1 and frame 2 should have the same checksum (same data, hash must reset per frame)"
         );
+    }
+
+    fn assert_decodes_with_rust_and_c(compressed: &[u8], expected: &[u8]) {
+        let mut rust_decoded = Vec::with_capacity(expected.len());
+        FrameDecoder::new()
+            .decode_all_to_vec(compressed, &mut rust_decoded)
+            .unwrap();
+        assert_eq!(rust_decoded, expected);
+
+        let mut c_decoded = Vec::new();
+        zstd::stream::copy_decode(compressed, &mut c_decoded).unwrap();
+        assert_eq!(c_decoded, expected);
     }
 
     #[cfg(feature = "std")]

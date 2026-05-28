@@ -122,10 +122,10 @@ Test coverage bar:
 - Hardened `compress_fastest()` for empty direct block inputs before the RLE probe indexes byte 0. The normal frame compressor already handles empty frames before block compression, so this is a focused correctness/idiomatic-safety guard rather than a fixture benchmark change. Added focused coverage that an empty fastest block emits a valid raw block without panicking.
 - Inlined the common literal-length and match-length code helpers after refreshed JSON profiles showed both as visible sequence-side symbols. Existing exhaustive helper-level spec tests cover these tables and the first uncached boundary, and a follow-up profile confirmed the helpers are folded into `encode_sequences`.
 - Added a specialized matcher path for whole-block RLE history. Instead of indexing every suffix in a constant block, the default matcher stores only the first and last useful suffix for the single repeated key, preserving future matches while avoiding duplicate suffix insertion work. Custom matchers keep the existing default behavior through a new provided trait method.
-- Hardened matcher suffix-store sizing for short-frame reuse: fresh driver stores are sized from the configured slice size, and the private store constructor has a minimum backing size. Added focused tests for zero-capacity store construction and reusing a one-byte frame's store for a later larger frame.
+- Hardened matcher suffix-store sizing for short-frame reuse: fresh driver stores are sized from the configured slice size, and the private store constructor has a minimum backing size. Added focused tests for zero-capacity store construction and reusing a one-byte frame's store for a later larger frame, plus an end-to-end reused-compressor Fastest test that compresses a one-byte frame followed by a larger compressible frame and round-trips both through the Rust and C zstd decoders.
 - Added C-style repeat-offset availability pruning before repeat probes enter relative-window lookup. Repeat offsets that point before the retained window are now skipped explicitly, matching C fast's invalid-repcode guard while keeping the safe relative lookup for valid boundary-crossing matches.
-- Reduced the default suffix hash table to the C zstd level-1 fast-parser scale: a 128 KiB block now uses 8 Ki hash slots. This gives back some retained compression headroom but keeps every PR fixture smaller than C zstd while materially reducing CPU and RSS. Added focused coverage for the driver sizing invariant.
-- Changed hash-candidate window search to scan newest entries first and to stop once a candidate reaches the block end. This mirrors C fast's most-recent hash-table behavior and avoids continuing after the maximum possible match length is found. Added focused helper coverage for non-offset-1 block-end early exit.
+- Reduced the default suffix hash table to the C zstd level-1 fast-parser scale: a 128 KiB block now uses 8 Ki hash slots. This gives back some retained compression headroom but keeps every PR fixture smaller than C zstd while materially reducing CPU and RSS. Added focused coverage for the driver sizing invariant and for keeping `Option<Candidates>` compact with the two-`NonZeroU32` representation.
+- Changed hash-candidate window search to scan newest entries first and to stop once a candidate reaches the block end. This mirrors C fast's most-recent hash-table behavior and avoids continuing after the maximum possible match length is found. Added focused helper coverage for non-offset-1 block-end early exit and full matcher coverage that the newest previous block-end candidate wins.
 
 ## Verification So Far
 
@@ -136,6 +136,7 @@ Latest successful commands:
 - `cargo test -q -p ruzstd fse`
 - `cargo test -q -p ruzstd encoding::blocks::compressed`
 - `cargo test -q -p ruzstd encoding::match_generator`
+- `cargo test -q -p ruzstd encoding::frame_compressor::tests::fastest_reused_compressor_handles_tiny_then_compressible_frame`
 - `cargo test -q -p ruzstd encoding::levels::fastest_tests`
 - `cargo test -q -p ruzstd fastest_reuses_history_across_blocks`
 - `cargo test -q -p ruzstd huff0::huff0_encoder::encoded_len`

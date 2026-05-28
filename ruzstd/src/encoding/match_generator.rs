@@ -1014,6 +1014,12 @@ impl MatchGenerator {
 }
 
 #[test]
+fn suffix_store_slot_stays_compact() {
+    assert_eq!(core::mem::size_of::<Candidates>(), 8);
+    assert_eq!(core::mem::size_of::<Option<Candidates>>(), 8);
+}
+
+#[test]
 fn suffix_store_reports_single_candidate_once() {
     let mut suffixes = SuffixStore::with_capacity(64);
 
@@ -1581,6 +1587,40 @@ fn window_candidate_helper_stops_on_block_end_match() {
         last_entry.data.len(),
     ));
     assert_eq!(candidate.map(|candidate| candidate.offset), Some(2));
+}
+
+#[test]
+fn window_search_uses_newest_block_end_candidate() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        b"abcde?".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+    matcher.skip_matching();
+    matcher.add_data(
+        b"abcde!".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+    matcher.skip_matching();
+    matcher.add_data(
+        b"abcde!".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    matcher.next_sequence(|seq| {
+        assert_eq!(
+            seq,
+            Sequence::Triple {
+                literals: &[],
+                offset: 6,
+                match_len: 6,
+            },
+        );
+    });
+    assert!(!matcher.next_sequence(|_| {}));
 }
 
 #[test]
