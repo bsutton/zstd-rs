@@ -195,6 +195,7 @@ struct WindowEntry {
 
 struct MatchCandidateContext<'data> {
     suffix_idx: usize,
+    anchor_idx: usize,
     data_slice: &'data [u8],
     #[cfg(debug_assertions)]
     last_entry_len: usize,
@@ -204,6 +205,7 @@ struct MatchCandidateContext<'data> {
 
 #[derive(Clone, Copy)]
 struct MatchCandidate {
+    start_idx: usize,
     offset: usize,
     match_len: usize,
     repeat_offset: bool,
@@ -214,7 +216,9 @@ impl MatchCandidate {
         self.match_len > other.match_len
             || (self.match_len == other.match_len
                 && (self.repeat_offset && !other.repeat_offset
-                    || self.repeat_offset == other.repeat_offset && self.offset < other.offset))
+                    || self.repeat_offset == other.repeat_offset
+                        && (self.start_idx < other.start_idx
+                            || self.start_idx == other.start_idx && self.offset < other.offset)))
     }
 }
 
@@ -323,6 +327,7 @@ impl MatchGenerator {
             let mut candidate = None;
             let match_context = MatchCandidateContext {
                 suffix_idx: self.suffix_idx,
+                anchor_idx: self.last_idx_in_sequence,
                 data_slice,
                 #[cfg(debug_assertions)]
                 last_entry_len: last_entry.data.len(),
@@ -342,6 +347,7 @@ impl MatchGenerator {
                 let match_len = self.match_len_at_offset(offset, &match_context);
                 if match_len >= MIN_MATCH_LEN {
                     let found = MatchCandidate {
+                        start_idx: self.suffix_idx,
                         offset,
                         match_len,
                         repeat_offset: true,
@@ -358,17 +364,12 @@ impl MatchGenerator {
             'window_search: for match_entry in self.window.iter() {
                 if let Some(candidates) = match_entry.suffixes.candidates(key) {
                     for match_index in candidates.newest.into_iter().chain([candidates.oldest]) {
-                        let Some((offset, match_len)) =
+                        let Some(found) =
                             self.match_candidate(match_entry, match_index, &match_context)
                         else {
                             continue;
                         };
 
-                        let found = MatchCandidate {
-                            offset,
-                            match_len,
-                            repeat_offset: false,
-                        };
                         if candidate
                             .map(|current| found.is_better_than(current))
                             .unwrap_or(true)
@@ -376,7 +377,9 @@ impl MatchGenerator {
                             candidate = Some(found);
                         }
 
-                        if match_len == data_slice.len() && offset == 1 {
+                        if found.start_idx + found.match_len == last_entry.data.len()
+                            && found.offset == 1
+                        {
                             break 'window_search;
                         }
                     }
@@ -385,23 +388,26 @@ impl MatchGenerator {
 
             if let Some(candidate) = candidate {
                 let MatchCandidate {
-                    offset, match_len, ..
+                    start_idx,
+                    offset,
+                    match_len,
+                    ..
                 } = candidate;
                 // For each index in the match we found we do not need to look for another match
                 // But we still want them registered in the suffix store
-                self.add_suffixes_till(self.suffix_idx + match_len);
+                self.add_suffixes_till(start_idx + match_len);
 
                 // All literals that were not included between this match and the last are now included here
                 let last_entry_idx = self.last_entry_index();
                 let last_entry = &self.window[last_entry_idx];
-                let literals = &last_entry.data[self.last_idx_in_sequence..self.suffix_idx];
+                let literals = &last_entry.data[self.last_idx_in_sequence..start_idx];
                 let lit_len = Self::bounded_u32(literals.len());
                 let offset_value = Self::bounded_u32(offset);
                 self.offset_history
                     .encode_offset_value(offset_value, lit_len);
 
                 // Update the indexes, all indexes upto and including the current index have been included in a sequence now
-                self.suffix_idx += match_len;
+                self.suffix_idx = start_idx + match_len;
                 self.last_idx_in_sequence = self.suffix_idx;
                 handle_sequence(Sequence::Triple {
                     literals,
@@ -425,23 +431,32 @@ impl MatchGenerator {
         match_entry: &WindowEntry,
         match_index: usize,
         context: &MatchCandidateContext<'_>,
-    ) -> Option<(usize, usize)> {
+    ) -> Option<MatchCandidate> {
         let offset = match_entry.base_offset + context.suffix_idx - match_index;
         let match_len = self.match_len_at_offset(offset, context);
         if match_len < MIN_MATCH_LEN {
             return None;
         }
+        let (start_idx, match_len) = self.extend_match_backwards(offset, match_len, context);
 
         #[cfg(debug_assertions)]
         {
             let unprocessed = context.last_entry_len - context.suffix_idx;
-            let start = context.concat_window.len() - unprocessed - offset;
-            let end = start + match_len;
-            let check_slice = &context.concat_window[start..end];
-            debug_assert_eq!(check_slice, &context.data_slice[..match_len]);
+            let current_start = context.concat_window.len() - unprocessed;
+            let current_match_start = current_start - (context.suffix_idx - start_idx);
+            let match_start = current_match_start - offset;
+            let match_end = match_start + match_len;
+            let check_slice = &context.concat_window[match_start..match_end];
+            let current_end = start_idx + match_len;
+            debug_assert_eq!(check_slice, &self.last_entry().data[start_idx..current_end]);
         }
 
-        Some((offset, match_len))
+        Some(MatchCandidate {
+            start_idx,
+            offset,
+            match_len,
+            repeat_offset: false,
+        })
     }
 
     fn bounded_u32(value: usize) -> u32 {
@@ -449,6 +464,34 @@ impl MatchGenerator {
             Ok(value) => value,
             Err(_) => unreachable!("match generator indexes are bounded by the compressor window"),
         }
+    }
+
+    fn extend_match_backwards(
+        &self,
+        offset: usize,
+        match_len: usize,
+        context: &MatchCandidateContext<'_>,
+    ) -> (usize, usize) {
+        let mut start_idx = context.suffix_idx;
+        let mut match_len = match_len;
+        while start_idx > context.anchor_idx {
+            let target_idx = start_idx - 1;
+            let source_relative = target_idx as isize - offset as isize;
+            let Some(source) = self
+                .slice_at_relative(source_relative)
+                .and_then(|source| source.first())
+            else {
+                break;
+            };
+            if *source != self.last_entry().data[target_idx] {
+                break;
+            }
+
+            start_idx = target_idx;
+            match_len += 1;
+        }
+
+        (start_idx, match_len)
     }
 
     fn match_len_at_offset(&self, offset: usize, context: &MatchCandidateContext<'_>) -> usize {
@@ -598,6 +641,7 @@ fn match_len_extends_overlapping_same_block() {
     let last_entry = matcher.last_entry();
     let context = MatchCandidateContext {
         suffix_idx: 1,
+        anchor_idx: 0,
         data_slice: &last_entry.data[1..],
         #[cfg(debug_assertions)]
         last_entry_len: last_entry.data.len(),
@@ -620,6 +664,7 @@ fn match_len_stops_at_chunk_boundary_mismatch() {
     let last_entry = matcher.last_entry();
     let context = MatchCandidateContext {
         suffix_idx: 8,
+        anchor_idx: 0,
         data_slice: &last_entry.data[8..],
         #[cfg(debug_assertions)]
         last_entry_len: last_entry.data.len(),
@@ -648,6 +693,7 @@ fn match_len_reads_from_previous_window_entry() {
     let last_entry = matcher.last_entry();
     let context = MatchCandidateContext {
         suffix_idx: 0,
+        anchor_idx: 0,
         data_slice: &last_entry.data,
         #[cfg(debug_assertions)]
         last_entry_len: last_entry.data.len(),
@@ -686,6 +732,28 @@ fn repeat_offset_probe_finds_match_without_suffix_index() {
     });
     assert!(!matcher.next_sequence(|_| {}));
     assert_eq!(matcher.offset_history.as_offsets(), (10, 4, 8));
+}
+
+#[test]
+fn match_candidate_extends_backwards_to_anchor() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        b"XabcdeXabcde".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    matcher.next_sequence(|seq| {
+        assert_eq!(
+            seq,
+            Sequence::Triple {
+                literals: b"Xabcde",
+                offset: 6,
+                match_len: 6,
+            },
+        );
+    });
+    assert!(!matcher.next_sequence(|_| {}));
 }
 
 #[test]
