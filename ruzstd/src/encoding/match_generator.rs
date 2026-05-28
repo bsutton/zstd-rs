@@ -24,6 +24,7 @@ const TEXT_NO_MATCH_PROBE_STEP: usize = 3;
 const SPARSE_MATCH_END_INDEX_BACKOFF: usize = 2;
 const INITIAL_TOUCHED_SLOT_CAPACITY: usize = 1024;
 const TOUCHED_SLOT_CLEAR_LIMIT: usize = 32 * 1024;
+const SUFFIX_STORE_CAPACITY_DIVISOR: usize = 16;
 
 /// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
 pub struct MatchGeneratorDriver {
@@ -87,7 +88,7 @@ impl Matcher for MatchGeneratorDriver {
         let vec_pool = &mut self.vec_pool;
         let suffixes = match self.suffix_pool.pop() {
             Some(suffixes) => suffixes,
-            None => SuffixStore::with_capacity(self.slice_size),
+            None => SuffixStore::with_capacity(self.slice_size / SUFFIX_STORE_CAPACITY_DIVISOR),
         };
         let suffix_pool = &mut self.suffix_pool;
         self.match_generator
@@ -1724,6 +1725,18 @@ fn driver_reuses_short_frame_suffix_store_for_larger_frame() {
     let mut emitted_sequence = false;
     matcher.start_matching(|_| emitted_sequence = true);
     assert!(emitted_sequence);
+}
+
+#[test]
+fn driver_uses_c_fast_sized_suffix_store() {
+    let mut matcher = MatchGeneratorDriver::new(128, 2);
+
+    matcher.commit_space(b"abcdeabcde".to_vec());
+
+    assert_eq!(
+        matcher.match_generator.last_entry().suffixes.slots.len(),
+        128 / SUFFIX_STORE_CAPACITY_DIVISOR
+    );
 }
 
 #[test]
