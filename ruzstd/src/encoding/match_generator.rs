@@ -15,6 +15,7 @@ use super::Matcher;
 use super::Sequence;
 
 const MIN_MATCH_LEN: usize = 5;
+const TEXT_MIN_NON_REPEAT_MATCH_LEN: usize = 7;
 
 /// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
 pub struct MatchGeneratorDriver {
@@ -196,6 +197,7 @@ struct WindowEntry {
 struct MatchCandidateContext<'data> {
     suffix_idx: usize,
     anchor_idx: usize,
+    min_non_repeat_match_len: usize,
     data_slice: &'data [u8],
     #[cfg(debug_assertions)]
     last_entry_len: usize,
@@ -220,6 +222,10 @@ impl MatchCandidate {
                         && (self.start_idx < other.start_idx
                             || self.start_idx == other.start_idx && self.offset < other.offset)))
     }
+
+    fn worth_emitting(self, min_non_repeat_match_len: usize) -> bool {
+        self.repeat_offset || self.match_len >= min_non_repeat_match_len
+    }
 }
 
 pub(crate) struct MatchGenerator {
@@ -235,6 +241,7 @@ pub(crate) struct MatchGenerator {
     /// Gets updated when a new sequence is returned to point right behind that sequence
     last_idx_in_sequence: usize,
     offset_history: OffsetHistory,
+    min_non_repeat_match_len: usize,
 }
 
 impl MatchGenerator {
@@ -249,6 +256,7 @@ impl MatchGenerator {
             suffix_idx: 0,
             last_idx_in_sequence: 0,
             offset_history: OffsetHistory::new(),
+            min_non_repeat_match_len: MIN_MATCH_LEN,
         }
     }
 
@@ -259,6 +267,7 @@ impl MatchGenerator {
         self.suffix_idx = 0;
         self.last_idx_in_sequence = 0;
         self.offset_history = OffsetHistory::new();
+        self.min_non_repeat_match_len = MIN_MATCH_LEN;
         self.window.drain(..).for_each(|entry| {
             reuse_space(entry.data, entry.suffixes);
         });
@@ -328,6 +337,7 @@ impl MatchGenerator {
             let match_context = MatchCandidateContext {
                 suffix_idx: self.suffix_idx,
                 anchor_idx: self.last_idx_in_sequence,
+                min_non_repeat_match_len: self.min_non_repeat_match_len,
                 data_slice,
                 #[cfg(debug_assertions)]
                 last_entry_len: last_entry.data.len(),
@@ -369,6 +379,9 @@ impl MatchGenerator {
                         else {
                             continue;
                         };
+                        if !found.worth_emitting(match_context.min_non_repeat_match_len) {
+                            continue;
+                        }
 
                         if candidate
                             .map(|current| found.is_better_than(current))
@@ -464,6 +477,40 @@ impl MatchGenerator {
             Ok(value) => value,
             Err(_) => unreachable!("match generator indexes are bounded by the compressor window"),
         }
+    }
+
+    fn min_non_repeat_match_len(data: &[u8]) -> usize {
+        if Self::likely_text(data) {
+            TEXT_MIN_NON_REPEAT_MATCH_LEN
+        } else {
+            MIN_MATCH_LEN
+        }
+    }
+
+    fn likely_text(data: &[u8]) -> bool {
+        const SAMPLE_COUNT: usize = 256;
+
+        if data.len() < 1024 {
+            return false;
+        }
+
+        let step = (data.len() / SAMPLE_COUNT).max(1);
+        let mut printable = 0usize;
+        let mut total = 0usize;
+        for idx in (0..data.len()).step_by(step).take(SAMPLE_COUNT) {
+            total += 1;
+            let byte = data[idx];
+            if byte == b'\n'
+                || byte == b'\r'
+                || byte == b'\t'
+                || byte.is_ascii_graphic()
+                || byte == b' '
+            {
+                printable += 1;
+            }
+        }
+
+        printable * 100 >= total * 90
     }
 
     fn extend_match_backwards(
@@ -599,6 +646,7 @@ impl MatchGenerator {
         }
 
         let len = data.len();
+        let min_non_repeat_match_len = Self::min_non_repeat_match_len(&data);
         self.window.push(WindowEntry {
             data,
             suffixes,
@@ -607,6 +655,7 @@ impl MatchGenerator {
         self.window_size += len;
         self.suffix_idx = 0;
         self.last_idx_in_sequence = 0;
+        self.min_non_repeat_match_len = min_non_repeat_match_len;
     }
 
     /// Reserve space for a new window entry
@@ -642,6 +691,7 @@ fn match_len_extends_overlapping_same_block() {
     let context = MatchCandidateContext {
         suffix_idx: 1,
         anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
         data_slice: &last_entry.data[1..],
         #[cfg(debug_assertions)]
         last_entry_len: last_entry.data.len(),
@@ -665,6 +715,7 @@ fn match_len_stops_at_chunk_boundary_mismatch() {
     let context = MatchCandidateContext {
         suffix_idx: 8,
         anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
         data_slice: &last_entry.data[8..],
         #[cfg(debug_assertions)]
         last_entry_len: last_entry.data.len(),
@@ -694,6 +745,7 @@ fn match_len_reads_from_previous_window_entry() {
     let context = MatchCandidateContext {
         suffix_idx: 0,
         anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
         data_slice: &last_entry.data,
         #[cfg(debug_assertions)]
         last_entry_len: last_entry.data.len(),
@@ -754,6 +806,31 @@ fn match_candidate_extends_backwards_to_anchor() {
         );
     });
     assert!(!matcher.next_sequence(|_| {}));
+}
+
+#[test]
+fn text_blocks_use_longer_non_repeat_match_minimum() {
+    let mut matcher = MatchGenerator::new(2048);
+    matcher.add_data(
+        b"tenant=alpha path=/v1/archive status=200\n"
+            .repeat(32)
+            .to_vec(),
+        SuffixStore::with_capacity(2048),
+        |_, _| {},
+    );
+
+    assert_eq!(
+        matcher.min_non_repeat_match_len,
+        TEXT_MIN_NON_REPEAT_MATCH_LEN
+    );
+}
+
+#[test]
+fn binary_blocks_keep_short_non_repeat_matches() {
+    let mut matcher = MatchGenerator::new(2048);
+    matcher.add_data(xorshift(2048), SuffixStore::with_capacity(2048), |_, _| {});
+
+    assert_eq!(matcher.min_non_repeat_match_len, MIN_MATCH_LEN);
 }
 
 #[test]
@@ -996,4 +1073,18 @@ fn matches() {
     assert!(!matcher.next_sequence(|_| {}));
 
     assert_eq!(reconstructed, original_data);
+}
+
+#[cfg(test)]
+fn xorshift(len: usize) -> Vec<u8> {
+    let mut state = 0x1234_5678_9ABC_DEF0u64;
+    let mut data = Vec::with_capacity(len);
+    while data.len() < len {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        data.extend_from_slice(&state.to_le_bytes());
+    }
+    data.truncate(len);
+    data
 }
