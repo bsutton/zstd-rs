@@ -301,16 +301,12 @@ impl MatchGenerator {
                 #[cfg(debug_assertions)]
                 concat_window: &self.concat_window,
             };
-            'window_search: for (match_entry_idx, match_entry) in self.window.iter().enumerate() {
-                let is_last = match_entry_idx == last_entry_idx;
+            'window_search: for match_entry in self.window.iter() {
                 if let Some(candidates) = match_entry.suffixes.candidates(key) {
                     for match_index in candidates.newest.into_iter().chain([candidates.oldest]) {
-                        let Some(found) = Self::match_candidate(
-                            match_entry,
-                            match_index,
-                            is_last,
-                            &match_context,
-                        ) else {
+                        let Some(found) =
+                            Self::match_candidate(match_entry, match_index, &match_context)
+                        else {
                             continue;
                         };
 
@@ -372,14 +368,9 @@ impl MatchGenerator {
     fn match_candidate(
         match_entry: &WindowEntry,
         match_index: usize,
-        is_last: bool,
         context: &MatchCandidateContext<'_>,
     ) -> Option<(usize, usize)> {
-        let match_slice = if is_last {
-            &match_entry.data[match_index..context.suffix_idx]
-        } else {
-            &match_entry.data[match_index..]
-        };
+        let match_slice = &match_entry.data[match_index..];
 
         if match_slice.len() < MIN_MATCH_LEN || &match_slice[..MIN_MATCH_LEN] != context.key {
             return None;
@@ -510,8 +501,10 @@ fn matches() {
         } => {
             reconstructed.extend_from_slice(literals);
             let start = reconstructed.len() - offset;
-            let end = start + match_len;
-            reconstructed.extend_from_within(start..end);
+            for idx in 0..match_len {
+                let byte = reconstructed[start + idx];
+                reconstructed.push(byte);
+            }
         }
     };
     let assert_seq_equal =
@@ -531,9 +524,9 @@ fn matches() {
         assert_eq!(
             seq,
             Sequence::Triple {
-                literals: &[0, 0, 0, 0, 0],
-                offset: 5,
-                match_len: 5,
+                literals: &[0],
+                offset: 1,
+                match_len: 9,
             },
         );
         reconstruct(seq, &mut reconstructed);
@@ -556,18 +549,7 @@ fn matches() {
             Sequence::Triple {
                 literals: &[1, 2, 3, 4, 5, 6],
                 offset: 6,
-                match_len: 6,
-            },
-            &mut reconstructed,
-        );
-    });
-    matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 6,
-                match_len: 6,
+                match_len: 12,
             },
             &mut reconstructed,
         );

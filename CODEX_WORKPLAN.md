@@ -46,6 +46,7 @@ Quality constraints:
 - Added a sampled incompressibility gate so random-looking blocks skip expensive match search and are emitted raw while still being committed for future history.
 - Added a matcher fast path for incompressible raw blocks that marks the block processed without indexing every suffix. This preserves safe behavior for custom matchers via a default trait method while allowing the default matcher to avoid wasted history work.
 - Added shortest-form raw literals headers for 0-31 and 32-4095 byte raw literal sections, matching the Zstd format and reducing per-block overhead.
+- Enabled overlapping same-block match extension using the current block's original bytes. This lets the matcher emit long matches with small offsets instead of artificial doubling sequences.
 
 ## Verification So Far
 
@@ -68,13 +69,13 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, and compact raw literals headers:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, and overlapping match extension:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,252,588 | 5,385,951 | 0.13s | 0.25s | 0.04s |
-| `json_logs_32m.jsonl` | 3,392,237 | 2,105,454 | 1,138,701 | 0.18s | 0.25s | 0.05s |
-| `repeated_text_32m.txt` | 31,757 | 3,457 | 3,116 | 0.11s | 0.21s | 0.02s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,166,308 | 5,385,951 | 0.14s | 0.25s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 2,105,463 | 1,138,701 | 0.18s | 0.24s | 0.06s |
+| `repeated_text_32m.txt` | 31,757 | 3,391 | 3,116 | 0.11s | 0.20s | 0.02s |
 | `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.61s | 0.03s | 0.05s |
 
 Interpretation:
