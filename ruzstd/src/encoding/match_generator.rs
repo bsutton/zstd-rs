@@ -15,7 +15,7 @@ use super::Matcher;
 use super::Sequence;
 
 const MIN_MATCH_LEN: usize = 5;
-const TEXT_MIN_NON_REPEAT_MATCH_LEN: usize = 7;
+const TEXT_MIN_NON_REPEAT_MATCH_LEN: usize = 10;
 
 /// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
 pub struct MatchGeneratorDriver {
