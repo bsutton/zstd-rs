@@ -21,6 +21,7 @@ const REPEAT_SEARCH_EARLY_EXIT_LEN: usize = 10;
 const DENSE_MATCH_INDEX_LIMIT: usize = 128;
 const NO_MATCH_PROBE_STEP: usize = 2;
 const TEXT_NO_MATCH_PROBE_STEP: usize = 3;
+const SPARSE_MATCH_END_INDEX_BACKOFF: usize = 2;
 const TOUCHED_SLOT_CLEAR_LIMIT: usize = 32 * 1024;
 
 /// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
@@ -800,7 +801,7 @@ impl MatchGenerator {
         let suffix_idx = self.suffix_idx;
         self.add_suffix_at(suffix_idx);
         self.add_suffix_at(suffix_idx + 2);
-        self.add_suffix_at(idx.saturating_sub(MIN_MATCH_LEN));
+        self.add_suffix_at(idx.saturating_sub(SPARSE_MATCH_END_INDEX_BACKOFF));
     }
 
     #[inline(always)]
@@ -1409,20 +1410,24 @@ fn long_match_ranges_are_indexed_sparsely() {
     matcher.add_data(xorshift(512), SuffixStore::with_capacity(1024), |_, _| {});
     matcher.suffix_idx = 10;
 
-    matcher.add_suffixes_for_match(10 + DENSE_MATCH_INDEX_LIMIT + 1);
+    let match_end = 10 + DENSE_MATCH_INDEX_LIMIT + 1;
+    matcher.add_suffixes_for_match(match_end);
 
-    let indexed = matcher
-        .last_entry()
-        .suffixes
-        .slots
-        .iter()
-        .filter(|slot| slot.is_some())
-        .count();
+    let last_entry = matcher.last_entry();
+    let suffixes = &last_entry.suffixes;
+    let indexed = suffixes.slots.iter().filter(|slot| slot.is_some()).count();
     assert!(
         indexed <= 3,
         "long match should index sparsely: {}",
         indexed
     );
+
+    for idx in [10, 12, match_end - SPARSE_MATCH_END_INDEX_BACKOFF] {
+        let key = &last_entry.data[idx..idx + MIN_MATCH_LEN];
+        let candidates = suffixes.candidates(key).expect("sparse index must exist");
+        assert_eq!(candidates.oldest, idx);
+        assert_eq!(candidates.newest, None);
+    }
 }
 
 #[test]
