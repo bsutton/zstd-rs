@@ -96,6 +96,7 @@ Quality constraints:
 - Added a same-block forward match-length fast path. When the match source is already in the current block, the matcher now compares the current-block source and target slices directly with the existing safe chunked prefix comparison instead of repeatedly resolving relative window slices. This follows C zstd's contiguous `ZSTD_count()` shape while preserving overlap behavior.
 - Preallocated a modest 1024 entries for suffix-store touched-slot tracking. This avoids first-use growth in the touched-slot clearing path while staying well below the 32K full-clear threshold and adding only a small bounded allocation per suffix store.
 - Added focused matcher coverage for same-block minimum-match precheck hits and misses. This locks down repeat-offset precheck behavior even though the generic relative-window implementation remains the fastest measured runtime path.
+- Replaced the suffix-candidate iterator chain in the matcher window-search loop with explicit newest/oldest candidate checks through a small helper. This preserves the existing two-candidate order, avoids iterator setup in the dominant matcher loop, and adds focused helper coverage for best-candidate updates and the offset-1 block-end early exit.
 
 ## Verification So Far
 
@@ -211,6 +212,7 @@ Interpretation:
 - Tested C-fast-style sparse miss indexing that only stores the current suffix when the no-match probe skips ahead. CPU improved slightly on decodecorpus, but size regressed badly: decodecorpus grew to 5,387,388 bytes, JSON to 862,050 bytes, and repeated text to 2,965 bytes. The retained parser continues indexing skipped miss positions to preserve compression.
 - Tested replacing Huffman `build_from_weights()`'s temporary sorted `Vec` with a fixed 256-entry stack array sorted over the filled prefix. Output bytes were unchanged and Huffman tests passed, but decodecorpus measured 0.23s then 0.21s with no clear win, so the existing temporary `Vec` remains better.
 - Tested adding same-block direct paths to the repeat-offset minimum-match prechecks, mirroring the retained same-block full match-length fast path. Output bytes were unchanged and focused tests passed, but decodecorpus regressed to 0.22s then 0.21s and JSON regressed to 0.12s across both runs, so the generic relative-window precheck remains better.
+- Explicit suffix-candidate checks preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.19s then 0.20s and JSON at 0.11s both times, so retain the helper as a small safe hot-loop cleanup.
 
 ## Next Steps
 
@@ -225,6 +227,7 @@ Interpretation:
 - Current branch has focused coverage that suffix hash keys stay inside the slot table without a final modulo, including a non-power-of-two capacity.
 - Current branch has focused coverage that touched-slot preallocation stays modest and below the full-clear threshold.
 - Current branch has focused coverage that same-block match-length scanning with a verified prefix still handles overlapping matches by comparing against the generic relative-window scanner.
+- Current branch has focused coverage for the explicit suffix-candidate helper, including best-candidate replacement and the offset-1 block-end early exit.
 - Current branch has exhaustive helper-level coverage for the cached common literal-length and match-length sequence code tables, including the first uncached boundary for each table.
 - Current branch has emitted-bitstream tests that round-trip fastest compression through the Rust decoder and the C zstd decoder, including mixed text/binary/random frames, history reuse after incompressible blocks, and cross-block repetitive data.
 - Current branch still has the existing encode/decode corpus tests and fuzz targets for encode/decode/FSE/Huff0 interop. These are not a replacement for focused regression tests, but they are useful broad coverage.

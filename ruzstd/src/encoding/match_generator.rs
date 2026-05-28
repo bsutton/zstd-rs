@@ -460,29 +460,26 @@ impl MatchGenerator {
             if !repeat_match_reaches_end_or_is_long {
                 'window_search: for match_entry in self.window.iter() {
                     if let Some(candidates) = match_entry.suffixes.candidates(key) {
-                        for match_index in candidates.newest.into_iter().chain([candidates.oldest])
-                        {
-                            let Some(found) =
-                                self.match_candidate(match_entry, match_index, &match_context)
-                            else {
-                                continue;
-                            };
-                            if !found.worth_emitting(match_context.min_non_repeat_match_len) {
-                                continue;
-                            }
-
-                            if candidate
-                                .map(|current| found.is_better_than(current))
-                                .unwrap_or(true)
-                            {
-                                candidate = Some(found);
-                            }
-
-                            if found.start_idx + found.match_len == last_entry.data.len()
-                                && found.offset == 1
-                            {
+                        if let Some(match_index) = candidates.newest {
+                            if self.consider_window_candidate(
+                                match_entry,
+                                match_index,
+                                &match_context,
+                                &mut candidate,
+                                last_entry.data.len(),
+                            ) {
                                 break 'window_search;
                             }
+                        }
+
+                        if self.consider_window_candidate(
+                            match_entry,
+                            candidates.oldest,
+                            &match_context,
+                            &mut candidate,
+                            last_entry.data.len(),
+                        ) {
+                            break 'window_search;
                         }
                     }
                 }
@@ -535,6 +532,36 @@ impl MatchGenerator {
             };
             self.suffix_idx += step;
         }
+    }
+
+    #[inline(always)]
+    fn consider_window_candidate(
+        &self,
+        match_entry: &WindowEntry,
+        match_index: usize,
+        context: &MatchCandidateContext<'_>,
+        candidate: &mut Option<MatchCandidate>,
+        block_len: usize,
+    ) -> bool {
+        let Some(found) = self.match_candidate(match_entry, match_index, context) else {
+            return false;
+        };
+        if !found.worth_emitting(context.min_non_repeat_match_len) {
+            return false;
+        }
+
+        if candidate
+            .map(|current| found.is_better_than(current))
+            .unwrap_or(true)
+        {
+            *candidate = Some(found);
+        }
+
+        if found.start_idx + found.match_len == block_len && found.offset == 1 {
+            return true;
+        }
+
+        false
     }
 
     #[inline(always)]
@@ -1389,6 +1416,75 @@ fn hash_candidate_precheck_accepts_candidate_match() {
     assert!(MatchGenerator::has_min_match_at_index(
         last_entry, 0, &context
     ));
+}
+
+#[test]
+fn window_candidate_helper_updates_best_candidate() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        b"abcdefghabcdefghZ".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    let context = MatchCandidateContext {
+        suffix_idx: 8,
+        anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
+        data_slice: &last_entry.data[8..],
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+    let mut candidate = Some(MatchCandidate {
+        start_idx: 8,
+        offset: 16,
+        match_len: MIN_MATCH_LEN,
+        repeat_offset: false,
+    });
+
+    assert!(!matcher.consider_window_candidate(
+        last_entry,
+        0,
+        &context,
+        &mut candidate,
+        last_entry.data.len(),
+    ));
+    assert_eq!(candidate.map(|candidate| candidate.match_len), Some(8));
+}
+
+#[test]
+fn window_candidate_helper_stops_on_offset_one_block_end_match() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        alloc::vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    let context = MatchCandidateContext {
+        suffix_idx: 1,
+        anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
+        data_slice: &last_entry.data[1..],
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+    let mut candidate = None;
+
+    assert!(matcher.consider_window_candidate(
+        last_entry,
+        0,
+        &context,
+        &mut candidate,
+        last_entry.data.len(),
+    ));
+    assert_eq!(candidate.map(|candidate| candidate.offset), Some(1));
 }
 
 #[test]
