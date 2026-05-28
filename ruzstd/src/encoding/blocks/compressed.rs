@@ -512,23 +512,29 @@ fn compress_literals(
         _ => unimplemented!("too many literals"),
     };
 
+    let header_len = compressed_literals_header_len(size_format);
     let new_encoder_table = huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts());
-    let (encoder_table, new_table) = if let Some(previous_table) = last_table {
+    let new_len = new_encoder_table.encoded_len(literals, true, size_format != 0);
+    let (encoder_table, new_table, estimated_len) = if let Some(previous_table) = last_table {
         if previous_table.can_encode(&new_encoder_table).is_some() {
             let four_streams = size_format != 0;
             let previous_len = previous_table.encoded_len(literals, false, four_streams);
-            let new_len = new_encoder_table.encoded_len(literals, true, four_streams);
-            if previous_len <= new_len {
-                (previous_table, false)
+            if previous_len < literals.len() && previous_len <= new_len {
+                (previous_table, false, previous_len)
             } else {
-                (&new_encoder_table, true)
+                (&new_encoder_table, true, new_len)
             }
         } else {
-            (&new_encoder_table, true)
+            (&new_encoder_table, true, new_len)
         }
     } else {
-        (&new_encoder_table, true)
+        (&new_encoder_table, true, new_len)
     };
+
+    if estimated_len + header_len >= literals.len() {
+        raw_literals(literals, writer);
+        return None;
+    }
 
     if new_table {
         writer.write_bits(2u8, 2); // compressed literals type
@@ -560,6 +566,15 @@ fn compress_literals(
         Some(new_encoder_table)
     } else {
         None
+    }
+}
+
+fn compressed_literals_header_len(size_format: u8) -> usize {
+    match size_format {
+        0b00 | 0b01 => 3,
+        0b10 => 4,
+        0b11 => 5,
+        _ => unreachable!(),
     }
 }
 
@@ -1075,6 +1090,33 @@ mod tests {
             block_payload[0] & 0b11,
             2,
             "small skewed literal section should use Huffman compression"
+        );
+
+        let mut rust_decoded = Vec::with_capacity(expected.len());
+        let mut decoder = crate::decoding::FrameDecoder::new();
+        decoder
+            .decode_all_to_vec(&frame, &mut rust_decoded)
+            .unwrap();
+        assert_eq!(rust_decoded, expected);
+
+        let mut c_decoded = Vec::new();
+        zstd::stream::copy_decode(frame.as_slice(), &mut c_decoded).unwrap();
+        assert_eq!(c_decoded, expected);
+    }
+
+    #[test]
+    fn literal_estimate_without_gain_uses_raw_literals_and_round_trips() {
+        let mut literals = alloc::vec![0; 6];
+        for value in 1..=64u8 {
+            literals.push(value);
+        }
+
+        let (block_payload, frame, expected) = compressed_frame_with_literal_payload(literals);
+
+        assert_eq!(
+            block_payload[0] & 0b11,
+            0,
+            "literal estimate should choose raw when Huffman cannot beat raw"
         );
 
         let mut rust_decoded = Vec::with_capacity(expected.len());
