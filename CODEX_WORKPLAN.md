@@ -90,6 +90,7 @@ Quality constraints:
 - Changed sparse indexing after long matches to store the final sparse hash at `match_end - 2`, matching the C fast parser's post-match hash fill shape. Added focused coverage that long matches index exactly the start, start+2, and end-2 positions.
 - Carried verified minimum-match prefixes into full match-length scans so accepted repeat and hash candidates do not compare the first five bytes twice. Added focused tests for the normal skipped-prefix case and the previous-window boundary fallback.
 - Replaced repeated stable sorting in Huffman length-limited tree construction with a deterministic min-heap. Existing Huffman tie-behavior tests cover the ordering invariants, and a same-window direct benchmark against the previous commit confirmed exact bytes with decodecorpus CPU slightly better and JSON neutral.
+- Cached resolved FSE table references once per sequence section before encoding FSE states, avoiding repeated table-mode enum matching in the per-sequence hot path. Existing compressed-block and end-to-end tests cover the emitted bitstream.
 
 ## Verification So Far
 
@@ -122,23 +123,23 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, and C-style end-2 sparse match indexing:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, and cached sequence FSE table references:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,160,978 | 5,385,951 | 0.13s | 0.24s | 0.04s |
-| `json_logs_32m.jsonl` | 3,392,237 | 826,471 | 1,138,701 | 0.17s | 0.17s | 0.04s |
-| `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.11s | 0.00s | 0.01s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,160,978 | 5,385,951 | 0.13s | 0.23s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 826,471 | 1,138,701 | 0.18s | 0.17s | 0.06s |
+| `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.12s | 0.01s | 0.02s |
 | `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.59s | 0.02s | 0.06s |
 
 Peak RSS from the same run:
 
 | Fixture | Upstream RSS | Current RSS | C zstd -1 RSS |
 | --- | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 6,548 KB | 10,736 KB | 21,996 KB |
-| `json_logs_32m.jsonl` | 5,752 KB | 9,480 KB | 19,076 KB |
-| `repeated_text_32m.txt` | 5,516 KB | 9,120 KB | 17,804 KB |
-| `xorshift_32m.bin` | 6,124 KB | 9,212 KB | 25,552 KB |
+| `decodecorpus_pack.bin` | 6,424 KB | 10,716 KB | 22,188 KB |
+| `json_logs_32m.jsonl` | 5,848 KB | 9,480 KB | 18,792 KB |
+| `repeated_text_32m.txt` | 5,496 KB | 9,032 KB | 17,868 KB |
+| `xorshift_32m.bin` | 6,120 KB | 9,216 KB | 25,632 KB |
 
 Interpretation:
 
@@ -189,6 +190,7 @@ Interpretation:
 - Tested probing only the first two repeat-offset candidates in matcher search, closer to C fast's active repeat-offset checks. It regressed decodecorpus from 5,160,978 bytes to 5,166,985 bytes and JSON from 826,471 bytes to 854,443 bytes with no measurable CPU win, so the three-candidate matcher probe was kept.
 - Replacing repeated stable sorts in Huffman length-limited tree construction with a deterministic min-heap preserved exact fixture byte counts. The full table runs were noisy, but a direct five-run comparison against the previous commit showed decodecorpus median CPU improving from about 0.24-0.25s to 0.23-0.24s and JSON staying neutral. The follow-up perf sample removed the previously visible `core::slice::sort::stable::drift::sort` symbol, leaving Huffman table construction around 1.2% of decodecorpus samples.
 - Tested a same-block fast path for backward match extension using contiguous prefix slices instead of the existing byte walk through `slice_at_relative()`. Output bytes were unchanged, but the table run stayed neutral-to-worse and the follow-up perf sample still showed `extend_match_backwards` around 2.5-3%, so the simpler byte walk was kept.
+- Caching sequence FSE table references preserved exact fixture byte counts and reduced repeated enum matching in `encode_sequences`. Two table runs measured decodecorpus at 0.23s, with JSON neutral at 0.17s; keep this as a small sequence-encoder CPU improvement.
 
 ## Next Steps
 

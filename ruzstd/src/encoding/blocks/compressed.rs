@@ -220,6 +220,9 @@ fn encode_sequences(
     of_mode: &FseTableMode<'_>,
 ) {
     let sequence = sequences[sequences.len() - 1];
+    let ll_table = ll_mode.table();
+    let ml_table = ml_mode.table();
+    let of_table = of_mode.table();
     let (ll_code, ll_add_bits, ll_num_bits) = encode_literal_length(sequence.ll);
     let (of_code, of_add_bits, of_num_bits) = encode_offset(sequence.of);
     let (ml_code, ml_add_bits, ml_num_bits) = encode_match_len(sequence.ml);
@@ -240,13 +243,13 @@ fn encode_sequences(
             let (ml_code, ml_add_bits, ml_num_bits) = encode_match_len(sequence.ml);
 
             {
-                update_fse_state(of_mode, &mut of_state, of_code, writer);
+                update_fse_state(of_table, &mut of_state, of_code, writer);
             }
             {
-                update_fse_state(ml_mode, &mut ml_state, ml_code, writer);
+                update_fse_state(ml_table, &mut ml_state, ml_code, writer);
             }
             {
-                update_fse_state(ll_mode, &mut ll_state, ll_code, writer);
+                update_fse_state(ll_table, &mut ll_state, ll_code, writer);
             }
 
             writer.write_bits(ll_add_bits, ll_num_bits);
@@ -254,9 +257,9 @@ fn encode_sequences(
             writer.write_bits(of_add_bits, of_num_bits);
         }
     }
-    flush_fse_state(ml_mode, ml_state, writer);
-    flush_fse_state(of_mode, of_state, writer);
-    flush_fse_state(ll_mode, ll_state, writer);
+    flush_fse_state(ml_table, ml_state, writer);
+    flush_fse_state(of_table, of_state, writer);
+    flush_fse_state(ll_table, ll_state, writer);
 
     let bits_to_fill = writer.misaligned();
     if bits_to_fill == 0 {
@@ -277,34 +280,29 @@ fn init_fse_state<'a>(mode: &'a FseTableMode<'_>, symbol: u8) -> Option<&'a Stat
 }
 
 fn update_fse_state<'a>(
-    mode: &'a FseTableMode<'_>,
+    table: Option<&'a FSETable>,
     state: &mut Option<&'a State>,
     symbol: u8,
     writer: &mut BitWriter<&mut Vec<u8>>,
 ) {
-    match mode {
-        FseTableMode::Rle(rle_symbol) => {
-            debug_assert_eq!(*rle_symbol, symbol);
-        }
-        _ => {
-            if let (Some(table), Some(current)) = (mode.table(), *state) {
-                let next = table.next_state(symbol, current.index);
-                let diff = current.index - next.baseline;
-                writer.write_bits(diff as u64, next.num_bits as usize);
-                *state = Some(next);
-            } else {
-                unreachable!("non-RLE FSE mode must have a table and state");
-            }
+    if let Some(table) = table {
+        if let Some(current) = *state {
+            let next = table.next_state(symbol, current.index);
+            let diff = current.index - next.baseline;
+            writer.write_bits(diff as u64, next.num_bits as usize);
+            *state = Some(next);
+        } else {
+            unreachable!("non-RLE FSE mode must have a state");
         }
     }
 }
 
 fn flush_fse_state(
-    mode: &FseTableMode<'_>,
+    table: Option<&FSETable>,
     state: Option<&State>,
     writer: &mut BitWriter<&mut Vec<u8>>,
 ) {
-    if let Some(table) = mode.table() {
+    if let Some(table) = table {
         if let Some(state) = state {
             writer.write_bits(state.index as u64, table.acc_log() as usize);
         } else {
