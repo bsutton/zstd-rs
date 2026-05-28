@@ -1,5 +1,8 @@
 use crate::bit_io::BitWriter;
 use alloc::vec::Vec;
+use core::convert::TryFrom;
+
+const DIRECT_STATE_LOOKUP_MAX_TABLE_SIZE: usize = 1024;
 
 pub(crate) struct FSEEncoder<'output, V: AsMut<Vec<u8>>> {
     pub(super) table: FSETable,
@@ -198,11 +201,18 @@ impl FSETable {
 pub(super) struct SymbolStates {
     /// Sorted by baseline to allow easy lookup using an index
     pub(super) states: Vec<State>,
+    lookup: Vec<u16>,
     pub(super) probability: i32,
 }
 
 impl SymbolStates {
     fn get(&self, idx: usize, max_idx: usize) -> &State {
+        if !self.lookup.is_empty() {
+            let state_idx = self.lookup[idx] as usize;
+            debug_assert_ne!(state_idx, u16::MAX as usize);
+            return &self.states[state_idx];
+        }
+
         let start_search_at = (idx * self.states.len()) / max_idx;
         self.states[start_search_at..]
             .iter()
@@ -490,6 +500,7 @@ fn old_normalize_counts(counts: &[usize], max_log: u8, avoid_0_numbit: bool) -> 
 pub(super) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSETable {
     let mut states = core::array::from_fn::<SymbolStates, 256, _>(|_| SymbolStates {
         states: Vec::new(),
+        lookup: Vec::new(),
         probability: 0,
     });
 
@@ -579,6 +590,18 @@ pub(super) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
 
         // For encoding we use the states ordered by the indexes they target
         state.states.sort_unstable_by_key(|l| l.baseline);
+        if (1usize << acc_log) <= DIRECT_STATE_LOOKUP_MAX_TABLE_SIZE {
+            state.lookup.resize(1usize << acc_log, u16::MAX);
+            for (state_idx, fse_state) in state.states.iter().enumerate() {
+                let state_idx = match u16::try_from(state_idx) {
+                    Ok(state_idx) => state_idx,
+                    Err(_) => unreachable!("small FSE direct lookup state indexes fit in u16"),
+                };
+                for idx in fse_state.baseline..=fse_state.last_index {
+                    state.lookup[idx] = state_idx;
+                }
+            }
+        }
     }
 
     FSETable {
