@@ -11,6 +11,7 @@ use crate::{
 
 const INITIAL_LITERALS_CAPACITY: usize = 1024;
 const INITIAL_SEQUENCES_CAPACITY: usize = 256;
+const COMPRESS_LITERALS_SIZE_MIN: usize = 63;
 const LITERAL_LENGTH_SMALL_CODES: [(u8, u32, usize); 64] = small_literal_length_codes();
 const MATCH_LENGTH_SMALL_CODES: [(u8, u32, usize); 128] = small_match_length_codes();
 
@@ -45,7 +46,7 @@ pub fn compress_block<M: Matcher>(
     // literals section
 
     let mut writer = BitWriter::from(output);
-    if literals_vec.len() > 1024 {
+    if literals_vec.len() > COMPRESS_LITERALS_SIZE_MIN {
         if let Some(table) =
             compress_literals(&literals_vec, state.last_huff_table.as_ref(), &mut writer)
         {
@@ -599,6 +600,84 @@ mod tests {
         }
     }
 
+    struct LiteralPayloadMatcher {
+        literals: Vec<u8>,
+        emitted: bool,
+    }
+
+    impl Matcher for LiteralPayloadMatcher {
+        fn get_next_space(&mut self) -> Vec<u8> {
+            Vec::new()
+        }
+
+        fn get_last_space(&mut self) -> &[u8] {
+            &[]
+        }
+
+        fn commit_space(&mut self, _space: Vec<u8>) {}
+
+        fn skip_matching(&mut self) {}
+
+        fn start_matching(&mut self, mut handle_sequence: impl for<'a> FnMut(Sequence<'a>)) {
+            if !self.emitted {
+                self.emitted = true;
+                handle_sequence(Sequence::Triple {
+                    literals: &self.literals,
+                    offset: 1,
+                    match_len: 16,
+                });
+            }
+        }
+
+        fn reset(&mut self, _level: crate::encoding::CompressionLevel) {
+            self.emitted = false;
+        }
+
+        fn window_size(&self) -> u64 {
+            128 * 1024
+        }
+    }
+
+    fn compressed_frame_with_literal_payload(literals: Vec<u8>) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        assert!(!literals.is_empty());
+
+        let mut state = CompressState {
+            matcher: LiteralPayloadMatcher {
+                literals: literals.clone(),
+                emitted: false,
+            },
+            last_huff_table: None,
+            fse_tables: FseTables::new(),
+            offset_history: OffsetHistory::new(),
+        };
+        let mut block_payload = Vec::new();
+
+        compress_block(&mut state, &mut block_payload);
+
+        let mut frame = Vec::new();
+        crate::encoding::frame_header::FrameHeader {
+            frame_content_size: None,
+            single_segment: false,
+            content_checksum: false,
+            dictionary_id: None,
+            window_size: Some(128 * 1024),
+        }
+        .serialize(&mut frame);
+        crate::encoding::block_header::BlockHeader {
+            last_block: true,
+            block_type: crate::blocks::block::BlockType::Compressed,
+            block_size: block_payload.len() as u32,
+        }
+        .serialize(&mut frame);
+        frame.extend_from_slice(&block_payload);
+
+        let last_literal = literals[literals.len() - 1];
+        let mut expected = literals;
+        expected.extend_from_slice(&[last_literal; 16]);
+
+        (block_payload, frame, expected)
+    }
+
     fn literal_length_code_from_spec(len: u32) -> (u8, u32, usize) {
         match len {
             0..=15 => (len as u8, 0, 0),
@@ -910,77 +989,38 @@ mod tests {
 
     #[test]
     fn rle_literals_frame_round_trips_through_rust_and_c_decoders() {
-        struct RleLiteralMatcher {
-            literals: Vec<u8>,
-            emitted: bool,
-        }
-
-        impl Matcher for RleLiteralMatcher {
-            fn get_next_space(&mut self) -> Vec<u8> {
-                Vec::new()
-            }
-
-            fn get_last_space(&mut self) -> &[u8] {
-                &[]
-            }
-
-            fn commit_space(&mut self, _space: Vec<u8>) {}
-
-            fn skip_matching(&mut self) {}
-
-            fn start_matching(&mut self, mut handle_sequence: impl for<'a> FnMut(Sequence<'a>)) {
-                if !self.emitted {
-                    self.emitted = true;
-                    handle_sequence(Sequence::Triple {
-                        literals: &self.literals,
-                        offset: 1,
-                        match_len: 16,
-                    });
-                }
-            }
-
-            fn reset(&mut self, _level: crate::encoding::CompressionLevel) {
-                self.emitted = false;
-            }
-
-            fn window_size(&self) -> u64 {
-                128 * 1024
-            }
-        }
-
-        let mut state = CompressState {
-            matcher: RleLiteralMatcher {
-                literals: alloc::vec![42; 2048],
-                emitted: false,
-            },
-            last_huff_table: None,
-            fse_tables: FseTables::new(),
-            offset_history: OffsetHistory::new(),
-        };
-        let mut block_payload = Vec::new();
-
-        compress_block(&mut state, &mut block_payload);
+        let (block_payload, frame, expected) =
+            compressed_frame_with_literal_payload(alloc::vec![42; 2048]);
 
         assert_eq!(block_payload[0] & 0b11, 1, "literal section should be RLE");
 
-        let mut frame = Vec::new();
-        crate::encoding::frame_header::FrameHeader {
-            frame_content_size: None,
-            single_segment: false,
-            content_checksum: false,
-            dictionary_id: None,
-            window_size: Some(128 * 1024),
-        }
-        .serialize(&mut frame);
-        crate::encoding::block_header::BlockHeader {
-            last_block: true,
-            block_type: crate::blocks::block::BlockType::Compressed,
-            block_size: block_payload.len() as u32,
-        }
-        .serialize(&mut frame);
-        frame.extend_from_slice(&block_payload);
+        let mut rust_decoded = Vec::with_capacity(expected.len());
+        let mut decoder = crate::decoding::FrameDecoder::new();
+        decoder
+            .decode_all_to_vec(&frame, &mut rust_decoded)
+            .unwrap();
+        assert_eq!(rust_decoded, expected);
 
-        let expected = alloc::vec![42; 2064];
+        let mut c_decoded = Vec::new();
+        zstd::stream::copy_decode(frame.as_slice(), &mut c_decoded).unwrap();
+        assert_eq!(c_decoded, expected);
+    }
+
+    #[test]
+    fn small_compressible_literals_use_huffman_and_round_trip() {
+        let mut literals = alloc::vec![b'a'; 512];
+        for idx in (15..literals.len()).step_by(16) {
+            literals[idx] = b'b';
+        }
+
+        let (block_payload, frame, expected) = compressed_frame_with_literal_payload(literals);
+
+        assert_eq!(
+            block_payload[0] & 0b11,
+            2,
+            "small skewed literal section should use Huffman compression"
+        );
+
         let mut rust_decoded = Vec::with_capacity(expected.len());
         let mut decoder = crate::decoding::FrameDecoder::new();
         decoder

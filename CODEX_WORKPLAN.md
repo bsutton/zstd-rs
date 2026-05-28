@@ -103,6 +103,7 @@ Quality constraints:
 - Hoisted the current block length into a local scalar in the matcher loop, mirroring the C fast parser's local `iend`/`ilimit` style and avoiding repeated `last_entry.data.len()` reads in the dominant path.
 - Removed production `unwrap()` calls from Huffman length-limited tree construction and rank-limited weight distribution. These invariants now use explicit branches with a cold panic helper, while tests cover deterministic tied-count behavior plus representative bounded/prefix-free Huffman tables.
 - Added encoder emission for RLE literal sections when the literal payload for a compressed block is one repeated byte. This matches an existing decoder-supported Zstd literal section mode and adds both literal-section decoder coverage and a full frame round-trip through the Rust and C zstd decoders.
+- Lowered the fastest encoder's literal-compression threshold from more than 1024 literals to more than 63 literals, matching C zstd's `COMPRESS_LITERALS_SIZE_MIN` heuristic. Added a focused small-literal compressed-block test that verifies Huffman literal emission and round-trips the full frame through both the Rust and C zstd decoders.
 
 ## Verification So Far
 
@@ -135,12 +136,12 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, and matcher block-length hoisting:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, and C-style small literal-compression threshold:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,160,978 | 5,385,951 | 0.13s | 0.20s | 0.04s |
-| `json_logs_32m.jsonl` | 3,392,237 | 826,471 | 1,138,701 | 0.18s | 0.11s | 0.05s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,159,814 | 5,385,951 | 0.14s | 0.20s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 745,529 | 1,138,701 | 0.18s | 0.11s | 0.04s |
 | `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.12s | 0.01s | 0.02s |
 | `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.59s | 0.02s | 0.05s |
 
@@ -148,14 +149,15 @@ Peak RSS from the same run:
 
 | Fixture | Upstream RSS | Current RSS | C zstd -1 RSS |
 | --- | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 6,604 KB | 10,720 KB | 22,184 KB |
-| `json_logs_32m.jsonl` | 5,928 KB | 9,520 KB | 18,940 KB |
-| `repeated_text_32m.txt` | 5,500 KB | 9,080 KB | 17,928 KB |
-| `xorshift_32m.bin` | 6,200 KB | 9,312 KB | 25,756 KB |
+| `decodecorpus_pack.bin` | 6,476 KB | 10,684 KB | 22,276 KB |
+| `json_logs_32m.jsonl` | 5,788 KB | 9,500 KB | 18,672 KB |
+| `repeated_text_32m.txt` | 5,548 KB | 9,196 KB | 17,900 KB |
+| `xorshift_32m.bin` | 6,068 KB | 9,192 KB | 23,592 KB |
 
 Interpretation:
 
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; the current branch remains smaller than C zstd on all three compressible fixtures and one byte smaller on xorshift.
+- Lowering the literal-compression threshold to C zstd's 63-byte heuristic improved JSON size by 80,942 bytes and decodecorpus by 1,164 bytes versus the previous retained snapshot. Two runs kept JSON CPU at 0.11s, repeated/xorshift unchanged, and decodecorpus at 0.22s then 0.20s; keep it as a clear compression win with covered bitstream behavior.
 - The repeat-offset search early exit, sparse long-match indexing, no-match probe step, and text-only wider probing trade about 50 KiB of decodecorpus compression and 2 bytes of repeated-text compression for a large CPU improvement, while JSON is now materially smaller than before the CPU parser shortcuts. The repeat/hash prechecks, hot helper inlining, fixed repeat-candidate loops, candidate-helper inlining, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, and matcher block-length hoisting keep output sizes unchanged and improve or simplify CPU hot paths further. The measured current aggregate CPU is now about 0.34s versus about 0.90s before these CPU-focused parser shortcuts.
 - Text-only wider no-match probing improved JSON size from 849,901 bytes to 826,471 bytes with only a 370-byte decodecorpus size cost, avoiding the much larger global step-3 decodecorpus regression.
 - Candidate-helper inlining improved decodecorpus CPU from about 0.26s to 0.25s with no size change on the fixture set.
@@ -235,6 +237,7 @@ Interpretation:
 - Tested forcing the safe chunked prefix helper itself inline after profiles kept the matcher body dominant. Output bytes were unchanged, but the repeat table run drifted decodecorpus to 0.21s and did not improve JSON, so the optimizer's existing inlining choice remains better.
 - Tested packing a short suffix fingerprint into the high bits of each stored two-candidate suffix index so hash-slot collisions can be filtered before candidate byte comparison, then narrowed it to binary-looking blocks only. Output bytes stayed unchanged and decodecorpus improved to 0.19s, but JSON regressed to 0.12s across runs, so the untagged two-candidate store remains the best aggregate choice.
 - RLE literal-section emission did not change the current PR fixture byte counts, so those fixtures do not exercise all-same large literal payloads. Two table runs stayed in the current noise band with decodecorpus at 0.20s/0.19s and JSON at 0.12s both times; keep the change as covered format/compression-quality work rather than as a fixture-specific benchmark win.
+- Tested raising the previous-FSE-table repeat threshold from the current small-block limit of 64 sequences to C fast's broader 1000-sequence heuristic, while keeping the all-symbols-encodable guard. Decodecorpus grew by 107 bytes and CPU regressed to 0.22s with no JSON size benefit, so the local narrower repeat-table policy remains better.
 
 ## Next Steps
 
