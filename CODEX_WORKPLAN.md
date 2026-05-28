@@ -161,6 +161,7 @@ Interpretation:
 - Touched-slot suffix-store clearing preserved exact fixture byte counts. It reduced JSON CPU from the 0.18-0.19s band to 0.17s, reduced xorshift CPU to 0.02s, and moved JSON `commit_space` from about 7% to about 1.1% in perf. A pure touched-slot vector raised decodecorpus RSS to about 11.4 MB, so the retained implementation switches to full sequential clearing after 32K touched slots; that kept the JSON CPU win while lowering decodecorpus RSS to about 10.7 MB. A 64K threshold was tested and rejected after it regressed decodecorpus and JSON CPU on the table run.
 - Direct matcher repeat-history updates preserved exact fixture byte counts, kept JSON at 0.17s, and moved decodecorpus back to 0.25s on the table run. The follow-up JSON profile removed the previously visible matcher-side `OffsetHistory::encode_offset_value` cost, leaving only small residual repeat-history samples around sequence emission.
 - Tested replacing the no-match skip guard's small range iterator with explicit branches for probe steps 2 and 3. Output bytes were unchanged, but decodecorpus drifted to 0.26s and JSON to 0.18s on the table run, so the original iterator-shaped guard was kept.
+- Tested replacing FSE `SymbolStates::get()`'s iterator search with an explicit indexed loop and cold panic path. Output bytes were unchanged, but decodecorpus drifted to 0.26s and JSON to 0.18s on the table run, so the original iterator/`unwrap` form was kept for this hot lookup.
 
 ## Next Steps
 
