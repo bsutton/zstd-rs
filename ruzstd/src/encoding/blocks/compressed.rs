@@ -236,6 +236,16 @@ fn encode_sequences(
     ml_mode: &FseTableMode<'_>,
     of_mode: &FseTableMode<'_>,
 ) {
+    if let (
+        FseTableMode::Rle(ll_symbol),
+        FseTableMode::Rle(ml_symbol),
+        FseTableMode::Rle(of_symbol),
+    ) = (ll_mode, ml_mode, of_mode)
+    {
+        encode_rle_sequences(sequences, writer, *ll_symbol, *ml_symbol, *of_symbol);
+        return;
+    }
+
     let sequence = sequences[sequences.len() - 1];
     let ll_table = ll_mode.table();
     let ml_table = ml_mode.table();
@@ -277,6 +287,34 @@ fn encode_sequences(
     flush_fse_state(ml_table, ml_state, writer);
     flush_fse_state(of_table, of_state, writer);
     flush_fse_state(ll_table, ll_state, writer);
+
+    let bits_to_fill = writer.misaligned();
+    if bits_to_fill == 0 {
+        writer.write_bits(1u32, 8);
+    } else {
+        writer.write_bits(1u32, bits_to_fill);
+    }
+}
+
+fn encode_rle_sequences(
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    writer: &mut BitWriter<&mut Vec<u8>>,
+    ll_symbol: u8,
+    ml_symbol: u8,
+    of_symbol: u8,
+) {
+    for sequence in sequences.iter().rev() {
+        let (ll_code, ll_add_bits, ll_num_bits) = encode_literal_length(sequence.ll);
+        let (of_code, of_add_bits, of_num_bits) = encode_offset(sequence.of);
+        let (ml_code, ml_add_bits, ml_num_bits) = encode_match_len(sequence.ml);
+        debug_assert_eq!(ll_code, ll_symbol);
+        debug_assert_eq!(ml_code, ml_symbol);
+        debug_assert_eq!(of_code, of_symbol);
+
+        writer.write_bits(ll_add_bits, ll_num_bits);
+        writer.write_bits(ml_add_bits, ml_num_bits);
+        writer.write_bits(of_add_bits, of_num_bits);
+    }
 
     let bits_to_fill = writer.misaligned();
     if bits_to_fill == 0 {
@@ -986,6 +1024,60 @@ mod tests {
                 ll: 5,
                 ml: 8,
                 of: 1,
+            },
+        ];
+        let ll_mode = FseTableMode::Rle(encode_literal_length(sequences[0].ll).0);
+        let ml_mode = FseTableMode::Rle(encode_match_len(sequences[0].ml).0);
+        let of_mode = FseTableMode::Rle(encode_offset(sequences[0].of).0);
+        let mut encoded = Vec::new();
+        let mut writer = BitWriter::from(&mut encoded);
+
+        encode_seqnum(sequences.len(), &mut writer);
+        writer.write_bits(encode_fse_table_modes(&ll_mode, &ml_mode, &of_mode), 8);
+        encode_table(&ll_mode, &mut writer);
+        encode_table(&of_mode, &mut writer);
+        encode_table(&ml_mode, &mut writer);
+        encode_sequences(&sequences, &mut writer, &ll_mode, &ml_mode, &of_mode);
+        writer.flush();
+
+        let mut header = crate::blocks::sequence_section::SequencesHeader::new();
+        let header_size = header.parse_from_header(&encoded).unwrap();
+        let mut scratch = crate::decoding::scratch::FSEScratch::new();
+        let mut decoded = Vec::new();
+
+        crate::decoding::sequence_section_decoder::decode_sequences(
+            &header,
+            &encoded[header_size as usize..],
+            &mut scratch,
+            &mut decoded,
+        )
+        .unwrap();
+
+        assert_eq!(decoded.len(), sequences.len());
+        for (actual, expected) in decoded.iter().zip(sequences) {
+            assert_eq!(actual.ll, expected.ll);
+            assert_eq!(actual.ml, expected.ml);
+            assert_eq!(actual.of, expected.of);
+        }
+    }
+
+    #[test]
+    fn all_rle_sequence_modes_preserve_additional_bits() {
+        let sequences = [
+            crate::blocks::sequence_section::Sequence {
+                ll: 16,
+                ml: 35,
+                of: 4,
+            },
+            crate::blocks::sequence_section::Sequence {
+                ll: 17,
+                ml: 36,
+                of: 5,
+            },
+            crate::blocks::sequence_section::Sequence {
+                ll: 16,
+                ml: 35,
+                of: 6,
             },
         ];
         let ll_mode = FseTableMode::Rle(encode_literal_length(sequences[0].ll).0);
