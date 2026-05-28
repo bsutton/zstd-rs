@@ -665,6 +665,7 @@ impl MatchGenerator {
             .is_some_and(|source| source == &context.data_slice[..MIN_MATCH_LEN])
     }
 
+    #[inline(always)]
     fn bounded_u32(value: usize) -> u32 {
         match u32::try_from(value) {
             Ok(value) => value,

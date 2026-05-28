@@ -116,6 +116,7 @@ pub fn compress_block<M: Matcher>(
     new_huffman_table
 }
 
+#[inline(always)]
 fn offset_to_u32(offset: usize) -> u32 {
     match u32::try_from(offset) {
         Ok(offset) => offset,
