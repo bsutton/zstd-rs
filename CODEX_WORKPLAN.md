@@ -17,6 +17,8 @@ Quality constraints:
 - Avoid `unsafe` code. Treat safe Rust as a goal constraint, not just a preference.
 - Keep fastest-level work conservative on CPU. If an experiment gives materially better compression but costs too much CPU for level 1, record it as a candidate for a future higher compression level instead of discarding the knowledge.
 - Treat future compression levels as first-class design space: level 1 should stay comparable to C zstd's fast level tradeoffs, while higher levels can spend more CPU for better parsing, larger searches, stronger entropy choices, or more exact cost modeling.
+- Do not force every compression win into level 1. If a change gives an impressive size result but has an obvious CPU cost, preserve the benchmark and implementation notes as a higher-level candidate, then keep level 1 on the current fast-parser budget.
+- When evaluating those higher-level candidates, compare against C zstd at the corresponding levels as well as `-1`, so the CPU/ratio tradeoff is judged against the right target.
 - Prefer clear state machines and small helpers over clever code that is harder to verify.
 - Prefer explicit typed state over manual bit packing when the measured cost is acceptable. For matcher suffix candidates, the chosen direction is a small struct with two `Option<NonZeroU32>` values rather than packing two indexes into one `NonZeroU64`.
 - Keep `usize` for Rust slice/window positions while searching, because slice indexing and lengths are naturally `usize`. Convert to `u32`/`NonZeroU32` only at bounded storage or bitstream boundaries, with checked conversions and cold invariant panics where the bound is guaranteed by the compressor window.
@@ -381,7 +383,15 @@ Interpretation:
 
 ## Higher Compression Level Candidates
 
-These ideas are too expensive or too broad for the current fastest-level acceptance bar, but should be reconsidered when adding higher compression levels:
+Compression level policy:
+
+- Level 1 remains the current priority. It should stay close to C zstd fast-level behavior: low parser/search cost, conservative entropy decisions, and no broad exact searches unless they pay for themselves on the PR fixtures and the expanded suite.
+- Higher levels are explicitly allowed to spend more CPU for better compression. Promising ideas include larger candidate searches, stronger lazy parsing, broader exact entropy-table selection, more precise block cost modeling, and level-specific match thresholds.
+- Any experiment that materially improves size but costs too much CPU for level 1 should be recorded here with its benchmark paths, byte deltas, CPU deltas, and likely target level. Do not discard those notes just because the change is not suitable for the fastest level.
+- Benchmark higher-level candidates against C zstd at matching levels, not only against C zstd `-1`. Use C's reported parameter sets as guidance for acceptable tradeoffs: fast levels use cheap hash/search settings, while mid/higher levels can use larger tables, deeper search, greedy/lazy parsing, and stronger entropy choices.
+- Keep the same quality bar for higher levels: safe idiomatic Rust, no `unsafe` unless the project explicitly accepts a separate tradeoff, and focused tests plus Rust/C decoder round trips for emitted-bitstream changes.
+
+Current candidates that are too expensive or too broad for the current fastest-level acceptance bar, but should be reconsidered when adding higher compression levels:
 
 - Broad exact Huffman table-depth selection: applying `build_smallest_from_counts()` to every new Huffman literal table improved PR fixture sizes by 67 bytes on `decodecorpus_pack.bin` and 4 bytes on `json_logs_32m.jsonl`, and improved several expanded repeated-text boundary cases, but moved decodecorpus CPU from the retained ~0.16s band to ~0.18-0.19s. This is a plausible higher-level entropy optimization.
 - Broader parser searches that were rejected for level 1 due to CPU cost or small fast-level regressions may be useful above level 1 if guarded by a clear level policy and benchmarked against C zstd's corresponding levels.
