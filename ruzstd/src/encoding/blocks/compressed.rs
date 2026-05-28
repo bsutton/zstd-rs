@@ -238,28 +238,28 @@ fn encode_sequences(
     writer.write_bits(ml_add_bits, ml_num_bits);
     writer.write_bits(of_add_bits, of_num_bits);
 
-    // encode backwards so the decoder reads the first sequence first
-    if sequences.len() > 1 {
-        for sequence in (0..=sequences.len() - 2).rev() {
-            let sequence = sequences[sequence];
-            let (ll_code, ll_add_bits, ll_num_bits) = encode_literal_length(sequence.ll);
-            let (of_code, of_add_bits, of_num_bits) = encode_offset(sequence.of);
-            let (ml_code, ml_add_bits, ml_num_bits) = encode_match_len(sequence.ml);
+    // Encode backwards so the decoder reads the first sequence first.
+    let mut sequence_idx = sequences.len() - 1;
+    while sequence_idx > 0 {
+        sequence_idx -= 1;
+        let sequence = sequences[sequence_idx];
+        let (ll_code, ll_add_bits, ll_num_bits) = encode_literal_length(sequence.ll);
+        let (of_code, of_add_bits, of_num_bits) = encode_offset(sequence.of);
+        let (ml_code, ml_add_bits, ml_num_bits) = encode_match_len(sequence.ml);
 
-            {
-                update_fse_state(of_table, &mut of_state, of_code, writer);
-            }
-            {
-                update_fse_state(ml_table, &mut ml_state, ml_code, writer);
-            }
-            {
-                update_fse_state(ll_table, &mut ll_state, ll_code, writer);
-            }
-
-            writer.write_bits(ll_add_bits, ll_num_bits);
-            writer.write_bits(ml_add_bits, ml_num_bits);
-            writer.write_bits(of_add_bits, of_num_bits);
+        {
+            update_fse_state(of_table, &mut of_state, of_code, writer);
         }
+        {
+            update_fse_state(ml_table, &mut ml_state, ml_code, writer);
+        }
+        {
+            update_fse_state(ll_table, &mut ll_state, ll_code, writer);
+        }
+
+        writer.write_bits(ll_add_bits, ll_num_bits);
+        writer.write_bits(ml_add_bits, ml_num_bits);
+        writer.write_bits(of_add_bits, of_num_bits);
     }
     flush_fse_state(ml_table, ml_state, writer);
     flush_fse_state(of_table, of_state, writer);
