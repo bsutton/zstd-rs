@@ -181,9 +181,9 @@ Latest successful commands:
 
 ## Latest Benchmark Snapshot
 
-Script: `/tmp/zstd_bench_current_branch.py`
+Script: `tools/benchmark_zstd.py`
 
-This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
+This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full. The verifier decodes each compressed output with C zstd and compares the decoded bytes against the original fixture bytes; benchmark rows therefore prove both decode success and byte-for-byte identity. The latest saved byte-verified outputs are `/tmp/zstd-rs-benchmark-942fb64-verified.csv` and `/tmp/zstd-rs-benchmark-942fb64-verified.md`.
 
 Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, C-style small literal-compression threshold, exact-block EOF lookahead, BitWriter exact-fill fast path, precomputed suffix key values, countdown sequence encoding, inlined literal/match length-code helpers, sparse RLE history indexing, hardened suffix-store sizing, repeat-offset availability pruning, C-sized suffix hash tables, newest-first block-end hash search, C-style single-stream Huffman literals below 256 bytes, and C-style minimum-gain rejection for Huffman literal sections:
 
@@ -325,6 +325,7 @@ Interpretation:
 - Retested suffix-candidate key tags after the smaller C-sized hash table increased collision pressure. Full tag filtering preserved bytes and improved decodecorpus to 0.16s on one run, but JSON regressed badly to 0.14s. Narrowing tags to binary-looking blocks still regressed JSON to 0.14s with no decodecorpus win over the retained C-sized hash baseline, so the untagged two-candidate store remains better.
 - Tested a text-only 4 Ki effective suffix hash table after the global 4 Ki table was rejected. It improved decodecorpus by 5 bytes but regressed JSON from 742,727 bytes to 748,825 bytes with no CPU gain, so text-like blocks keep the retained 8 Ki C-fast hash scale.
 - Tested narrowing the no-match skip guard so it only protects the primary repeat-offset candidate from being skipped. Decodecorpus grew by 544 bytes and JSON grew by 8,536 bytes with no JSON CPU improvement, so the guard continues checking all three repeat candidates.
+- Tested removing the hot-path temporary repeat-candidate array from matcher probing by expanding the three repeat-offset checks into direct branches. Output bytes stayed unchanged, but decodecorpus CPU repeatedly measured 0.17s instead of the retained 0.16s band, so the compact fixed-array helper remains better.
 
 ## Next Steps
 
@@ -332,6 +333,26 @@ Interpretation:
 2. Investigate further safe early-exit or candidate-pruning heuristics in match selection; keep compression-ratio guardrails in tests and benchmarks.
 3. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change; excellent coverage is a hard acceptance criterion for retained work.
 4. SIMD remains a matcher byte-comparison topic, but current stable safe-Rust options have not beaten the retained chunked comparison; avoid unsafe/nightly SIMD unless the project explicitly accepts that tradeoff.
+
+## Fixture Expansion Plan
+
+The current four PR fixtures are useful for a stable review table, but they are not broad enough to prove best-quality compressor behavior. Keep them for the PR comparison and add a broader byte-verified local validation suite without committing large binary fixtures.
+
+Planned fixture coverage:
+
+- Silesia corpus or an equivalent mixed real-world corpus, matching the C zstd benchmark style.
+- C zstd `datagen` matrix across input sizes and compressibility levels.
+- Many small files and tiny payloads, including 0, 1, 6, 63, 128, 256, 4 KiB, and 128 KiB boundary cases.
+- Dictionary compression cases, including small samples and dictionary reuse.
+- Long-distance and cross-block repetition cases.
+- Already-compressed/high-entropy formats to exercise raw fallback and incompressibility gates.
+- Generated decodecorpus frame/data pairs where the original data is available for byte comparison.
+- Streaming/chunked input cases to catch behavior that whole-buffer tests miss.
+
+Benchmark acceptance rule:
+
+- Every benchmarked compressed output must be decoded with C zstd and compared byte-for-byte against the original fixture.
+- The committed PR fixture table may remain small, but optimization decisions should be checked against the broader suite before considering the C-comparison work complete.
 
 ## Coverage Audit
 
