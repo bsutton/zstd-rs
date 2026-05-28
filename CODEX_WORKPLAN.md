@@ -105,12 +105,14 @@ Quality constraints:
 - Added encoder emission for RLE literal sections when the literal payload for a compressed block is one repeated byte. This matches an existing decoder-supported Zstd literal section mode and adds both literal-section decoder coverage and a full frame round-trip through the Rust and C zstd decoders.
 - Lowered the fastest encoder's literal-compression threshold from more than 1024 literals to more than 63 literals, matching C zstd's `COMPRESS_LITERALS_SIZE_MIN` heuristic. Added a focused small-literal compressed-block test that verifies Huffman literal emission and round-trips the full frame through both the Rust and C zstd decoders.
 - Added one-byte read lookahead in frame compression so exact block-sized inputs mark the full block as final instead of emitting an extra empty raw block. Focused tests cover both the no-empty-final-block case and preserving the lookahead byte as the first byte of the next block.
+- Added a hot BitWriter path for writes that exactly fill the 64-bit staging buffer, avoiding the cold overflow helper in that common boundary case. Added focused bit-level coverage that exact 64-bit fills flush correctly and preserve following writes.
 
 ## Verification So Far
 
 Latest successful commands:
 
 - `cargo fmt --all --check`
+- `cargo test -q -p ruzstd bit_writer`
 - `cargo test -q -p ruzstd fse`
 - `cargo test -q -p ruzstd encoding::blocks::compressed`
 - `cargo test -q -p ruzstd encoding::match_generator`
@@ -137,28 +139,29 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, C-style small literal-compression threshold, and exact-block EOF lookahead:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, C-style small literal-compression threshold, exact-block EOF lookahead, and BitWriter exact-fill fast path:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,159,814 | 5,385,951 | 0.13s | 0.21s | 0.05s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,159,814 | 5,385,951 | 0.14s | 0.21s | 0.04s |
 | `json_logs_32m.jsonl` | 3,392,237 | 745,529 | 1,138,701 | 0.18s | 0.11s | 0.05s |
 | `repeated_text_32m.txt` | 31,757 | 2,874 | 3,116 | 0.12s | 0.00s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,210 | 33,555,214 | 0.58s | 0.02s | 0.06s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,210 | 33,555,214 | 0.60s | 0.02s | 0.06s |
 
 Peak RSS from the same run:
 
 | Fixture | Upstream RSS | Current RSS | C zstd -1 RSS |
 | --- | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 6,504 KB | 10,664 KB | 22,260 KB |
-| `json_logs_32m.jsonl` | 5,816 KB | 9,468 KB | 18,684 KB |
-| `repeated_text_32m.txt` | 5,608 KB | 9,112 KB | 17,948 KB |
-| `xorshift_32m.bin` | 6,240 KB | 9,208 KB | 27,704 KB |
+| `decodecorpus_pack.bin` | 6,440 KB | 10,740 KB | 22,312 KB |
+| `json_logs_32m.jsonl` | 5,848 KB | 9,508 KB | 18,740 KB |
+| `repeated_text_32m.txt` | 5,512 KB | 9,036 KB | 17,824 KB |
+| `xorshift_32m.bin` | 6,228 KB | 9,192 KB | 25,756 KB |
 
 Interpretation:
 
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; the current branch remains smaller than C zstd on all three compressible fixtures and four bytes smaller on xorshift.
 - Exact-block EOF lookahead removed the extra empty final raw block for exact block-multiple inputs. This improved `repeated_text_32m.txt` and `xorshift_32m.bin` by 3 bytes each, with decodecorpus and JSON byte-identical and CPU in the existing noise band across two runs.
+- BitWriter exact-fill flushing preserved exact fixture byte counts. Two table runs kept decodecorpus at 0.21s, JSON at 0.11s, and repeated/xorshift in their existing bands; retain it because it removes a cold helper call from a common bitstream boundary and has focused bit-level coverage.
 - Lowering the literal-compression threshold to C zstd's 63-byte heuristic improved JSON size by 80,942 bytes and decodecorpus by 1,164 bytes versus the previous retained snapshot. Two runs kept JSON CPU at 0.11s, repeated/xorshift unchanged, and decodecorpus at 0.22s then 0.20s; keep it as a clear compression win with covered bitstream behavior.
 - The repeat-offset search early exit, sparse long-match indexing, no-match probe step, and text-only wider probing trade about 50 KiB of decodecorpus compression and 2 bytes of repeated-text compression for a large CPU improvement, while JSON is now materially smaller than before the CPU parser shortcuts. The repeat/hash prechecks, hot helper inlining, fixed repeat-candidate loops, candidate-helper inlining, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, and matcher block-length hoisting keep output sizes unchanged and improve or simplify CPU hot paths further. The measured current aggregate CPU is now about 0.34s versus about 0.90s before these CPU-focused parser shortcuts.
 - Text-only wider no-match probing improved JSON size from 849,901 bytes to 826,471 bytes with only a 370-byte decodecorpus size cost, avoiding the much larger global step-3 decodecorpus regression.
