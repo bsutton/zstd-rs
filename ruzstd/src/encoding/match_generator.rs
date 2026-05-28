@@ -770,6 +770,13 @@ impl MatchGenerator {
             return 0;
         }
 
+        if offset <= context.suffix_idx {
+            let source_start = context.suffix_idx - offset + verified_prefix_len;
+            let source = &self.last_entry().data[source_start..];
+            let target = &context.data_slice[verified_prefix_len..];
+            return verified_prefix_len + Self::common_prefix_len(source, target);
+        }
+
         let mut len = verified_prefix_len;
         while len < context.data_slice.len() {
             let source_relative = context.suffix_idx as isize + len as isize - offset as isize;
@@ -1133,6 +1140,33 @@ fn verified_min_match_prefix_skips_rechecked_bytes() {
     assert_eq!(
         matcher.match_len_at_offset_with_prefix(8, &context, MIN_MATCH_LEN),
         matcher.match_len_at_offset(8, &context)
+    );
+}
+
+#[test]
+fn same_block_prefix_fast_path_handles_overlap() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        alloc::vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    let context = MatchCandidateContext {
+        suffix_idx: 1,
+        anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
+        data_slice: &last_entry.data[1..],
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+
+    assert_eq!(
+        matcher.match_len_at_offset_with_prefix(1, &context, MIN_MATCH_LEN),
+        matcher.match_len_at_offset(1, &context)
     );
 }
 
