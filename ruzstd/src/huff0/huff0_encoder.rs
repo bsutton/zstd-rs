@@ -285,10 +285,10 @@ impl HuffmanTable {
     }
 
     fn stream_encoded_len(&self, data: &[u8]) -> usize {
-        let bit_len = data
-            .iter()
-            .map(|symbol| self.codes[*symbol as usize].1 as usize)
-            .sum::<usize>();
+        let mut bit_len = 0usize;
+        for symbol in data {
+            bit_len += self.codes[*symbol as usize].1 as usize;
+        }
         bit_len / 8 + 1
     }
 }

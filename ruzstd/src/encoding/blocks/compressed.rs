@@ -498,12 +498,13 @@ impl LiteralStats {
     fn from_literals(literals: &[u8]) -> Self {
         let mut counts = [0; 256];
         let mut max_symbol = 0usize;
+        let mut largest = 0usize;
         for literal in literals {
             let symbol = *literal as usize;
             counts[symbol] += 1;
+            largest = largest.max(counts[symbol]);
             max_symbol = max_symbol.max(symbol);
         }
-        let largest = counts.iter().copied().max().unwrap_or(0);
         Self {
             counts,
             max_symbol,

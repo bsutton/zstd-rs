@@ -78,6 +78,7 @@ Quality constraints:
 - Added focused tests for text and binary no-match probe step selection.
 - Added focused Huffman tests for equal-count rank-limited weight assignment and deterministic length-limited code lengths. These lock down tie behavior before any future table-construction optimization.
 - Removed `unwrap`/`expect`-style invariant handling from production matcher code. The suffix index and committed-window invariants now use explicit safe `match` branches with cold panic paths, keeping the hot path clear without introducing `unsafe`.
+- Removed a redundant literal-statistics pass by tracking the largest symbol count while building the histogram, and simplified Huffman encoded-length estimation to a direct loop. This keeps output bytes unchanged while reducing entropy-path bookkeeping.
 
 ## Verification So Far
 
@@ -137,6 +138,7 @@ Interpretation:
 - Tested replacing suffix `windows(MIN_MATCH_LEN)` insertion with direct index-based key extraction. Output sizes were unchanged, but JSON CPU repeatedly regressed from the 0.18-0.19s band to about 0.20-0.21s, so the change was not kept.
 - Tested replacing the hot `bounded_u32` `TryFrom` path with an explicit checked branch plus cold panic path. Output sizes were unchanged, but decodecorpus and JSON CPU drifted worse across two runs, so the change was not kept.
 - Tested C-fast-style immediate zero-literal repeat early exits. Threshold 5 slightly improved decodecorpus size but regressed JSON size, threshold 6 regressed JSON and did not beat the baseline on decodecorpus, and threshold 7 was worse than both endpoints. The family was not kept because it trades away text compression without a reliable CPU win.
+- Entropy-path bookkeeping cleanup preserved exact fixture byte counts. Benchmarks were neutral within noise: decodecorpus measured 0.26s then 0.28s, JSON stayed at 0.19s, and repeated text stayed at 0.01s.
 
 ## Next Steps
 
