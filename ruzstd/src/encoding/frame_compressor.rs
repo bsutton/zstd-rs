@@ -268,11 +268,17 @@ impl<R: Read, W: Write, M: Matcher> FrameCompressor<R, W, M> {
         };
         header.serialize(output);
         // Now compress block by block
+        let mut pending_byte = None;
         loop {
             // Read a single block's worth of uncompressed data from the input
             let mut uncompressed_data = self.state.matcher.get_next_space();
-            let mut read_bytes = 0;
-            let last_block;
+            let mut read_bytes = if let Some(byte) = pending_byte.take() {
+                uncompressed_data[0] = byte;
+                1
+            } else {
+                0
+            };
+            let mut last_block;
             'read_loop: loop {
                 let new_bytes = source.read(&mut uncompressed_data[read_bytes..]).unwrap();
                 if new_bytes == 0 {
@@ -283,6 +289,14 @@ impl<R: Read, W: Write, M: Matcher> FrameCompressor<R, W, M> {
                 if read_bytes == uncompressed_data.len() {
                     last_block = false;
                     break 'read_loop;
+                }
+            }
+            if !last_block {
+                let mut lookahead = [0u8; 1];
+                match source.read(&mut lookahead).unwrap() {
+                    0 => last_block = true,
+                    1 => pending_byte = Some(lookahead[0]),
+                    _ => unreachable!("single-byte read cannot return more than one byte"),
                 }
             }
             uncompressed_data.resize(read_bytes, 0);
@@ -484,6 +498,76 @@ mod tests {
         compressor.set_drain(&mut output);
 
         compressor.compress();
+
+        let mut decoder = FrameDecoder::new();
+        let mut decoded = Vec::with_capacity(mock_data.len());
+        decoder.decode_all_to_vec(&output, &mut decoded).unwrap();
+        assert_eq!(mock_data, decoded);
+    }
+
+    #[test]
+    fn exact_full_block_is_marked_last_without_empty_block() {
+        let mock_data = vec![7; 128 * 1024];
+        let mut output: Vec<u8> = Vec::new();
+        let mut compressor = FrameCompressor::new(super::CompressionLevel::Uncompressed);
+        compressor.set_source(mock_data.as_slice());
+        compressor.set_drain(&mut output);
+
+        compressor.compress();
+
+        let (_, frame_header_size) = crate::decoding::frame::read_frame_header(output.as_slice())
+            .expect("frame header should parse");
+        let mut block_decoder = crate::decoding::block_decoder::new();
+        let (block_header, _) = block_decoder
+            .read_block_header(&output[frame_header_size as usize..])
+            .expect("block header should parse");
+
+        assert!(block_header.last_block);
+        assert_eq!(
+            block_header.block_type,
+            crate::blocks::block::BlockType::Raw
+        );
+        assert_eq!(block_header.content_size, mock_data.len() as u32);
+
+        let mut decoder = FrameDecoder::new();
+        let mut decoded = Vec::with_capacity(mock_data.len());
+        decoder.decode_all_to_vec(&output, &mut decoded).unwrap();
+        assert_eq!(mock_data, decoded);
+    }
+
+    #[test]
+    fn full_block_lookahead_preserves_next_block_first_byte() {
+        let mut mock_data = vec![3; 128 * 1024];
+        mock_data.extend_from_slice(&[4, 5, 6]);
+        let mut output: Vec<u8> = Vec::new();
+        let mut compressor = FrameCompressor::new(super::CompressionLevel::Uncompressed);
+        compressor.set_source(mock_data.as_slice());
+        compressor.set_drain(&mut output);
+
+        compressor.compress();
+
+        let (_, frame_header_size) = crate::decoding::frame::read_frame_header(output.as_slice())
+            .expect("frame header should parse");
+        let first_block_start = frame_header_size as usize;
+        let mut block_decoder = crate::decoding::block_decoder::new();
+        let (first_header, first_header_size) = block_decoder
+            .read_block_header(&output[first_block_start..])
+            .expect("first block header should parse");
+        let second_block_start =
+            first_block_start + first_header_size as usize + first_header.content_size as usize;
+        let mut block_decoder = crate::decoding::block_decoder::new();
+        let (second_header, second_header_size) = block_decoder
+            .read_block_header(&output[second_block_start..])
+            .expect("second block header should parse");
+        let second_body_start = second_block_start + second_header_size as usize;
+
+        assert!(!first_header.last_block);
+        assert!(second_header.last_block);
+        assert_eq!(second_header.content_size, 3);
+        assert_eq!(
+            &output[second_body_start..second_body_start + 3],
+            &[4, 5, 6]
+        );
 
         let mut decoder = FrameDecoder::new();
         let mut decoded = Vec::with_capacity(mock_data.len());

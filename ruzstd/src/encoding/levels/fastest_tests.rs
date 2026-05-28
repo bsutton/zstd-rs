@@ -57,7 +57,7 @@ fn incompressible_gate_distinguishes_random_from_repetitive_data() {
 
 #[test]
 fn fastest_emits_whole_block_rle_and_round_trips() {
-    let data = alloc::vec![0x5A; 64 * 1024];
+    let data = alloc::vec![0x5A; 128 * 1024];
     let fastest = assert_fastest_round_trips_with_rust_and_c(&data);
     let (_, frame_header_size) = crate::decoding::frame::read_frame_header(fastest.as_slice())
         .expect("fastest frame header should parse");
