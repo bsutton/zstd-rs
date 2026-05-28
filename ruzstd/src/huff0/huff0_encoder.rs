@@ -8,6 +8,7 @@ use crate::{
 };
 
 const MAX_HUFFMAN_BITS: usize = 11;
+type ActiveHuffmanNode = Reverse<(usize, Option<usize>, Reverse<usize>, usize)>;
 
 pub(crate) struct HuffmanEncoder<'output, 'table, V: AsMut<Vec<u8>>> {
     table: &'table HuffmanTable,
@@ -337,8 +338,8 @@ fn length_limited_code_lengths(counts: &[usize], max_bits: usize) -> Option<Vec<
     }
 
     while active.len() > 1 {
-        let Reverse((_, _, _, left)) = active.pop().unwrap();
-        let Reverse((_, _, _, right)) = active.pop().unwrap();
+        let Reverse((_, _, _, left)) = pop_active_huffman_node(&mut active);
+        let Reverse((_, _, _, right)) = pop_active_huffman_node(&mut active);
         let parent = nodes.len();
         nodes[left].parent = Some(parent);
         nodes[right].parent = Some(parent);
@@ -355,10 +356,10 @@ fn length_limited_code_lengths(counts: &[usize], max_bits: usize) -> Option<Vec<
         if counts[idx] == 0 {
             continue;
         }
-        let mut node_idx = nodes
-            .iter()
-            .position(|node| node.symbol == Some(idx))
-            .unwrap();
+        let mut node_idx = match nodes.iter().position(|node| node.symbol == Some(idx)) {
+            Some(node_idx) => node_idx,
+            None => invalid_huffman_tree(),
+        };
         let mut len = 0;
         while let Some(parent) = nodes[node_idx].parent {
             len += 1;
@@ -457,11 +458,28 @@ fn rank_limited_weights(counts: &[usize]) -> Vec<usize> {
         if *count == 0 {
             weights_distributed[idx] = 0;
         } else {
-            weights_distributed[idx] = weights.pop().unwrap();
+            weights_distributed[idx] = match weights.pop() {
+                Some(weight) => weight,
+                None => invalid_huffman_tree(),
+            };
         }
     }
 
     weights_distributed
+}
+
+#[inline(always)]
+fn pop_active_huffman_node(active: &mut BinaryHeap<ActiveHuffmanNode>) -> ActiveHuffmanNode {
+    match active.pop() {
+        Some(node) => node,
+        None => invalid_huffman_tree(),
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn invalid_huffman_tree() -> ! {
+    panic!("huffman tree construction invariant failed")
 }
 
 /// Assert that the provided value is greater than zero, and returns index of the first set bit
@@ -685,6 +703,33 @@ fn cached_max_num_bits_matches_codes() {
 }
 
 #[test]
+fn build_from_counts_produces_bounded_prefix_free_codes() {
+    let flat_counts = [1usize; 256];
+    let sparse_skewed_counts = [
+        3, 0, 4, 0, 7, 2, 2, 2, 0, 2, 2, 1, 5, 144, 89, 55, 34, 21, 13, 8,
+    ];
+    let tied_counts = [8, 8, 4, 4, 2, 2, 1, 1, 0, 16, 16, 32, 32];
+    let cases: &[&[usize]] = &[&flat_counts, &sparse_skewed_counts, &tied_counts];
+
+    for counts in cases {
+        let table = HuffmanTable::build_from_counts(counts);
+
+        assert_eq!(table.codes.len(), counts.len());
+        assert!(table.max_num_bits <= MAX_HUFFMAN_BITS as u8);
+        for (symbol, (code, num_bits)) in table.codes.iter().copied().enumerate() {
+            assert_eq!(
+                num_bits == 0,
+                counts[symbol] == 0,
+                "symbol {symbol} has count {} and code ({code:b}, {num_bits})",
+                counts[symbol]
+            );
+            assert!(num_bits <= MAX_HUFFMAN_BITS as u8);
+        }
+        assert_prefix_free(&table.codes);
+    }
+}
+
+#[test]
 fn rank_limited_weights_preserve_symbol_order_for_equal_counts() {
     let mut expected_nonzero = distribute_weights(5);
     let limit = expected_nonzero.len().ilog2() as usize + 2;
@@ -775,4 +820,25 @@ fn actual_encoded_len(
     }
     writer.flush();
     encoded.len()
+}
+
+#[cfg(test)]
+fn assert_prefix_free(codes: &[(u32, u8)]) {
+    for (idx, (code, num_bits)) in codes.iter().copied().enumerate() {
+        if num_bits == 0 {
+            continue;
+        }
+        for (other_idx, (other_code, other_num_bits)) in codes.iter().copied().enumerate() {
+            if idx == other_idx || other_num_bits == 0 {
+                continue;
+            }
+            if num_bits <= other_num_bits {
+                let other_code_prefix = other_code >> (other_num_bits - num_bits);
+                assert_ne!(
+                    code, other_code_prefix,
+                    "symbol {idx}'s {num_bits}-bit code is a prefix of symbol {other_idx}'s {other_num_bits}-bit code"
+                );
+            }
+        }
+    }
 }

@@ -101,6 +101,7 @@ Quality constraints:
 - Replaced sequence-emission repeat-offset encoding's temporary repeat-candidate array search with direct branch checks. Existing offset-history tests cover the repeat-code semantics, and the now-unused array helper was removed.
 - Inlined the two safe `usize` to `u32` offset boundary helpers used during sequence emission. This preserves the public `Sequence` offset type and matcher `usize` internals while letting the optimizer fold the checked conversions into their callers.
 - Hoisted the current block length into a local scalar in the matcher loop, mirroring the C fast parser's local `iend`/`ilimit` style and avoiding repeated `last_entry.data.len()` reads in the dominant path.
+- Removed production `unwrap()` calls from Huffman length-limited tree construction and rank-limited weight distribution. These invariants now use explicit branches with a cold panic helper, while tests cover deterministic tied-count behavior plus representative bounded/prefix-free Huffman tables.
 
 ## Verification So Far
 
@@ -226,6 +227,7 @@ Interpretation:
 - Tested replacing matcher prefix comparison's `chunks_exact(N)` shape with stable fixed-array `as_chunks::<N>()` as a safe SIMD-adjacent experiment. Output bytes were unchanged, but decodecorpus measured 0.22s then 0.20s and JSON measured 0.11s then 0.12s, so the existing `chunks_exact` shape remains better.
 - Tested a C-fast-style end-of-block search cleanup that stops probing the last few bytes of large blocks. It improved decodecorpus size by 833 bytes but regressed JSON size by 4,048 bytes and did not improve CPU, so the retained matcher still searches down to the minimum match-length tail.
 - Tested direct branches for common offset codes 1, 2, and 3 as a narrower alternative to the rejected offset-code cache. Output bytes were unchanged, but decodecorpus measured 0.23s on the first run and only recovered to 0.20s on the repeat, so the branch-free `ilog2` offset-code path remains better.
+- Removing Huffman tree-construction `unwrap()` calls preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.20s both times and JSON at 0.11s both times, so keep the explicit invariant handling as a safe, benchmark-neutral cleanup.
 
 ## Next Steps
 
