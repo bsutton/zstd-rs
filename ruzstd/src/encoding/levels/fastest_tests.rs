@@ -80,6 +80,32 @@ fn fastest_emits_whole_block_rle_and_round_trips() {
 }
 
 #[test]
+fn fastest_empty_block_emits_raw_without_panic() {
+    let mut state = CompressState {
+        matcher: MatchGeneratorDriver::new(128 * 1024, 4),
+        last_huff_table: None,
+        fse_tables: FseTables::new(),
+        offset_history: OffsetHistory::new(),
+    };
+    let mut output = Vec::new();
+
+    super::fastest::compress_fastest(&mut state, true, Vec::new(), &mut output);
+
+    let mut block_decoder = crate::decoding::block_decoder::new();
+    let (block_header, block_header_size) = block_decoder
+        .read_block_header(output.as_slice())
+        .expect("empty block header should parse");
+
+    assert_eq!(usize::from(block_header_size), output.len());
+    assert!(block_header.last_block);
+    assert_eq!(
+        block_header.block_type,
+        crate::blocks::block::BlockType::Raw
+    );
+    assert_eq!(block_header.content_size, 0);
+}
+
+#[test]
 fn fastest_round_trips_mixed_text_binary_and_random_blocks() {
     let mut data = Vec::new();
     extend_repeated_to_len(

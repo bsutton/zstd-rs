@@ -24,6 +24,11 @@ pub fn compress_fastest<M: Matcher>(
     output: &mut Vec<u8>,
 ) {
     let block_size = uncompressed_data.len() as u32;
+    if uncompressed_data.is_empty() {
+        write_raw_block(last_block, block_size, &uncompressed_data, output);
+        return;
+    }
+
     // First check to see if run length encoding can be used for the entire block
     if uncompressed_data.iter().all(|x| uncompressed_data[0].eq(x)) {
         let rle_byte = uncompressed_data[0];

@@ -112,6 +112,7 @@ Quality constraints:
 - Split suffix hashing into a precomputed five-byte key value plus per-store slot mapping. Window search now reads the current suffix bytes once and reuses that value across all window entries, matching C zstd's local-hash shape while preserving each store's own table size. Added focused coverage that precomputed key lookup matches normal suffix lookup.
 - Changed sequence bitstream encoding's reverse walk from a reversed range iterator to an explicit countdown loop, matching C zstd's indexed reverse-loop shape. Existing compressed-block and end-to-end Rust/C decoder tests cover the emitted bitstream.
 - Tightened focused coverage after the coverage audit: suffix-store zero index candidates now round-trip through the one-based `NonZeroU32` representation, empty committed matcher entries emit no sequences and can be followed by normal data, and mixed predefined sequence modes round-trip through the decoder.
+- Hardened `compress_fastest()` for empty direct block inputs before the RLE probe indexes byte 0. The normal frame compressor already handles empty frames before block compression, so this is a focused correctness/idiomatic-safety guard rather than a fixture benchmark change. Added focused coverage that an empty fastest block emits a valid raw block without panicking.
 
 ## Verification So Far
 
@@ -161,23 +162,24 @@ Last run after the larger window, match-length fix, RLE sequence modes, incompre
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,159,814 | 5,385,951 | 0.13s | 0.20s | 0.03s |
-| `json_logs_32m.jsonl` | 3,392,237 | 745,529 | 1,138,701 | 0.18s | 0.11s | 0.05s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,159,814 | 5,385,951 | 0.14s | 0.21s | 0.05s |
+| `json_logs_32m.jsonl` | 3,392,237 | 745,529 | 1,138,701 | 0.18s | 0.12s | 0.05s |
 | `repeated_text_32m.txt` | 31,757 | 2,874 | 3,116 | 0.11s | 0.01s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,210 | 33,555,214 | 0.60s | 0.02s | 0.05s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,210 | 33,555,214 | 0.58s | 0.02s | 0.06s |
 
 Peak RSS from the same run:
 
 | Fixture | Upstream RSS | Current RSS | C zstd -1 RSS |
 | --- | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 6,516 KB | 10,744 KB | 22,160 KB |
-| `json_logs_32m.jsonl` | 5,928 KB | 9,444 KB | 18,832 KB |
-| `repeated_text_32m.txt` | 5,496 KB | 9,108 KB | 18,060 KB |
-| `xorshift_32m.bin` | 6,228 KB | 9,220 KB | 23,576 KB |
+| `decodecorpus_pack.bin` | 6,444 KB | 10,764 KB | 22,000 KB |
+| `json_logs_32m.jsonl` | 5,820 KB | 9,464 KB | 18,832 KB |
+| `repeated_text_32m.txt` | 5,600 KB | 9,088 KB | 17,916 KB |
+| `xorshift_32m.bin` | 6,324 KB | 9,196 KB | 25,768 KB |
 
 Interpretation:
 
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; the current branch remains smaller than C zstd on all three compressible fixtures and four bytes smaller on xorshift.
+- The empty fastest-block guard preserved exact fixture byte counts. The refreshed table run measured decodecorpus at 0.21s and JSON at 0.12s, within the existing noise band for this branch. Keep it as a covered direct-block correctness guard; normal frame compression already handles empty frames before calling `compress_fastest()`.
 - Countdown sequence encoding preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.20s both times and JSON at 0.11s both times; keep it as a small sequence-side cleanup that matches C zstd's indexed reverse-loop shape.
 - Precomputed suffix key values preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.20s then 0.21s and JSON at 0.11s both times; keep it as a small safe matcher cleanup that avoids re-reading the current five-byte suffix for every window entry during hash lookup.
 - Refreshed profiles after suffix-key reuse still show matcher search as the dominant cost: about 73% of decodecorpus samples and 66% of JSON samples. JSON also showed sequence encoding around 11%, so sequence-side scalar cleanup remains a secondary target when matcher experiments stop moving.
@@ -310,5 +312,6 @@ Interpretation:
 - Current branch has emitted-bitstream coverage that a high-alphabet literal payload with no estimated Huffman gain uses raw literals and round-trips through both the Rust decoder and the C zstd decoder.
 - Current branch has frame-header coverage for 8-byte frame content sizes so large known-size frames serialize a valid descriptor.
 - Current branch has frame-level coverage that exact full-block inputs do not emit an extra empty final block and that one-byte EOF lookahead preserves the first byte of the following block.
+- Current branch has focused fastest-block coverage that empty direct block inputs emit a valid raw block without indexing byte 0.
 - Current branch still has the existing encode/decode corpus tests and fuzz targets for encode/decode/FSE/Huff0 interop. These are not a replacement for focused regression tests, but they are useful broad coverage.
 - Acceptance rule for future retained changes: add a focused unit/regression test for the changed invariant or an end-to-end Rust+C decode test for emitted-bitstream behavior. If a change is purely a benchmark-only micro-optimization, document why in this file.
