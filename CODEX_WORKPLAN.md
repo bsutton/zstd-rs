@@ -106,6 +106,7 @@ Quality constraints:
 - Lowered the fastest encoder's literal-compression threshold from more than 1024 literals to more than 63 literals, matching C zstd's `COMPRESS_LITERALS_SIZE_MIN` heuristic. Added a focused small-literal compressed-block test that verifies Huffman literal emission and round-trips the full frame through both the Rust and C zstd decoders.
 - Added one-byte read lookahead in frame compression so exact block-sized inputs mark the full block as final instead of emitting an extra empty raw block. Focused tests cover both the no-empty-final-block case and preserving the lookahead byte as the first byte of the next block.
 - Added a hot BitWriter path for writes that exactly fill the 64-bit staging buffer, avoiding the cold overflow helper in that common boundary case. Added focused bit-level coverage that exact 64-bit fills flush correctly and preserve following writes.
+- Split suffix hashing into a precomputed five-byte key value plus per-store slot mapping. Window search now reads the current suffix bytes once and reuses that value across all window entries, matching C zstd's local-hash shape while preserving each store's own table size. Added focused coverage that precomputed key lookup matches normal suffix lookup.
 
 ## Verification So Far
 
@@ -143,27 +144,28 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, C-style small literal-compression threshold, exact-block EOF lookahead, and BitWriter exact-fill fast path:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, C-style small literal-compression threshold, exact-block EOF lookahead, BitWriter exact-fill fast path, and precomputed suffix key values:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,159,814 | 5,385,951 | 0.14s | 0.21s | 0.04s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,159,814 | 5,385,951 | 0.14s | 0.21s | 0.05s |
 | `json_logs_32m.jsonl` | 3,392,237 | 745,529 | 1,138,701 | 0.18s | 0.11s | 0.05s |
 | `repeated_text_32m.txt` | 31,757 | 2,874 | 3,116 | 0.12s | 0.00s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,210 | 33,555,214 | 0.60s | 0.02s | 0.06s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,210 | 33,555,214 | 0.60s | 0.02s | 0.05s |
 
 Peak RSS from the same run:
 
 | Fixture | Upstream RSS | Current RSS | C zstd -1 RSS |
 | --- | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 6,440 KB | 10,740 KB | 22,312 KB |
-| `json_logs_32m.jsonl` | 5,848 KB | 9,508 KB | 18,740 KB |
-| `repeated_text_32m.txt` | 5,512 KB | 9,036 KB | 17,824 KB |
-| `xorshift_32m.bin` | 6,228 KB | 9,192 KB | 25,756 KB |
+| `decodecorpus_pack.bin` | 6,492 KB | 10,752 KB | 22,280 KB |
+| `json_logs_32m.jsonl` | 5,948 KB | 9,592 KB | 18,820 KB |
+| `repeated_text_32m.txt` | 5,612 KB | 9,136 KB | 17,952 KB |
+| `xorshift_32m.bin` | 6,132 KB | 9,244 KB | 25,572 KB |
 
 Interpretation:
 
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; the current branch remains smaller than C zstd on all three compressible fixtures and four bytes smaller on xorshift.
+- Precomputed suffix key values preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.20s then 0.21s and JSON at 0.11s both times; keep it as a small safe matcher cleanup that avoids re-reading the current five-byte suffix for every window entry during hash lookup.
 - Exact-block EOF lookahead removed the extra empty final raw block for exact block-multiple inputs. This improved `repeated_text_32m.txt` and `xorshift_32m.bin` by 3 bytes each, with decodecorpus and JSON byte-identical and CPU in the existing noise band across two runs.
 - BitWriter exact-fill flushing preserved exact fixture byte counts. Two table runs kept decodecorpus at 0.21s, JSON at 0.11s, and repeated/xorshift in their existing bands; retain it because it removes a cold helper call from a common bitstream boundary and has focused bit-level coverage.
 - Refreshed profiles after the BitWriter exact-fill change still show matcher search as the dominant CPU cost: about 70% of decodecorpus samples and 76% of JSON samples. The former `write_bits_64_cold` hotspot dropped to about 0.5% of decodecorpus samples, so further CPU work should stay focused on matcher search/counting unless future profiles shift.
@@ -265,6 +267,7 @@ Interpretation:
 
 - Current branch has focused unit tests for matcher suffix candidates, repeat-offset candidate ordering, repeat-history updates, prechecks, sparse indexing, no-match step selection, FSE table selection, FSE `acc_log` caching, and Huffman length/weight invariants.
 - Current branch has focused coverage that suffix hash keys stay inside the slot table without a final modulo, including a non-power-of-two capacity.
+- Current branch has focused coverage that suffix lookup through a precomputed five-byte key value matches ordinary suffix lookup.
 - Current branch has focused coverage that touched-slot preallocation stays modest and below the full-clear threshold.
 - Current branch has focused coverage that same-block match-length scanning with a verified prefix still handles overlapping matches by comparing against the generic relative-window scanner.
 - Current branch has focused coverage for the explicit suffix-candidate helper, including best-candidate replacement and the offset-1 block-end early exit.

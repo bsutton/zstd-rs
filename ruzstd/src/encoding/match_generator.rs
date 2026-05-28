@@ -220,9 +220,15 @@ impl SuffixStore {
         panic!("suffix index must fit in non-zero u32")
     }
 
+    #[cfg(test)]
     #[inline(always)]
     fn candidates(&self, suffix: &[u8]) -> Option<CandidateIndexes> {
-        let key = self.key(suffix);
+        self.candidates_for_key_value(Self::key_value(suffix))
+    }
+
+    #[inline(always)]
+    fn candidates_for_key_value(&self, value: u64) -> Option<CandidateIndexes> {
+        let key = self.key_from_value(value);
         let slot = self.slots[key]?;
         let oldest = slot.oldest.get() as usize - 1;
         let newest = slot.newest.get() as usize - 1;
@@ -232,11 +238,20 @@ impl SuffixStore {
 
     #[inline(always)]
     fn key(&self, suffix: &[u8]) -> usize {
-        let value = u64::from(suffix[0])
+        self.key_from_value(Self::key_value(suffix))
+    }
+
+    #[inline(always)]
+    fn key_value(suffix: &[u8]) -> u64 {
+        u64::from(suffix[0])
             | (u64::from(suffix[1]) << 8)
             | (u64::from(suffix[2]) << 16)
             | (u64::from(suffix[3]) << 24)
-            | (u64::from(suffix[4]) << 32);
+            | (u64::from(suffix[4]) << 32)
+    }
+
+    #[inline(always)]
+    fn key_from_value(&self, value: u64) -> usize {
         let index = value.wrapping_mul(0x9E37_79B1_85EB_CA87);
         let index = index >> (64 - self.len_log);
         index as usize
@@ -409,7 +424,7 @@ impl MatchGenerator {
             }
 
             // This is the key we are looking to find a match for
-            let key = &data_slice[..MIN_MATCH_LEN];
+            let key_value = SuffixStore::key_value(&data_slice[..MIN_MATCH_LEN]);
 
             // Look in each window entry
             let mut candidate = None;
@@ -460,7 +475,9 @@ impl MatchGenerator {
 
             if !repeat_match_reaches_end_or_is_long {
                 'window_search: for match_entry in self.window.iter() {
-                    if let Some(candidates) = match_entry.suffixes.candidates(key) {
+                    if let Some(candidates) =
+                        match_entry.suffixes.candidates_for_key_value(key_value)
+                    {
                         if let Some(match_index) = candidates.newest {
                             if self.consider_window_candidate(
                                 match_entry,
@@ -1072,6 +1089,24 @@ fn suffix_store_key_is_bounded_without_modulo() {
     ] {
         assert!(suffixes.key(suffix) < suffixes.slots.len());
     }
+}
+
+#[test]
+fn suffix_store_reuses_precomputed_key_values_for_lookup() {
+    let mut suffixes = SuffixStore::with_capacity(64);
+
+    suffixes.insert(b"abcde", 11);
+    let key_value = SuffixStore::key_value(b"abcde");
+    let candidates = suffixes
+        .candidates_for_key_value(key_value)
+        .expect("candidate should exist for precomputed key");
+
+    assert_eq!(suffixes.key(b"abcde"), suffixes.key_from_value(key_value));
+    assert_eq!(candidates.oldest, 11);
+    assert_eq!(candidates.newest, None);
+    assert!(suffixes
+        .candidates_for_key_value(SuffixStore::key_value(b"vwxyz"))
+        .is_none());
 }
 
 #[test]
