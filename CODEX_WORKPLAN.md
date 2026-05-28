@@ -274,6 +274,7 @@ Interpretation:
 - Tested a less aggressive 192-sample incompressibility gate as a compromise after the 128-sample version regressed decodecorpus size. Output bytes stayed unchanged, but JSON stayed at 0.12s across both table runs and decodecorpus only improved on the first run before returning to 0.21s, so the 256-sample gate remains the best measured point.
 - Tested hoisting the current-block byte slice out of the backward-extension loop. Output bytes stayed unchanged and focused matcher tests passed, but decodecorpus regressed to 0.23s on the first table run and only recovered to the normal band on repeat, so the original loop shape remains.
 - Tested deferring the current suffix key-value computation until after repeat-offset probing, so repeat matches that skip hash-table search would avoid one five-byte key load. Output bytes stayed unchanged, but two table runs measured decodecorpus at 0.21s with no JSON CPU improvement, so the existing eager key computation remains.
+- Tested C-style precomputed sequence code byte arrays for literal length, match length, and offset code selection/encoding. Focused compressed-block, fastest-frame, and clippy checks passed and output bytes stayed unchanged, but the first table run regressed JSON CPU to 0.12s and the repeat showed no stable improvement while adding three side vectors, so the simpler recompute-on-use path remains.
 
 ## Next Steps
 
