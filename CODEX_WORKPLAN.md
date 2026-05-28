@@ -228,6 +228,9 @@ Interpretation:
 - Tested a C-fast-style end-of-block search cleanup that stops probing the last few bytes of large blocks. It improved decodecorpus size by 833 bytes but regressed JSON size by 4,048 bytes and did not improve CPU, so the retained matcher still searches down to the minimum match-length tail.
 - Tested direct branches for common offset codes 1, 2, and 3 as a narrower alternative to the rejected offset-code cache. Output bytes were unchanged, but decodecorpus measured 0.23s on the first run and only recovered to 0.20s on the repeat, so the branch-free `ilog2` offset-code path remains better.
 - Removing Huffman tree-construction `unwrap()` calls preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.20s both times and JSON at 0.11s both times, so keep the explicit invariant handling as a safe, benchmark-neutral cleanup.
+- Tested a conservative C-fast-style no-match acceleration step that increased the probe distance after each 128 bytes since the current anchor while still checking skipped repeat-offset positions and indexing skipped suffixes. Decodecorpus grew by 1,438 bytes with no CPU improvement and JSON drifted to 0.11s CPU, so the fixed step-2/step-3 matcher remains better.
+- Tested specializing sequence FSE state updates for the common all-table case to remove per-symbol `Option` checks, mirroring C's resolved-state shape. Output bytes were unchanged, but decodecorpus regressed to 0.21s and JSON did not improve, so the existing compact `Option`-based state update remains better.
+- Tested comparing previous/new Huffman literal table reuse lengths in one pass over the literal payload instead of separate `encoded_len()` scans. Output bytes were unchanged, but decodecorpus regressed to 0.22s and JSON to 0.12s, so the existing separate estimator scans remain better.
 
 ## Next Steps
 
