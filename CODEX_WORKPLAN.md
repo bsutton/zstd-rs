@@ -76,6 +76,7 @@ Quality constraints:
 - Switched deterministic FSE/Huffman table-construction sorts to unstable sorting where explicit keys fully define the order. This keeps output bytes unchanged and avoids stable-sort overhead in entropy setup.
 - Added a text-only wider no-match probe step. Text-like blocks now use step 3 while binary-looking blocks keep step 2; this keeps the global step-3 decodecorpus regression out while recovering its JSON size win.
 - Added focused tests for text and binary no-match probe step selection.
+- Added focused Huffman tests for equal-count rank-limited weight assignment and deterministic length-limited code lengths. These lock down tie behavior before any future table-construction optimization.
 
 ## Verification So Far
 
@@ -105,7 +106,7 @@ Last run after the larger window, match-length fix, RLE sequence modes, incompre
 | `decodecorpus_pack.bin` | 5,976,095 | 5,161,043 | 5,385,951 | 0.14s | 0.26s | 0.05s |
 | `json_logs_32m.jsonl` | 3,392,237 | 826,471 | 1,138,701 | 0.18s | 0.18s | 0.05s |
 | `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.11s | 0.02s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.60s | 0.03s | 0.05s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.58s | 0.03s | 0.06s |
 
 Interpretation:
 
@@ -130,6 +131,7 @@ Interpretation:
 - Tested repeat-offset search early-exit thresholds 5, 10, 16, and 64. Threshold 64 had no useful CPU benefit, thresholds 5/10/16 all reduced JSON CPU sharply, and threshold 10 gave the best measured aggregate CPU/size balance.
 - Tested sparse long-match indexing dense limits 64, 128, and 256. Limit 64 hurt JSON size more than needed, 256 lost JSON CPU compared with 128, and 128 was the best measured aggregate balance.
 - Tested widening the repeat-aware no-match probe step from 2 to 3. It improved JSON size but worsened decodecorpus size by about 52 KiB and did not improve CPU, so step 2 remains the better aggregate point.
+- Tested changing the remaining Huffman stable sorts to unstable sorts with explicit tie-breakers. Output sizes were unchanged, but decodecorpus CPU repeatedly regressed from the 0.26-0.27s band to about 0.30s, so the runtime change was not kept. The added tie-behavior tests were kept.
 
 ## Next Steps
 

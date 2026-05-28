@@ -664,6 +664,38 @@ fn counts() {
 }
 
 #[test]
+fn rank_limited_weights_preserve_symbol_order_for_equal_counts() {
+    let mut expected_nonzero = distribute_weights(5);
+    let limit = expected_nonzero.len().ilog2() as usize + 2;
+    redistribute_weights(&mut expected_nonzero, limit);
+
+    let weights = rank_limited_weights(&[0, 7, 7, 7, 7, 7, 0]);
+
+    assert_eq!(weights[0], 0);
+    assert_eq!(weights[6], 0);
+    assert_eq!(&weights[1..6], expected_nonzero.as_slice());
+}
+
+#[test]
+fn length_limited_code_lengths_are_stable_for_tied_counts() {
+    let counts = &[8, 8, 4, 4, 2, 2, 1, 1, 0, 16, 16, 32, 32];
+    let lengths = length_limited_code_lengths(counts, MAX_HUFFMAN_BITS)
+        .expect("length-limited table should be valid");
+
+    for _ in 0..8 {
+        assert_eq!(
+            length_limited_code_lengths(counts, MAX_HUFFMAN_BITS),
+            Some(lengths.clone())
+        );
+    }
+
+    assert_eq!(
+        length_units(&lengths, MAX_HUFFMAN_BITS),
+        1 << MAX_HUFFMAN_BITS
+    );
+}
+
+#[test]
 fn from_data() {
     let data = &[0, 2, 4, 4, 0, 3, 2, 2, 0, 2];
     let table = HuffmanTable::build_from_data(data).codes;
