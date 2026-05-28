@@ -206,6 +206,7 @@ Interpretation:
 - Tested increasing the per-block sequence vector initial capacity from 256 to 512 after profiles showed a small `Vec::grow_one` sample on JSON. Output bytes were unchanged, but decodecorpus measured 0.23s then 0.20s and JSON worsened to 0.12s then 0.13s, so the original conservative capacity remains better.
 - Tested replacing suffix-store `TryFrom`/checked-add index packing with an explicit upper-bound branch and cold panic path. Output bytes were unchanged and focused tests passed, but decodecorpus stayed at 0.22s across two runs with no clear aggregate CPU win, so the original checked conversion remains.
 - Tested reusing the already-computed current suffix hash when inserting the current suffix after a no-match probe miss. Output bytes were unchanged and focused tests passed, but JSON regressed to 0.13s across two runs while decodecorpus stayed in its normal 0.20s-0.21s band, so the simpler insertion path remains better.
+- Tested replacing FSE probability-normalization `unwrap()` calls with explicit helper loops and cold invariant panics. After matching iterator tie behavior, output bytes were unchanged, but decodecorpus measured 0.22s then 0.21s and JSON stayed at 0.12s, so the original iterator form remains better for this setup path.
 
 ## Next Steps
 
