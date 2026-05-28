@@ -481,7 +481,7 @@ impl MatchGenerator {
                 candidate.is_some_and(|found| found.can_skip_window_search(block_len));
 
             if !repeat_match_reaches_end_or_is_long {
-                'window_search: for match_entry in self.window.iter() {
+                'window_search: for match_entry in self.window.iter().rev() {
                     if let Some(candidates) =
                         match_entry.suffixes.candidates_for_key_value(key_value)
                     {
@@ -583,7 +583,7 @@ impl MatchGenerator {
             *candidate = Some(found);
         }
 
-        if found.start_idx + found.match_len == block_len && found.offset == 1 {
+        if found.start_idx + found.match_len == block_len {
             return true;
         }
 
@@ -1552,7 +1552,7 @@ fn window_candidate_helper_updates_best_candidate() {
 }
 
 #[test]
-fn window_candidate_helper_stops_on_offset_one_block_end_match() {
+fn window_candidate_helper_stops_on_block_end_match() {
     let mut matcher = MatchGenerator::new(100);
     matcher.add_data(
         alloc::vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -1562,10 +1562,10 @@ fn window_candidate_helper_stops_on_offset_one_block_end_match() {
 
     let last_entry = matcher.last_entry();
     let context = MatchCandidateContext {
-        suffix_idx: 1,
+        suffix_idx: 2,
         anchor_idx: 0,
         min_non_repeat_match_len: MIN_MATCH_LEN,
-        data_slice: &last_entry.data[1..],
+        data_slice: &last_entry.data[2..],
         #[cfg(debug_assertions)]
         last_entry_len: last_entry.data.len(),
         #[cfg(debug_assertions)]
@@ -1580,7 +1580,7 @@ fn window_candidate_helper_stops_on_offset_one_block_end_match() {
         &mut candidate,
         last_entry.data.len(),
     ));
-    assert_eq!(candidate.map(|candidate| candidate.offset), Some(1));
+    assert_eq!(candidate.map(|candidate| candidate.offset), Some(2));
 }
 
 #[test]
