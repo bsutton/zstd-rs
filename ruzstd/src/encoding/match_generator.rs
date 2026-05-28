@@ -382,9 +382,10 @@ impl MatchGenerator {
             let last_entry_idx = self.last_entry_index();
             let last_entry = &self.window[last_entry_idx];
             let data_slice = &last_entry.data;
+            let block_len = data_slice.len();
 
             // We already reached the end of the window, check if we need to return a Literals{}
-            if self.suffix_idx >= data_slice.len() {
+            if self.suffix_idx >= block_len {
                 if self.last_idx_in_sequence != self.suffix_idx {
                     let literals = &data_slice[self.last_idx_in_sequence..];
                     self.last_idx_in_sequence = self.suffix_idx;
@@ -399,8 +400,8 @@ impl MatchGenerator {
             let data_slice = &data_slice[self.suffix_idx..];
             if data_slice.len() < MIN_MATCH_LEN {
                 let last_idx_in_sequence = self.last_idx_in_sequence;
-                self.last_idx_in_sequence = last_entry.data.len();
-                self.suffix_idx = last_entry.data.len();
+                self.last_idx_in_sequence = block_len;
+                self.suffix_idx = block_len;
                 handle_sequence(Sequence::Literals {
                     literals: &last_entry.data[last_idx_in_sequence..],
                 });
@@ -418,7 +419,7 @@ impl MatchGenerator {
                 min_non_repeat_match_len: self.min_non_repeat_match_len,
                 data_slice,
                 #[cfg(debug_assertions)]
-                last_entry_len: last_entry.data.len(),
+                last_entry_len: block_len,
                 #[cfg(debug_assertions)]
                 concat_window: &self.concat_window,
             };
@@ -455,7 +456,7 @@ impl MatchGenerator {
             }
 
             let repeat_match_reaches_end_or_is_long =
-                candidate.is_some_and(|found| found.can_skip_window_search(last_entry.data.len()));
+                candidate.is_some_and(|found| found.can_skip_window_search(block_len));
 
             if !repeat_match_reaches_end_or_is_long {
                 'window_search: for match_entry in self.window.iter() {
@@ -466,7 +467,7 @@ impl MatchGenerator {
                                 match_index,
                                 &match_context,
                                 &mut candidate,
-                                last_entry.data.len(),
+                                block_len,
                             ) {
                                 break 'window_search;
                             }
@@ -477,7 +478,7 @@ impl MatchGenerator {
                             candidates.oldest,
                             &match_context,
                             &mut candidate,
-                            last_entry.data.len(),
+                            block_len,
                         ) {
                             break 'window_search;
                         }
@@ -517,9 +518,8 @@ impl MatchGenerator {
             }
 
             let suffix_idx = self.suffix_idx;
-            let last_entry_len = last_entry.data.len();
             let probe_step = self.no_match_probe_step();
-            let can_skip_next_probe = suffix_idx + probe_step + MIN_MATCH_LEN <= last_entry_len
+            let can_skip_next_probe = suffix_idx + probe_step + MIN_MATCH_LEN <= block_len
                 && (1..probe_step).all(|skip| !self.repeat_offset_can_match_at(suffix_idx + skip));
             self.add_suffix_at(suffix_idx);
             let step = if can_skip_next_probe {

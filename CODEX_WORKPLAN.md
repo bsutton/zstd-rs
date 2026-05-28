@@ -99,6 +99,7 @@ Quality constraints:
 - Replaced the suffix-candidate iterator chain in the matcher window-search loop with explicit newest/oldest candidate checks through a small helper. This preserves the existing two-candidate order, avoids iterator setup in the dominant matcher loop, and adds focused helper coverage for best-candidate updates and the offset-1 block-end early exit.
 - Replaced sequence-emission repeat-offset encoding's temporary repeat-candidate array search with direct branch checks. Existing offset-history tests cover the repeat-code semantics, and the now-unused array helper was removed.
 - Inlined the two safe `usize` to `u32` offset boundary helpers used during sequence emission. This preserves the public `Sequence` offset type and matcher `usize` internals while letting the optimizer fold the checked conversions into their callers.
+- Hoisted the current block length into a local scalar in the matcher loop, mirroring the C fast parser's local `iend`/`ilimit` style and avoiding repeated `last_entry.data.len()` reads in the dominant path.
 
 ## Verification So Far
 
@@ -219,6 +220,7 @@ Interpretation:
 - Tested a small cached offset-code table, mirroring the retained literal/match length code caches. Output bytes were unchanged and focused spec-range tests passed, but decodecorpus regressed to 0.21s then 0.22s, so the direct `ilog2` offset-code calculation remains better.
 - Inlining boundary offset conversions preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.20s then 0.21s and JSON at 0.11s both times; a follow-up JSON profile no longer showed `offset_to_u32` or matcher `bounded_u32` as separate symbols, so keep this as a small neutral cleanup.
 - Tested increasing the per-block literals vector initial capacity from 1024 to 2048 after profiles showed occasional allocation growth in compressed block assembly. Output bytes were unchanged, but decodecorpus regressed to 0.22s then 0.21s and JSON regressed to 0.12s both runs, so the existing conservative literal capacity remains better.
+- Hoisting the matcher block length preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.21s then 0.20s and JSON at 0.12s then 0.11s; keep it as a small neutral hot-loop cleanup that reduces repeated length reads without changing search behavior.
 
 ## Next Steps
 
