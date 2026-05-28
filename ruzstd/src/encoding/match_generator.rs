@@ -21,6 +21,7 @@ const REPEAT_SEARCH_EARLY_EXIT_LEN: usize = 10;
 const DENSE_MATCH_INDEX_LIMIT: usize = 128;
 const NO_MATCH_PROBE_STEP: usize = 2;
 const TEXT_NO_MATCH_PROBE_STEP: usize = 3;
+const TOUCHED_SLOT_CLEAR_LIMIT: usize = 32 * 1024;
 
 /// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
 pub struct MatchGeneratorDriver {
@@ -118,6 +119,7 @@ impl Matcher for MatchGeneratorDriver {
 struct SuffixStore {
     slots: Vec<Option<Candidates>>,
     touched_slots: Vec<u32>,
+    clear_all_slots: bool,
     len_log: u32,
 }
 
@@ -139,6 +141,7 @@ impl SuffixStore {
         Self {
             slots: alloc::vec![None; capacity],
             touched_slots: Vec::new(),
+            clear_all_slots: false,
             len_log: capacity.ilog2(),
         }
     }
@@ -153,7 +156,7 @@ impl SuffixStore {
                 newest: idx,
             });
         } else {
-            self.touched_slots.push(Self::stored_slot_key(key));
+            self.record_touched_slot(key);
             self.slots[key] = Some(Candidates {
                 oldest: idx,
                 newest: idx,
@@ -162,9 +165,29 @@ impl SuffixStore {
     }
 
     fn clear(&mut self) {
+        if self.clear_all_slots {
+            self.slots.fill(None);
+            self.touched_slots.clear();
+            self.clear_all_slots = false;
+            return;
+        }
+
         for key in self.touched_slots.drain(..) {
             self.slots[key as usize] = None;
         }
+    }
+
+    #[inline(always)]
+    fn record_touched_slot(&mut self, key: usize) {
+        if self.clear_all_slots {
+            return;
+        }
+        if self.touched_slots.len() == TOUCHED_SLOT_CLEAR_LIMIT {
+            self.touched_slots.clear();
+            self.clear_all_slots = true;
+            return;
+        }
+        self.touched_slots.push(Self::stored_slot_key(key));
     }
 
     #[inline(always)]
@@ -909,6 +932,38 @@ fn suffix_store_reuses_slots_after_clear() {
         .expect("candidate should exist after reinsertion");
     assert_eq!(candidates.oldest, 9);
     assert_eq!(candidates.newest, None);
+}
+
+#[test]
+fn suffix_store_full_clear_mode_removes_untracked_candidates() {
+    let mut suffixes = SuffixStore::with_capacity(64);
+    let stored = NonZeroU32::new(1).expect("one is non-zero");
+    suffixes.slots[1] = Some(Candidates {
+        oldest: stored,
+        newest: stored,
+    });
+    suffixes.clear_all_slots = true;
+
+    suffixes.clear();
+
+    assert!(suffixes.slots.iter().all(Option::is_none));
+    assert!(!suffixes.clear_all_slots);
+    assert!(suffixes.touched_slots.is_empty());
+}
+
+#[test]
+fn suffix_store_switches_to_full_clear_after_many_touched_slots() {
+    let mut suffixes = SuffixStore::with_capacity(TOUCHED_SLOT_CLEAR_LIMIT + 1);
+
+    for key in 0..TOUCHED_SLOT_CLEAR_LIMIT {
+        suffixes.record_touched_slot(key);
+    }
+    assert!(!suffixes.clear_all_slots);
+
+    suffixes.record_touched_slot(TOUCHED_SLOT_CLEAR_LIMIT);
+
+    assert!(suffixes.clear_all_slots);
+    assert!(suffixes.touched_slots.is_empty());
 }
 
 #[test]
