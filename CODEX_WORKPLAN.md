@@ -113,6 +113,7 @@ Quality constraints:
 - Changed sequence bitstream encoding's reverse walk from a reversed range iterator to an explicit countdown loop, matching C zstd's indexed reverse-loop shape. Existing compressed-block and end-to-end Rust/C decoder tests cover the emitted bitstream.
 - Tightened focused coverage after the coverage audit: suffix-store zero index candidates now round-trip through the one-based `NonZeroU32` representation, empty committed matcher entries emit no sequences and can be followed by normal data, and mixed predefined sequence modes round-trip through the decoder.
 - Hardened `compress_fastest()` for empty direct block inputs before the RLE probe indexes byte 0. The normal frame compressor already handles empty frames before block compression, so this is a focused correctness/idiomatic-safety guard rather than a fixture benchmark change. Added focused coverage that an empty fastest block emits a valid raw block without panicking.
+- Inlined the common literal-length and match-length code helpers after refreshed JSON profiles showed both as visible sequence-side symbols. Existing exhaustive helper-level spec tests cover these tables and the first uncached boundary, and a follow-up profile confirmed the helpers are folded into `encode_sequences`.
 
 ## Verification So Far
 
@@ -158,12 +159,12 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, C-style small literal-compression threshold, exact-block EOF lookahead, BitWriter exact-fill fast path, precomputed suffix key values, and countdown sequence encoding:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, C-style small literal-compression threshold, exact-block EOF lookahead, BitWriter exact-fill fast path, precomputed suffix key values, countdown sequence encoding, and inlined literal/match length-code helpers:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,159,814 | 5,385,951 | 0.14s | 0.21s | 0.05s |
-| `json_logs_32m.jsonl` | 3,392,237 | 745,529 | 1,138,701 | 0.18s | 0.12s | 0.05s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,159,814 | 5,385,951 | 0.13s | 0.20s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 745,529 | 1,138,701 | 0.17s | 0.11s | 0.05s |
 | `repeated_text_32m.txt` | 31,757 | 2,874 | 3,116 | 0.11s | 0.01s | 0.02s |
 | `xorshift_32m.bin` | 33,555,213 | 33,555,210 | 33,555,214 | 0.58s | 0.02s | 0.06s |
 
@@ -171,14 +172,15 @@ Peak RSS from the same run:
 
 | Fixture | Upstream RSS | Current RSS | C zstd -1 RSS |
 | --- | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 6,444 KB | 10,764 KB | 22,000 KB |
-| `json_logs_32m.jsonl` | 5,820 KB | 9,464 KB | 18,832 KB |
-| `repeated_text_32m.txt` | 5,600 KB | 9,088 KB | 17,916 KB |
-| `xorshift_32m.bin` | 6,324 KB | 9,196 KB | 25,768 KB |
+| `decodecorpus_pack.bin` | 6,352 KB | 10,748 KB | 22,180 KB |
+| `json_logs_32m.jsonl` | 5,836 KB | 9,496 KB | 18,820 KB |
+| `repeated_text_32m.txt` | 5,592 KB | 9,096 KB | 17,764 KB |
+| `xorshift_32m.bin` | 6,252 KB | 9,352 KB | 23,580 KB |
 
 Interpretation:
 
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; the current branch remains smaller than C zstd on all three compressible fixtures and four bytes smaller on xorshift.
+- Inlining the literal-length and match-length code helpers preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.21s then 0.20s, JSON at 0.11s both times, repeated text at 0.01s/0.00s, and xorshift at 0.02s both times. The follow-up JSON profile no longer showed `encode_literal_length` or `encode_match_len` as separate top-level symbols, so keep this narrow sequence-side cleanup.
 - The empty fastest-block guard preserved exact fixture byte counts. The refreshed table run measured decodecorpus at 0.21s and JSON at 0.12s, within the existing noise band for this branch. Keep it as a covered direct-block correctness guard; normal frame compression already handles empty frames before calling `compress_fastest()`.
 - Countdown sequence encoding preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.20s both times and JSON at 0.11s both times; keep it as a small sequence-side cleanup that matches C zstd's indexed reverse-loop shape.
 - Precomputed suffix key values preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.20s then 0.21s and JSON at 0.11s both times; keep it as a small safe matcher cleanup that avoids re-reading the current five-byte suffix for every window entry during hash lookup.
@@ -301,7 +303,7 @@ Interpretation:
 - Current branch has focused coverage that touched-slot preallocation stays modest and below the full-clear threshold.
 - Current branch has focused coverage that same-block match-length scanning with a verified prefix still handles overlapping matches by comparing against the generic relative-window scanner.
 - Current branch has focused coverage for the explicit suffix-candidate helper, including best-candidate replacement and the offset-1 block-end early exit.
-- Current branch has exhaustive helper-level coverage for the cached common literal-length and match-length sequence code tables, including the first uncached boundary for each table.
+- Current branch has exhaustive helper-level coverage for the cached common literal-length and match-length sequence code tables, including the first uncached boundary for each table. This also covers the retained explicit inlining of those helper paths.
 - Current branch has helper-level coverage for offset-code generation across the small repeat-code range plus the first uncached boundary from the rejected offset-code cache experiment.
 - Current branch's sequence bitstream loop shape is covered by compressed-block tests, end-to-end Rust/C decoder round-trips, and a mixed predefined-mode sequence-section decoder round-trip that uses varied literal-length, match-length, and offset symbols.
 - Current branch has focused coverage for the one-based `NonZeroU32` suffix candidate representation, including index zero.

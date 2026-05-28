@@ -347,6 +347,7 @@ fn encode_seqnum(seqnum: usize, writer: &mut BitWriter<impl AsMut<Vec<u8>>>) {
     }
 }
 
+#[inline(always)]
 fn encode_literal_length(len: u32) -> (u8, u32, usize) {
     if len < LITERAL_LENGTH_SMALL_CODES.len() as u32 {
         return LITERAL_LENGTH_SMALL_CODES[len as usize];
@@ -369,6 +370,7 @@ fn encode_literal_length(len: u32) -> (u8, u32, usize) {
     }
 }
 
+#[inline(always)]
 fn encode_match_len(len: u32) -> (u8, u32, usize) {
     if (3..=130).contains(&len) {
         return MATCH_LENGTH_SMALL_CODES[(len - 3) as usize];
