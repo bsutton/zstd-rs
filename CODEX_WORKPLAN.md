@@ -231,6 +231,7 @@ Interpretation:
 - Tested a conservative C-fast-style no-match acceleration step that increased the probe distance after each 128 bytes since the current anchor while still checking skipped repeat-offset positions and indexing skipped suffixes. Decodecorpus grew by 1,438 bytes with no CPU improvement and JSON drifted to 0.11s CPU, so the fixed step-2/step-3 matcher remains better.
 - Tested specializing sequence FSE state updates for the common all-table case to remove per-symbol `Option` checks, mirroring C's resolved-state shape. Output bytes were unchanged, but decodecorpus regressed to 0.21s and JSON did not improve, so the existing compact `Option`-based state update remains better.
 - Tested comparing previous/new Huffman literal table reuse lengths in one pass over the literal payload instead of separate `encoded_len()` scans. Output bytes were unchanged, but decodecorpus regressed to 0.22s and JSON to 0.12s, so the existing separate estimator scans remain better.
+- Tested forcing the safe chunked prefix helper itself inline after profiles kept the matcher body dominant. Output bytes were unchanged, but the repeat table run drifted decodecorpus to 0.21s and did not improve JSON, so the optimizer's existing inlining choice remains better.
 
 ## Next Steps
 
