@@ -167,6 +167,10 @@ Latest successful commands:
 - `perf report --stdio -i /tmp/ruzstd-decodecorpus-f9735b7.perf.data --sort=symbol --no-children`
 - `perf record -m 64 -F 999 -g -o /tmp/ruzstd-json-f9735b7.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/json_logs_32m.jsonl /tmp/ruzstd-json-profile.zst -l 1`
 - `perf report --stdio -i /tmp/ruzstd-json-f9735b7.perf.data --sort=symbol --no-children`
+- `perf record -m 64 -F 999 -g -o /tmp/ruzstd-decodecorpus-after-c-hash.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/decodecorpus_pack.bin /tmp/ruzstd-decodecorpus-profile.zst -l 1`
+- `perf report --stdio -i /tmp/ruzstd-decodecorpus-after-c-hash.perf.data --sort=symbol --no-children`
+- `perf record -m 64 -F 999 -g -o /tmp/ruzstd-json-after-c-hash.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/json_logs_32m.jsonl /tmp/ruzstd-json-profile.zst -l 1`
+- `perf report --stdio -i /tmp/ruzstd-json-after-c-hash.perf.data --sort=symbol --no-children`
 
 ## Latest Benchmark Snapshot
 
@@ -307,6 +311,8 @@ Interpretation:
 - Tested carrying the current block slice in `MatchCandidateContext` so hot match helpers could avoid reacquiring the last window entry. Focused matcher and fastest-frame tests plus clippy passed and output bytes stayed unchanged, but two table runs held decodecorpus at 0.22s and JSON drifted to 0.12s on the repeat, so the current narrower context remains better.
 - Tested replacing BitWriter cold-path per-byte pushes with a single slice copy for full spilled bytes after a 64-bit flush. Focused BitWriter, compressed-block, fastest-frame, and clippy checks passed and output bytes stayed unchanged, but the repeat table run regressed decodecorpus to 0.22s with no stable JSON win, so the original compact byte loop remains.
 - Tested replacing the incompressibility gate's sampled-key linear duplicate search with a fixed 512-slot open-addressed set. Output bytes stayed unchanged and focused fastest tests plus clippy passed, but two table runs showed no stable CPU win: decodecorpus measured 0.20s then 0.21s, JSON stayed at 0.11s, and xorshift stayed at 0.02s. The simpler linear scan remains.
+- Refreshed profiles after C-sized suffix hash tables. Matcher search still dominates at about 71% of decodecorpus samples and 74% of JSON samples; sequence encoding is a smaller secondary target around 6%.
+- Retested suffix-candidate key tags after the smaller C-sized hash table increased collision pressure. Full tag filtering preserved bytes and improved decodecorpus to 0.16s on one run, but JSON regressed badly to 0.14s. Narrowing tags to binary-looking blocks still regressed JSON to 0.14s with no decodecorpus win over the retained C-sized hash baseline, so the untagged two-candidate store remains better.
 
 ## Next Steps
 
