@@ -201,6 +201,7 @@ Interpretation:
 - Same-block forward match-length fast path preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.21s then 0.20s and JSON at 0.11s then 0.12s; retain it because it removes repeated relative-window resolution for the common current-block case while keeping the existing safe chunked comparison.
 - Tested caching each sequence's derived literal-length, match-length, and offset FSE symbols/add-bits in a local `EncodedSequence` representation. Output bytes were unchanged and focused tests passed, but decodecorpus CPU regressed to 0.22s across two table runs and RSS rose to about 12.1 MB, so the runtime change was not kept.
 - Tested a previous-window first-segment fast path for match-length scans, mirroring C zstd's two-segment count shape. Output bytes were unchanged and focused tests passed, but decodecorpus regressed to 0.21s then 0.22s while JSON stayed neutral, so the simpler generic relative-window loop remains better.
+- Tested increasing the per-block sequence vector initial capacity from 256 to 512 after profiles showed a small `Vec::grow_one` sample on JSON. Output bytes were unchanged, but decodecorpus measured 0.23s then 0.20s and JSON worsened to 0.12s then 0.13s, so the original conservative capacity remains better.
 
 ## Next Steps
 
