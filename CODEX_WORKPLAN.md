@@ -192,6 +192,7 @@ Interpretation:
 - Tested a same-block fast path for backward match extension using contiguous prefix slices instead of the existing byte walk through `slice_at_relative()`. Output bytes were unchanged, but the table run stayed neutral-to-worse and the follow-up perf sample still showed `extend_match_backwards` around 2.5-3%, so the simpler byte walk was kept.
 - Caching sequence FSE table references preserved exact fixture byte counts and reduced repeated enum matching in `encode_sequences`. Two table runs measured decodecorpus at 0.23s, with JSON neutral at 0.17s; keep this as a small sequence-encoder CPU improvement.
 - Tested replacing the safe chunk-iterator common-prefix comparison with a direct indexed chunk loop. Output bytes were unchanged, but decodecorpus regressed from the 0.23s band to 0.24-0.26s across two runs, so the iterator-shaped chunk comparison remains the better safe-Rust implementation.
+- Tested guarding sequence additional-bit writes so zero-width writes skip `BitWriter::write_bits()`. Output bytes were unchanged, but table runs were mixed: decodecorpus measured 0.23s then 0.25s while JSON measured 0.18s then 0.16s. The unstable tradeoff was not enough to justify the extra branch, so the original direct writes were kept.
 
 ## Next Steps
 
