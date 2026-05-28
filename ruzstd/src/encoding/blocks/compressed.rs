@@ -14,6 +14,7 @@ const INITIAL_SEQUENCES_CAPACITY: usize = 256;
 const COMPRESS_LITERALS_SIZE_MIN: usize = 63;
 const REPEAT_LITERALS_SIZE_MIN: usize = 6;
 const HUFFMAN_4_STREAMS_MIN: usize = 256;
+const FAST_LITERAL_MIN_GAIN_LOG: u32 = 6;
 const LITERAL_LENGTH_SMALL_CODES: [(u8, u32, usize); 64] = small_literal_length_codes();
 const MATCH_LENGTH_SMALL_CODES: [(u8, u32, usize); 128] = small_match_length_codes();
 
@@ -534,7 +535,12 @@ fn compress_literals(
         (&new_encoder_table, true, new_len)
     };
 
-    if estimated_len + header_len >= literals.len() {
+    if estimated_len
+        >= literals
+            .len()
+            .saturating_sub(literal_min_gain(literals.len()))
+        || estimated_len + header_len >= literals.len()
+    {
         raw_literals(literals, writer);
         return None;
     }
@@ -579,6 +585,10 @@ fn compressed_literals_header_len(size_format: u8) -> usize {
         0b11 => 5,
         _ => unreachable!(),
     }
+}
+
+fn literal_min_gain(len: usize) -> usize {
+    (len >> FAST_LITERAL_MIN_GAIN_LOG) + 2
 }
 
 struct LiteralStats {
@@ -1214,6 +1224,55 @@ mod tests {
             block_payload[0] & 0b11,
             0,
             "literal estimate should choose raw when Huffman cannot beat raw"
+        );
+
+        let mut rust_decoded = Vec::with_capacity(expected.len());
+        let mut decoder = crate::decoding::FrameDecoder::new();
+        decoder
+            .decode_all_to_vec(&frame, &mut rust_decoded)
+            .unwrap();
+        assert_eq!(rust_decoded, expected);
+
+        let mut c_decoded = Vec::new();
+        zstd::stream::copy_decode(frame.as_slice(), &mut c_decoded).unwrap();
+        assert_eq!(c_decoded, expected);
+    }
+
+    #[test]
+    fn literal_min_gain_boundary_uses_raw_literals_and_round_trips() {
+        let len = 128usize;
+        let period = 86u32;
+        let mut state = (len as u32).wrapping_mul(1_664_525).wrapping_add(period);
+        let mut literals = Vec::with_capacity(len);
+        for _ in 0..len {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            literals.push((state % period) as u8);
+        }
+
+        let literal_stats = LiteralStats::from_literals(&literals);
+        let table = huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts());
+        let estimated_len = table.encoded_len(&literals, true, false);
+        let header_len = compressed_literals_header_len(0);
+
+        assert_eq!(literal_min_gain(literals.len()), 4);
+        assert!(
+            estimated_len + header_len < literals.len(),
+            "without the min-gain check this payload would be Huffman-compressed"
+        );
+        assert!(
+            estimated_len
+                >= literals
+                    .len()
+                    .saturating_sub(literal_min_gain(literals.len())),
+            "C-style min-gain threshold should reject this narrow literal gain"
+        );
+
+        let (block_payload, frame, expected) = compressed_frame_with_literal_payload(literals);
+
+        assert_eq!(
+            block_payload[0] & 0b11,
+            0,
+            "narrow literal gains should fall back to raw literals"
         );
 
         let mut rust_decoded = Vec::with_capacity(expected.len());
