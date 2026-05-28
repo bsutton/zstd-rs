@@ -44,6 +44,7 @@ Quality constraints:
 - Fixed match-length code 52 encoding, which had the wrong baseline and corrupted streams once cross-block matches exposed match lengths above 65,538 bytes.
 - Added a cross-block repetitive-data test that verifies both the Rust decoder and C zstd decoder can decode the emitted stream and that compression stays compact.
 - Added a sampled incompressibility gate so random-looking blocks skip expensive match search and are emitted raw while still being committed for future history.
+- Added a matcher fast path for incompressible raw blocks that marks the block processed without indexing every suffix. This preserves safe behavior for custom matchers via a default trait method while allowing the default matcher to avoid wasted history work.
 
 ## Verification So Far
 
@@ -66,19 +67,19 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, and incompressibility gate:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, and raw-block no-index fast path:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,240,734 | 5,385,951 | 0.14s | 0.27s | 0.04s |
-| `json_logs_32m.jsonl` | 3,392,237 | 2,105,678 | 1,138,701 | 0.18s | 0.23s | 0.05s |
-| `repeated_text_32m.txt` | 31,757 | 3,968 | 3,116 | 0.11s | 0.19s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.59s | 0.33s | 0.05s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,252,600 | 5,385,951 | 0.15s | 0.24s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 2,105,678 | 1,138,701 | 0.18s | 0.24s | 0.05s |
+| `repeated_text_32m.txt` | 31,757 | 3,968 | 3,116 | 0.12s | 0.19s | 0.02s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.60s | 0.03s | 0.04s |
 
 Interpretation:
 
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; repeated text is now close to C zstd.
-- The incompressible fixture is faster than upstream after the sampled raw gate, but still much slower than C zstd.
+- The incompressible fixture is now near C zstd CPU after the no-index raw fast path.
 - The larger window improves compression but raises CPU and RSS on compressible fixtures; next work should focus on matcher search strategy and early-exit heuristics.
 - Perf sample on `repeated_text_32m.txt` showed time dominated by `MatchGeneratorDriver::start_matching`; the repeat-offset callback is inlined into that symbol, but the larger future CPU opportunity is still matcher logic.
 

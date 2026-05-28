@@ -94,6 +94,13 @@ pub trait Matcher {
     fn start_matching(&mut self, handle_sequence: impl for<'a> FnMut(Sequence<'a>));
     /// Reset this matcher so it can be used for the next new frame
     fn reset(&mut self, level: CompressionLevel);
+    /// Mark the last committed space as processed without indexing it for future matches.
+    ///
+    /// This is intended for data that has already been classified as very unlikely to
+    /// be useful match history, such as incompressible raw blocks.
+    fn skip_matching_for_incompressible(&mut self) {
+        self.skip_matching();
+    }
     /// The size of the window the decoder will need to execute all sequences produced by this matcher
     ///
     /// May change after a call to reset with a different compression level

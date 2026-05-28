@@ -39,7 +39,7 @@ pub fn compress_fastest<M: Matcher>(
         output.push(rle_byte);
     } else if likely_incompressible(&uncompressed_data) {
         state.matcher.commit_space(uncompressed_data);
-        state.matcher.skip_matching();
+        state.matcher.skip_matching_for_incompressible();
         write_raw_block(
             last_block,
             block_size,

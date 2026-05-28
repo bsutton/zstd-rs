@@ -92,6 +92,10 @@ impl Matcher for MatchGeneratorDriver {
     fn skip_matching(&mut self) {
         self.match_generator.skip_matching();
     }
+
+    fn skip_matching_for_incompressible(&mut self) {
+        self.match_generator.skip_matching_for_incompressible();
+    }
 }
 
 /// This stores the index of a suffix of a string by hashing the first few bytes of that suffix
@@ -430,6 +434,12 @@ impl MatchGenerator {
         self.last_idx_in_sequence = len;
     }
 
+    fn skip_matching_for_incompressible(&mut self) {
+        let len = self.last_entry().data.len();
+        self.suffix_idx = len;
+        self.last_idx_in_sequence = len;
+    }
+
     /// Add a new window entry. Will panic if the last window entry hasn't been processed properly.
     /// If any resources are released by pushing the new entry they are returned via the callback
     fn add_data(
@@ -666,6 +676,34 @@ fn matches() {
                 literals: &[],
                 offset: 5,
                 match_len: 5,
+            },
+            &mut reconstructed,
+        );
+    });
+    assert!(!matcher.next_sequence(|_| {}));
+
+    matcher.add_data(
+        alloc::vec![31, 32, 33, 34, 35],
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+    matcher.skip_matching_for_incompressible();
+    original_data.extend_from_slice(&[31, 32, 33, 34, 35]);
+    reconstructed.extend_from_slice(&[31, 32, 33, 34, 35]);
+    assert!(!matcher.next_sequence(|_| {}));
+
+    matcher.add_data(
+        alloc::vec![31, 32, 33, 34, 35],
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+    original_data.extend_from_slice(&[31, 32, 33, 34, 35]);
+
+    matcher.next_sequence(|seq| {
+        assert_seq_equal(
+            seq,
+            Sequence::Literals {
+                literals: &[31, 32, 33, 34, 35],
             },
             &mut reconstructed,
         );
