@@ -610,6 +610,12 @@ mod tests {
         }
     }
 
+    fn offset_code_from_spec(len: u32) -> (u8, u32, usize) {
+        let code = len.ilog2();
+        let additional = len - (1 << code);
+        (code as u8, additional, code as usize)
+    }
+
     #[test]
     fn offset_history_uses_repeat_offsets_when_literals_are_present() {
         let mut history = OffsetHistory::new();
@@ -796,6 +802,10 @@ mod tests {
 
         for len in 3..=131 {
             assert_eq!(encode_match_len(len), match_length_code_from_spec(len));
+        }
+
+        for len in 1..=129 {
+            assert_eq!(encode_offset(len), offset_code_from_spec(len));
         }
     }
 
