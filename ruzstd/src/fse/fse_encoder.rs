@@ -127,6 +127,7 @@ pub struct FSETable {
     pub(super) states: [SymbolStates; 256],
     /// Sum of all states.states.len()
     pub(crate) table_size: usize,
+    acc_log: u8,
 }
 
 impl FSETable {
@@ -145,13 +146,14 @@ impl FSETable {
     }
 
     pub fn acc_log(&self) -> u8 {
-        self.table_size.ilog2() as u8
+        self.acc_log
     }
 
     pub(crate) fn write_table<V: AsMut<Vec<u8>>>(&self, writer: &mut BitWriter<V>) {
-        writer.write_bits(self.acc_log() - 5, 4);
+        let acc_log = self.acc_log();
+        writer.write_bits(acc_log - 5, 4);
         let mut probability_counter = 0usize;
-        let probability_sum = 1 << self.acc_log();
+        let probability_sum = 1 << acc_log;
 
         let mut prob_idx = 0;
         while probability_counter < probability_sum {
@@ -410,6 +412,7 @@ pub(super) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
 
     FSETable {
         table_size: 1 << acc_log,
+        acc_log,
         states,
     }
 }
@@ -446,4 +449,21 @@ pub(crate) fn default_ll_table() -> FSETable {
 
 pub(crate) fn default_of_table() -> FSETable {
     build_table_from_probabilities(OF_DIST, 5)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{default_ll_table, default_ml_table, default_of_table};
+
+    #[test]
+    fn default_tables_cache_their_accuracy_log() {
+        for (table, expected_acc_log) in [
+            (default_ll_table(), 6),
+            (default_ml_table(), 6),
+            (default_of_table(), 5),
+        ] {
+            assert_eq!(table.acc_log(), expected_acc_log);
+            assert_eq!(table.table_size, 1 << table.acc_log());
+        }
+    }
 }

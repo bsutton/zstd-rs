@@ -306,7 +306,7 @@ fn flush_fse_state(
 ) {
     if let Some(table) = mode.table() {
         if let Some(state) = state {
-            writer.write_bits(state.index as u64, table.table_size.ilog2() as usize);
+            writer.write_bits(state.index as u64, table.acc_log() as usize);
         } else {
             unreachable!("non-RLE FSE mode must have a state");
         }

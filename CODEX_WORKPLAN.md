@@ -86,12 +86,14 @@ Quality constraints:
 - Changed suffix-store reuse to clear only touched hash slots instead of resizing the whole slot table to `None` for each returned block. This follows C zstd's long-lived hash-table shape while keeping stale entries impossible in safe Rust. Touched slot indexes are stored as `u32`, and a 32K touched-slot threshold falls back to full sequential clearing for dense blocks to limit RSS growth. Focused tests cover stale-candidate removal, reinsertion after clear, full-clear mode, and the threshold switch.
 - Added a direct repeat-history update path for the matcher. The matcher only needs to keep its repeat probes synchronized, so it now updates the three repeat offsets directly instead of calling `encode_offset_value()` and discarding the encoded value. The sequence encoder still uses `encode_offset_value()` at the bitstream boundary. Added equivalence tests against the encoded update path for literal and zero-literal matches.
 - Changed negative relative window lookups to scan previous window entries newest-first, skipping the current block because non-negative relative lookups already handle current-block matches. Cross-block repeat and hash matches most often target the most recent previous block, matching the C fast parser's prefix-oriented shape. Added a focused test with two previous entries so most-recent previous-window matching stays covered.
+- Cached the encoder FSE table accuracy log at table construction time and used that cached value when flushing sequence states. Added a focused invariant test for the predefined tables so `acc_log` stays tied to `table_size`.
 
 ## Verification So Far
 
 Latest successful commands:
 
 - `cargo fmt --all --check`
+- `cargo test -q -p ruzstd fse`
 - `cargo test -q -p ruzstd encoding::blocks::compressed`
 - `cargo test -q -p ruzstd encoding::match_generator`
 - `cargo test -q -p ruzstd encoding::levels::fastest_tests`
@@ -114,14 +116,23 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, and previous-entry-only newest-first cross-window lookup:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, and cached encoder FSE `acc_log`:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `decodecorpus_pack.bin` | 5,976,095 | 5,161,043 | 5,385,951 | 0.13s | 0.24s | 0.04s |
-| `json_logs_32m.jsonl` | 3,392,237 | 826,471 | 1,138,701 | 0.17s | 0.18s | 0.05s |
-| `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.12s | 0.01s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.58s | 0.02s | 0.05s |
+| `json_logs_32m.jsonl` | 3,392,237 | 826,471 | 1,138,701 | 0.18s | 0.16s | 0.05s |
+| `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.11s | 0.00s | 0.02s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.60s | 0.02s | 0.05s |
+
+Peak RSS from the same run:
+
+| Fixture | Upstream RSS | Current RSS | C zstd -1 RSS |
+| --- | ---: | ---: | ---: |
+| `decodecorpus_pack.bin` | 6,592 KB | 10,640 KB | 22,104 KB |
+| `json_logs_32m.jsonl` | 5,812 KB | 9,452 KB | 18,832 KB |
+| `repeated_text_32m.txt` | 5,596 KB | 9,104 KB | 17,904 KB |
+| `xorshift_32m.bin` | 6,232 KB | 9,232 KB | 25,680 KB |
 
 Interpretation:
 
@@ -166,6 +177,7 @@ Interpretation:
 - Tested replacing FSE `SymbolStates::get()`'s iterator search with an explicit indexed loop and cold panic path. Output bytes were unchanged, but decodecorpus drifted to 0.26s and JSON to 0.18s on the table run, so the original iterator/`unwrap` form was kept for this hot lookup.
 - Tested splitting the common literal-length and match-length code ranges into explicit early-return branches before the larger range matches. Output bytes were unchanged, but decodecorpus drifted to 0.26s and JSON to 0.18s on the table run, so the original single-match form was kept.
 - Tested scanning hash-candidate window entries newest-first. Output bytes were unchanged and one run improved JSON to 0.16s, but the repeat run returned JSON to 0.18s while decodecorpus stayed at 0.25s, so the change was treated as noise and not kept.
+- Caching the encoder FSE `acc_log` preserved exact fixture byte counts. The table run measured decodecorpus unchanged at 0.24s and JSON at 0.16s; treat the JSON improvement cautiously as run-to-run noise, but keep the change because it removes repeated `ilog2` work and has focused invariant coverage.
 
 ## Next Steps
 
