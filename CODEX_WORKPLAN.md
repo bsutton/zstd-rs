@@ -102,6 +102,7 @@ Quality constraints:
 - Inlined the two safe `usize` to `u32` offset boundary helpers used during sequence emission. This preserves the public `Sequence` offset type and matcher `usize` internals while letting the optimizer fold the checked conversions into their callers.
 - Hoisted the current block length into a local scalar in the matcher loop, mirroring the C fast parser's local `iend`/`ilimit` style and avoiding repeated `last_entry.data.len()` reads in the dominant path.
 - Removed production `unwrap()` calls from Huffman length-limited tree construction and rank-limited weight distribution. These invariants now use explicit branches with a cold panic helper, while tests cover deterministic tied-count behavior plus representative bounded/prefix-free Huffman tables.
+- Added encoder emission for RLE literal sections when the literal payload for a compressed block is one repeated byte. This matches an existing decoder-supported Zstd literal section mode and adds both literal-section decoder coverage and a full frame round-trip through the Rust and C zstd decoders.
 
 ## Verification So Far
 
@@ -232,6 +233,8 @@ Interpretation:
 - Tested specializing sequence FSE state updates for the common all-table case to remove per-symbol `Option` checks, mirroring C's resolved-state shape. Output bytes were unchanged, but decodecorpus regressed to 0.21s and JSON did not improve, so the existing compact `Option`-based state update remains better.
 - Tested comparing previous/new Huffman literal table reuse lengths in one pass over the literal payload instead of separate `encoded_len()` scans. Output bytes were unchanged, but decodecorpus regressed to 0.22s and JSON to 0.12s, so the existing separate estimator scans remain better.
 - Tested forcing the safe chunked prefix helper itself inline after profiles kept the matcher body dominant. Output bytes were unchanged, but the repeat table run drifted decodecorpus to 0.21s and did not improve JSON, so the optimizer's existing inlining choice remains better.
+- Tested packing a short suffix fingerprint into the high bits of each stored two-candidate suffix index so hash-slot collisions can be filtered before candidate byte comparison, then narrowed it to binary-looking blocks only. Output bytes stayed unchanged and decodecorpus improved to 0.19s, but JSON regressed to 0.12s across runs, so the untagged two-candidate store remains the best aggregate choice.
+- RLE literal-section emission did not change the current PR fixture byte counts, so those fixtures do not exercise all-same large literal payloads. Two table runs stayed in the current noise band with decodecorpus at 0.20s/0.19s and JSON at 0.12s both times; keep the change as covered format/compression-quality work rather than as a fixture-specific benchmark win.
 
 ## Next Steps
 

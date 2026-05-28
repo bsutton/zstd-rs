@@ -453,6 +453,27 @@ fn raw_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>) {
     writer.append_bytes(literals);
 }
 
+fn rle_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>) {
+    debug_assert!(!literals.is_empty());
+    writer.write_bits(1u8, 2); // RLE_Literals_Block
+    match literals.len() {
+        0..=31 => {
+            writer.write_bits(0u8, 1);
+            writer.write_bits(literals.len() as u32, 5);
+        }
+        32..=4095 => {
+            writer.write_bits(0b01u8, 2);
+            writer.write_bits(literals.len() as u32, 12);
+        }
+        4096..=1_048_575 => {
+            writer.write_bits(0b11u8, 2);
+            writer.write_bits(literals.len() as u32, 20);
+        }
+        _ => unimplemented!("too many literals"),
+    }
+    writer.write_bits(literals[0], 8);
+}
+
 fn compress_literals(
     literals: &[u8],
     last_table: Option<&huff0_encoder::HuffmanTable>,
@@ -464,7 +485,11 @@ fn compress_literals(
     if literal_stats.largest == literals.len()
         || literal_stats.likely_incompressible(literals.len())
     {
-        raw_literals(literals, writer);
+        if !literals.is_empty() && literal_stats.largest == literals.len() {
+            rle_literals(literals, writer);
+        } else {
+            raw_literals(literals, writer);
+        }
         return None;
     }
 
@@ -563,7 +588,7 @@ impl LiteralStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::encoding::frame_compressor::OffsetHistory;
+    use crate::encoding::frame_compressor::{CompressState, FseTables, OffsetHistory};
     use crate::fse::fse_encoder::{default_ll_table, default_of_table};
 
     fn offset_history(newest: u32, second: u32, third: u32) -> OffsetHistory {
@@ -832,6 +857,140 @@ mod tests {
         writer.flush();
         assert_eq!(&three_byte_header[..3], &[0x0C, 0x00, 0x01]);
         assert_eq!(&three_byte_header[3..], &[11; 4096]);
+    }
+
+    #[test]
+    fn rle_literals_use_shortest_header_form() {
+        let mut one_byte_header = Vec::new();
+        let mut writer = BitWriter::from(&mut one_byte_header);
+        rle_literals(&[7; 31], &mut writer);
+        writer.flush();
+        assert_eq!(&one_byte_header, &[0xF9, 7]);
+
+        let mut two_byte_header = Vec::new();
+        let mut writer = BitWriter::from(&mut two_byte_header);
+        rle_literals(&[9; 44], &mut writer);
+        writer.flush();
+        assert_eq!(&two_byte_header, &[0xC5, 0x02, 9]);
+
+        let mut three_byte_header = Vec::new();
+        let mut writer = BitWriter::from(&mut three_byte_header);
+        rle_literals(&[11; 4096], &mut writer);
+        writer.flush();
+        assert_eq!(&three_byte_header, &[0x0D, 0x00, 0x01, 11]);
+    }
+
+    #[test]
+    fn rle_literals_round_trip_through_decoder() {
+        let mut encoded = Vec::new();
+        let mut writer = BitWriter::from(&mut encoded);
+        rle_literals(&[42; 44], &mut writer);
+        writer.flush();
+
+        let mut section = crate::blocks::literals_section::LiteralsSection::new();
+        let header_size = section.parse_from_header(&encoded).unwrap();
+        assert!(matches!(
+            section.ls_type,
+            crate::blocks::literals_section::LiteralsSectionType::RLE
+        ));
+
+        let mut scratch = crate::decoding::scratch::HuffmanScratch::new();
+        let mut decoded = Vec::new();
+        let bytes_read = crate::decoding::literals_section_decoder::decode_literals(
+            &section,
+            &mut scratch,
+            &encoded[header_size as usize..],
+            &mut decoded,
+        )
+        .unwrap();
+
+        assert_eq!(bytes_read, 1);
+        assert_eq!(decoded, [42; 44]);
+    }
+
+    #[test]
+    fn rle_literals_frame_round_trips_through_rust_and_c_decoders() {
+        struct RleLiteralMatcher {
+            literals: Vec<u8>,
+            emitted: bool,
+        }
+
+        impl Matcher for RleLiteralMatcher {
+            fn get_next_space(&mut self) -> Vec<u8> {
+                Vec::new()
+            }
+
+            fn get_last_space(&mut self) -> &[u8] {
+                &[]
+            }
+
+            fn commit_space(&mut self, _space: Vec<u8>) {}
+
+            fn skip_matching(&mut self) {}
+
+            fn start_matching(&mut self, mut handle_sequence: impl for<'a> FnMut(Sequence<'a>)) {
+                if !self.emitted {
+                    self.emitted = true;
+                    handle_sequence(Sequence::Triple {
+                        literals: &self.literals,
+                        offset: 1,
+                        match_len: 16,
+                    });
+                }
+            }
+
+            fn reset(&mut self, _level: crate::encoding::CompressionLevel) {
+                self.emitted = false;
+            }
+
+            fn window_size(&self) -> u64 {
+                128 * 1024
+            }
+        }
+
+        let mut state = CompressState {
+            matcher: RleLiteralMatcher {
+                literals: alloc::vec![42; 2048],
+                emitted: false,
+            },
+            last_huff_table: None,
+            fse_tables: FseTables::new(),
+            offset_history: OffsetHistory::new(),
+        };
+        let mut block_payload = Vec::new();
+
+        compress_block(&mut state, &mut block_payload);
+
+        assert_eq!(block_payload[0] & 0b11, 1, "literal section should be RLE");
+
+        let mut frame = Vec::new();
+        crate::encoding::frame_header::FrameHeader {
+            frame_content_size: None,
+            single_segment: false,
+            content_checksum: false,
+            dictionary_id: None,
+            window_size: Some(128 * 1024),
+        }
+        .serialize(&mut frame);
+        crate::encoding::block_header::BlockHeader {
+            last_block: true,
+            block_type: crate::blocks::block::BlockType::Compressed,
+            block_size: block_payload.len() as u32,
+        }
+        .serialize(&mut frame);
+        frame.extend_from_slice(&block_payload);
+
+        let expected = alloc::vec![42; 2064];
+        let mut rust_decoded = Vec::with_capacity(expected.len());
+        let mut decoder = crate::decoding::FrameDecoder::new();
+        decoder
+            .decode_all_to_vec(&frame, &mut rust_decoded)
+            .unwrap();
+        assert_eq!(rust_decoded, expected);
+
+        let mut c_decoded = Vec::new();
+        zstd::stream::copy_decode(frame.as_slice(), &mut c_decoded).unwrap();
+        assert_eq!(c_decoded, expected);
     }
 
     #[test]
