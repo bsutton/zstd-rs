@@ -11,6 +11,8 @@ use crate::{
 
 const INITIAL_LITERALS_CAPACITY: usize = 1024;
 const INITIAL_SEQUENCES_CAPACITY: usize = 256;
+const LITERAL_LENGTH_SMALL_CODES: [(u8, u32, usize); 64] = small_literal_length_codes();
+const MATCH_LENGTH_SMALL_CODES: [(u8, u32, usize); 128] = small_match_length_codes();
 
 /// A block of [`crate::common::BlockType::Compressed`]
 pub fn compress_block<M: Matcher>(
@@ -334,17 +336,12 @@ fn encode_seqnum(seqnum: usize, writer: &mut BitWriter<impl AsMut<Vec<u8>>>) {
 }
 
 fn encode_literal_length(len: u32) -> (u8, u32, usize) {
+    if len < LITERAL_LENGTH_SMALL_CODES.len() as u32 {
+        return LITERAL_LENGTH_SMALL_CODES[len as usize];
+    }
+
     match len {
-        0..=15 => (len as u8, 0, 0),
-        16..=17 => (16, len - 16, 1),
-        18..=19 => (17, len - 18, 1),
-        20..=21 => (18, len - 20, 1),
-        22..=23 => (19, len - 22, 1),
-        24..=27 => (20, len - 24, 2),
-        28..=31 => (21, len - 28, 2),
-        32..=39 => (22, len - 32, 3),
-        40..=47 => (23, len - 40, 3),
-        48..=63 => (24, len - 48, 4),
+        0..=63 => unreachable!(),
         64..=127 => (25, len - 64, 6),
         128..=255 => (26, len - 128, 7),
         256..=511 => (27, len - 256, 8),
@@ -361,20 +358,13 @@ fn encode_literal_length(len: u32) -> (u8, u32, usize) {
 }
 
 fn encode_match_len(len: u32) -> (u8, u32, usize) {
+    if (3..=130).contains(&len) {
+        return MATCH_LENGTH_SMALL_CODES[(len - 3) as usize];
+    }
+
     match len {
         0..=2 => unreachable!(),
-        3..=34 => (len as u8 - 3, 0, 0),
-        35..=36 => (32, len - 35, 1),
-        37..=38 => (33, len - 37, 1),
-        39..=40 => (34, len - 39, 1),
-        41..=42 => (35, len - 41, 1),
-        43..=46 => (36, len - 43, 2),
-        47..=50 => (37, len - 47, 2),
-        51..=58 => (38, len - 51, 3),
-        59..=66 => (39, len - 59, 3),
-        67..=82 => (40, len - 67, 4),
-        83..=98 => (41, len - 83, 4),
-        99..=130 => (42, len - 99, 5),
+        3..=130 => unreachable!(),
         131..=258 => (43, len - 131, 7),
         259..=514 => (44, len - 259, 8),
         515..=1026 => (45, len - 515, 9),
@@ -387,6 +377,53 @@ fn encode_match_len(len: u32) -> (u8, u32, usize) {
         65539..=131074 => (52, len - 65539, 16),
         131075.. => unreachable!(),
     }
+}
+
+const fn small_literal_length_codes() -> [(u8, u32, usize); 64] {
+    let mut codes = [(0, 0, 0); 64];
+    let mut len = 0usize;
+    while len < codes.len() {
+        codes[len] = match len {
+            0..=15 => (len as u8, 0, 0),
+            16..=17 => (16, len as u32 - 16, 1),
+            18..=19 => (17, len as u32 - 18, 1),
+            20..=21 => (18, len as u32 - 20, 1),
+            22..=23 => (19, len as u32 - 22, 1),
+            24..=27 => (20, len as u32 - 24, 2),
+            28..=31 => (21, len as u32 - 28, 2),
+            32..=39 => (22, len as u32 - 32, 3),
+            40..=47 => (23, len as u32 - 40, 3),
+            48..=63 => (24, len as u32 - 48, 4),
+            _ => unreachable!(),
+        };
+        len += 1;
+    }
+    codes
+}
+
+const fn small_match_length_codes() -> [(u8, u32, usize); 128] {
+    let mut codes = [(0, 0, 0); 128];
+    let mut idx = 0usize;
+    while idx < codes.len() {
+        let len = idx + 3;
+        codes[idx] = match len {
+            3..=34 => (len as u8 - 3, 0, 0),
+            35..=36 => (32, len as u32 - 35, 1),
+            37..=38 => (33, len as u32 - 37, 1),
+            39..=40 => (34, len as u32 - 39, 1),
+            41..=42 => (35, len as u32 - 41, 1),
+            43..=46 => (36, len as u32 - 43, 2),
+            47..=50 => (37, len as u32 - 47, 2),
+            51..=58 => (38, len as u32 - 51, 3),
+            59..=66 => (39, len as u32 - 59, 3),
+            67..=82 => (40, len as u32 - 67, 4),
+            83..=98 => (41, len as u32 - 83, 4),
+            99..=130 => (42, len as u32 - 99, 5),
+            _ => unreachable!(),
+        };
+        idx += 1;
+    }
+    codes
 }
 
 fn encode_offset(len: u32) -> (u8, u32, usize) {
@@ -533,6 +570,43 @@ mod tests {
             newest,
             second,
             third,
+        }
+    }
+
+    fn literal_length_code_from_spec(len: u32) -> (u8, u32, usize) {
+        match len {
+            0..=15 => (len as u8, 0, 0),
+            16..=17 => (16, len - 16, 1),
+            18..=19 => (17, len - 18, 1),
+            20..=21 => (18, len - 20, 1),
+            22..=23 => (19, len - 22, 1),
+            24..=27 => (20, len - 24, 2),
+            28..=31 => (21, len - 28, 2),
+            32..=39 => (22, len - 32, 3),
+            40..=47 => (23, len - 40, 3),
+            48..=63 => (24, len - 48, 4),
+            64..=127 => (25, len - 64, 6),
+            _ => panic!("test helper only covers literal lengths through code 25"),
+        }
+    }
+
+    fn match_length_code_from_spec(len: u32) -> (u8, u32, usize) {
+        match len {
+            0..=2 => panic!("match lengths below 3 are invalid"),
+            3..=34 => (len as u8 - 3, 0, 0),
+            35..=36 => (32, len - 35, 1),
+            37..=38 => (33, len - 37, 1),
+            39..=40 => (34, len - 39, 1),
+            41..=42 => (35, len - 41, 1),
+            43..=46 => (36, len - 43, 2),
+            47..=50 => (37, len - 47, 2),
+            51..=58 => (38, len - 51, 3),
+            59..=66 => (39, len - 59, 3),
+            67..=82 => (40, len - 67, 4),
+            83..=98 => (41, len - 83, 4),
+            99..=130 => (42, len - 99, 5),
+            131..=258 => (43, len - 131, 7),
+            _ => panic!("test helper only covers match lengths through code 43"),
         }
     }
 
@@ -709,6 +783,20 @@ mod tests {
         assert_eq!(encode_match_len(65539), (52, 0, 16));
         assert_eq!(encode_match_len(98264), (52, 32725, 16));
         assert_eq!(encode_match_len(131074), (52, 65535, 16));
+    }
+
+    #[test]
+    fn small_length_code_tables_match_spec_ranges() {
+        for len in 0..=64 {
+            assert_eq!(
+                encode_literal_length(len),
+                literal_length_code_from_spec(len)
+            );
+        }
+
+        for len in 3..=131 {
+            assert_eq!(encode_match_len(len), match_length_code_from_spec(len));
+        }
     }
 
     #[test]
