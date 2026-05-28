@@ -52,6 +52,7 @@ Quality constraints:
 - Added safe backward extension for hash-table match candidates, following C zstd's fast parser behavior of moving a match start back toward the current sequence anchor when the preceding bytes also match.
 - Replaced the rough Huffman previous-table reuse heuristic with an exact encoded-size estimate. The estimator is covered against the real single-stream and four-stream Huffman encoders, and avoids full trial encoding of the literal payload.
 - Added a text-like block classifier that uses a longer non-repeat match threshold on mostly printable blocks while preserving short non-repeat matches for binary-looking blocks. Thresholds 7, 8, 9, 10, and 12 were benchmarked; 10 was the best measured aggregate point on the current fixture set.
+- Broadened predefined FSE table use from tiny blocks to small non-RLE sequence blocks. A broad "always predefined when possible" experiment heavily regressed JSON, so this stays intentionally narrow.
 
 ## Verification So Far
 
@@ -82,9 +83,9 @@ Last run after the larger window, match-length fix, RLE sequence modes, incompre
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,108,902 | 5,385,951 | 0.14s | 0.40s | 0.05s |
-| `json_logs_32m.jsonl` | 3,392,237 | 1,354,933 | 1,138,701 | 0.18s | 0.28s | 0.05s |
-| `repeated_text_32m.txt` | 31,757 | 2,875 | 3,116 | 0.11s | 0.20s | 0.01s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,108,891 | 5,385,951 | 0.14s | 0.40s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 1,354,927 | 1,138,701 | 0.18s | 0.30s | 0.05s |
+| `repeated_text_32m.txt` | 31,757 | 2,875 | 3,116 | 0.12s | 0.20s | 0.03s |
 | `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.59s | 0.03s | 0.05s |
 
 Interpretation:

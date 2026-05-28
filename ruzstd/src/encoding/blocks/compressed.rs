@@ -151,7 +151,11 @@ fn choose_table<'a>(
         .skip(1)
         .all(|sequence| code(sequence) == first_code);
 
-    if sequences.len() <= 2
+    if all_same_code && sequences.len() > 2 {
+        return FseTableMode::Rle(first_code);
+    }
+
+    if sequences.len() <= 16
         && sequences
             .iter()
             .all(|sequence| default_table.can_encode_symbol(code(sequence)))
@@ -576,6 +580,39 @@ mod tests {
             ml: 3,
             of: 1,
         }];
+
+        assert!(matches!(
+            choose_table(
+                None,
+                &default,
+                &sequences,
+                |seq| encode_literal_length(seq.ll).0,
+                9
+            ),
+            FseTableMode::Predefined(_)
+        ));
+    }
+
+    #[test]
+    fn choose_table_uses_predefined_tables_for_small_non_rle_blocks() {
+        let default = default_ll_table();
+        let sequences = [
+            crate::blocks::sequence_section::Sequence {
+                ll: 0,
+                ml: 3,
+                of: 1,
+            },
+            crate::blocks::sequence_section::Sequence {
+                ll: 2,
+                ml: 3,
+                of: 1,
+            },
+            crate::blocks::sequence_section::Sequence {
+                ll: 4,
+                ml: 3,
+                of: 1,
+            },
+        ];
 
         assert!(matches!(
             choose_table(
