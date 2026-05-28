@@ -221,6 +221,7 @@ Interpretation:
 - Inlining boundary offset conversions preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.20s then 0.21s and JSON at 0.11s both times; a follow-up JSON profile no longer showed `offset_to_u32` or matcher `bounded_u32` as separate symbols, so keep this as a small neutral cleanup.
 - Tested increasing the per-block literals vector initial capacity from 1024 to 2048 after profiles showed occasional allocation growth in compressed block assembly. Output bytes were unchanged, but decodecorpus regressed to 0.22s then 0.21s and JSON regressed to 0.12s both runs, so the existing conservative literal capacity remains better.
 - Hoisting the matcher block length preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.21s then 0.20s and JSON at 0.12s then 0.11s; keep it as a small neutral hot-loop cleanup that reduces repeated length reads without changing search behavior.
+- Tested forcing `encode_offset()` inline after JSON profiles showed it as a small sequence-side symbol. Output bytes were unchanged, but decodecorpus measured 0.23s on the first run and only returned to 0.20s on the repeat, so the optimizer's original inlining decision remains better.
 
 ## Next Steps
 
