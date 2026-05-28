@@ -2,7 +2,11 @@
 //!
 //! This implementation relies heavily on the `indicatif` crate, see <https://docs.rs/indicatif>cargo hack check --feature-powerset --exclude-features rustc-dep-of-std
 
-use std::{fmt::Write, io::Read, time::Duration};
+use std::{
+    fmt::Write,
+    io::{IsTerminal, Read},
+    time::Duration,
+};
 
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use tracing::info;
@@ -18,12 +22,20 @@ pub struct ProgressMonitor<R: Read> {
     pub read: usize,
     /// The internal reader
     reader: R,
-    progress_bar: ProgressBar,
+    progress_bar: Option<ProgressBar>,
 }
 
 impl<R: Read> ProgressMonitor<R> {
     /// Create a new progress monitor, initialized with zero bytes read
     pub fn new(reader: R, size: usize) -> Self {
+        if !std::io::stderr().is_terminal() {
+            return Self::without_progress(reader, size);
+        }
+
+        Self::with_progress(reader, size)
+    }
+
+    fn with_progress(reader: R, size: usize) -> Self {
         // https://docs.rs/indicatif/latest/indicatif/index.html#templates
         let style = ProgressStyle::with_template(
             "{wide_bar} {binary_bytes}/{binary_total_bytes}  \n[est. {eta} remaining]",
@@ -36,20 +48,33 @@ impl<R: Read> ProgressMonitor<R> {
             reader,
             total: size,
             read: 0,
-            progress_bar,
+            progress_bar: Some(progress_bar),
+        }
+    }
+
+    fn without_progress(reader: R, size: usize) -> Self {
+        Self {
+            reader,
+            total: size,
+            read: 0,
+            progress_bar: None,
         }
     }
 
     /// This function is called whenever a new read is made, and is responsible for updating the UI
     fn update(&mut self, delta: u64) {
-        self.progress_bar.inc(delta);
-        if self.total == self.read && !self.progress_bar.is_finished() {
-            self.progress_bar.finish_and_clear();
+        let Some(progress_bar) = &self.progress_bar else {
+            return;
+        };
+
+        progress_bar.inc(delta);
+        if self.total == self.read && !progress_bar.is_finished() {
+            progress_bar.finish_and_clear();
             info!(
                 "processed {} in {} ({}/s avg)",
                 fmt_size(self.total as f64),
-                fmt_duration(self.progress_bar.elapsed()),
-                fmt_size(self.total as f64 / self.progress_bar.elapsed().as_secs_f64())
+                fmt_duration(progress_bar.elapsed()),
+                fmt_size(self.total as f64 / progress_bar.elapsed().as_secs_f64())
             );
         }
     }
@@ -119,9 +144,13 @@ fn fmt_duration(duration: Duration) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{
+        io::{Cursor, Read},
+        time::Duration,
+    };
 
     use super::{fmt_duration, fmt_size};
+    use crate::progress::ProgressMonitor;
 
     #[test]
     fn human_readable_filesize() {
@@ -147,5 +176,17 @@ mod tests {
             &fmt_duration(Duration::from_secs(1 * 60 * 60 + 20 * 60 + 30)),
             "1h 20m 30s"
         );
+    }
+
+    #[test]
+    fn hidden_progress_monitor_reads_input() {
+        let input = b"progress-free benchmark input";
+        let mut monitor = ProgressMonitor::without_progress(Cursor::new(input), input.len());
+        let mut output = Vec::new();
+
+        monitor.read_to_end(&mut output).unwrap();
+
+        assert_eq!(output, input);
+        assert_eq!(monitor.read, input.len());
     }
 }

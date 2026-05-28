@@ -16,6 +16,9 @@ Quality constraints:
 - Keep the Rust implementation high quality, well structured, and idiomatic.
 - Avoid `unsafe` code. Treat safe Rust as a goal constraint, not just a preference.
 - Prefer clear state machines and small helpers over clever code that is harder to verify.
+- Prefer explicit typed state over manual bit packing when the measured cost is acceptable. For matcher suffix candidates, the chosen direction is a small struct with two `Option<NonZeroU32>` values rather than packing two indexes into one `NonZeroU64`.
+- Keep `usize` for Rust slice/window positions while searching, because slice indexing and lengths are naturally `usize`. Convert to `u32`/`NonZeroU32` only at bounded storage or bitstream boundaries, with checked conversions and cold invariant panics where the bound is guaranteed by the compressor window.
+- Avoid `unwrap()`/`expect()` in production matcher code. Use explicit `match` branches with clear invariant messages on cold panic paths; do not replace these with `unsafe`.
 - Maintain excellent test coverage for each compression feature; retained changes should have tests that make the behavior hard to regress.
 - Cover private invariants with focused unit tests, especially compact matcher state such as suffix candidates and repeat-offset history.
 - Cover emitted bitstreams with end-to-end tests through the Rust decoder and the C zstd decoder; helper-level tests alone are not enough.
@@ -33,6 +36,7 @@ Test coverage bar:
 - Repeat offsets: mirror the decoder/spec rules and the C compressor's repeat-code choice/update behavior.
 - FSE table modes: follow the conservative fast-path idea from C zstd: use predefined tables for tiny sequence counts, repeat previous tables only when the symbols are valid, and avoid broad heuristics without cost modeling.
 - Literal compression: follow C zstd's fast-level guardrails for small/repeated literals, single-stream Huffman below 256 bytes, and the `(srcSize >> 6) + 2` minimum literal gain before accepting a Huffman literal section.
+- Huffman work remains C-guided but not C-cloned: compare table-depth choices, literal mode selection, repeat-table reuse, and payload-cost guards against C zstd, then keep the Rust shape idiomatic and covered.
 - SIMD/hardware-vector work should target the matcher later, especially match extension/comparison. The repeat-offset and table-selection paths are scalar/control-heavy and are not good SIMD candidates.
 - On the current `rustc 1.94.1` toolchain, `std::simd`/portable SIMD is still unstable, so direct SIMD in the encoder would require nightly, an additional dependency, or unsafe target intrinsics. Those conflict with the current safe-Rust/no-new-risk constraints unless a future change explicitly revisits that tradeoff.
 
@@ -129,6 +133,7 @@ Test coverage bar:
 - Changed hash-candidate window search to scan newest entries first and to stop once a candidate reaches the block end. This mirrors C fast's most-recent hash-table behavior and avoids continuing after the maximum possible match length is found. Added focused helper coverage for non-offset-1 block-end early exit and full matcher coverage that the newest previous block-end candidate wins.
 - Switched Huffman-compressed literal payloads below 256 bytes to single-stream encoding, matching C zstd's `singleStream = srcSize < 256` selection while keeping 4-stream encoding for larger payloads. Added an emitted-bitstream test that verifies the single-stream literal header and round-trips the frame through both the Rust and C zstd decoders.
 - Added C-style minimum-gain rejection for Huffman literal sections. Fast-level literals now require a compressed payload gain of `(srcSize >> 6) + 2` before emitting Huffman, preserving all PR fixtures smaller than C zstd while avoiding narrow literal wins that cost CPU. Added focused coverage for the exact boundary plus Rust/C decoder round-trip coverage for the emitted raw fallback.
+- Disabled CLI progress-bar updates for non-terminal stderr. This keeps interactive progress behavior but removes `indicatif` update/tick overhead from redirected benchmark runs, making the CLI comparison with quiet C zstd cleaner. Added focused CLI coverage that the hidden progress monitor still reads through all input bytes.
 
 ## Verification So Far
 
@@ -149,7 +154,10 @@ Latest successful commands:
 - `cargo test -q -p ruzstd`
 - `cargo test -q --workspace`
 - `cargo build --release -p ruzstd-cli`
+- `cargo test -q -p ruzstd-cli progress`
+- `cargo clippy -q -p ruzstd-cli -- -D warnings`
 - `python3 /tmp/zstd_bench_current_branch.py`
+- `python3 tools/benchmark_zstd.py --csv-output /tmp/zstd-rs-benchmark-no-progress.csv --md-output /tmp/zstd-rs-benchmark-no-progress.md`
 - `perf record -F 999 -g -o /tmp/ruzstd-decodecorpus-after-usize-rep.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/decodecorpus_pack.bin /tmp/ruzstd-decodecorpus-profile.zst -l 1`
 - `perf report --stdio -i /tmp/ruzstd-decodecorpus-after-usize-rep.perf.data --sort=symbol --no-children`
 - `perf record -F 999 -g -o /tmp/ruzstd-json-touched-u32-clear.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/json_logs_32m.jsonl /tmp/ruzstd-json-profile.zst -l 1`
@@ -183,7 +191,7 @@ Latest successful commands:
 
 Script: `tools/benchmark_zstd.py`
 
-This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full. The verifier decodes each compressed output with C zstd and compares the decoded bytes against the original fixture bytes; benchmark rows therefore prove both decode success and byte-for-byte identity. The latest saved byte-verified outputs are `/tmp/zstd-rs-benchmark-942fb64-verified.csv` and `/tmp/zstd-rs-benchmark-942fb64-verified.md`.
+This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full. The verifier decodes each compressed output with C zstd and compares the decoded bytes against the original fixture bytes; benchmark rows therefore prove both decode success and byte-for-byte identity. The latest saved byte-verified outputs are `/tmp/zstd-rs-benchmark-no-progress.csv` and `/tmp/zstd-rs-benchmark-no-progress.md`.
 
 Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, C-style small literal-compression threshold, exact-block EOF lookahead, BitWriter exact-fill fast path, precomputed suffix key values, countdown sequence encoding, inlined literal/match length-code helpers, sparse RLE history indexing, hardened suffix-store sizing, repeat-offset availability pruning, C-sized suffix hash tables, newest-first block-end hash search, C-style single-stream Huffman literals below 256 bytes, and C-style minimum-gain rejection for Huffman literal sections:
 
@@ -206,6 +214,7 @@ Peak RSS from the same run:
 Interpretation:
 
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; the current branch remains smaller than C zstd on all three compressible fixtures and four bytes smaller on xorshift.
+- Disabling CLI progress updates for non-terminal benchmark runs preserved exact fixture byte counts and kept CPU medians in the existing band. A follow-up JSON perf sample no longer showed `indicatif` progress symbols near the top; matcher search remained dominant at about 69% and sequence encoding remained secondary at about 9%.
 - C-style minimum-gain rejection for Huffman literal sections regressed `decodecorpus_pack.bin` by 2,901 bytes versus the previous retained snapshot, but still keeps it 14,527 bytes smaller than C zstd. Two runs measured decodecorpus CPU at 0.16s instead of the previous 0.17s band, with the other fixture byte counts unchanged. Keep it because it matches C zstd's fast literal acceptance guardrail and has focused emitted-bitstream Rust/C coverage.
 - Single-stream Huffman literals below 256 bytes improved `decodecorpus_pack.bin` by 23 bytes, preserved the other PR fixture byte counts, and kept CPU in the existing noise band. Keep it because it matches C zstd's literal-stream selection and has full Rust/C emitted-bitstream coverage.
 - C-sized suffix hash tables trade retained compression headroom for a large CPU/RSS win. Divisors 2, 4, 8, 16, and 32 were tested. Divisor 16 keeps `decodecorpus_pack.bin` 17,428 bytes smaller than C zstd and keeps JSON 395,974 bytes smaller than C while reducing current RSS below upstream on the table run. Divisor 32 improved CPU further but regressed decodecorpus to 5,488,132 bytes, larger than C zstd, so it was rejected.
@@ -329,10 +338,39 @@ Interpretation:
 
 ## Next Steps
 
-1. Profile matcher search and extension paths again after the repeat-offset precheck; `match_len_at_offset` should still be a main target, but sequence encoding now shows up more clearly on JSON.
-2. Investigate further safe early-exit or candidate-pruning heuristics in match selection; keep compression-ratio guardrails in tests and benchmarks.
-3. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change; excellent coverage is a hard acceptance criterion for retained work.
-4. SIMD remains a matcher byte-comparison topic, but current stable safe-Rust options have not beaten the retained chunked comparison; avoid unsafe/nightly SIMD unless the project explicitly accepts that tradeoff.
+1. Finish committing and pushing retained progress on the Huffman branch, including the `.gitignore`/benchmark hygiene state where relevant.
+2. Profile matcher search and extension paths again on `decodecorpus_pack.bin` and `json_logs_32m.jsonl`; current samples still show matcher search as the dominant cost and sequence encoding as the secondary JSON target.
+3. Investigate further safe early-exit or candidate-pruning heuristics in match selection; keep compression-ratio guardrails in tests and benchmarks and compare every retained idea against C zstd's fast parser shape.
+4. Continue C-guided Huffman work only where it improves compression, CPU, or correctness clarity. Candidate areas are table-log/depth selection, literal mode selection, repeat-table reuse, and cost estimation, but previously rejected C heuristics should not be retried without new evidence.
+5. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change; excellent coverage is a hard acceptance criterion for retained work.
+6. SIMD remains a matcher byte-comparison topic, but current stable safe-Rust options have not beaten the retained chunked comparison; avoid unsafe/nightly SIMD unless the project explicitly accepts that tradeoff.
+
+## Design Rules From PR Review
+
+- Suffix candidate storage should stay readable and typed: use two `Option<NonZeroU32>` fields for oldest/newest candidate indexes rather than reintroducing the packed `Option<NonZeroU64>` representation.
+- Keep one-based `NonZeroU32` only inside compact suffix-store storage. Convert back to `usize` before indexing slices/windows, and keep those conversions checked.
+- Access to the current/last committed window entry should go through small helpers or explicit `match` branches so empty-window invariants are obvious. Avoid raw `len() - 1` indexing in new matcher code unless the non-empty invariant is immediately established.
+- A window entry may have empty data in edge cases, but suffix insertion must not assume a non-empty committed window or a minimum payload length. Empty and shorter-than-min-match entries should return without indexing suffixes.
+- `unwrap()`/`expect()` is acceptable in tests, but production matcher/compression logic should use explicit invariant handling. `unsafe` is not a better alternative to `unwrap()` for these paths.
+- Keep casts between `usize` and `u32` intentional. `usize` being 64-bit on the current target is not a problem for local slice positions; the memory savings come from compact stored candidate indexes, not from forcing every transient index into `u32`.
+
+## Benchmark And Reporting Rules
+
+- Keep `tools/benchmark_zstd.py` as the canonical local benchmark harness. It must decode each Rust and C compressed output with C zstd and byte-compare the decompressed bytes with the original fixture.
+- Save benchmark reports under `/tmp` unless the user asks for a committed artifact. Current retained report paths are `/tmp/zstd-rs-benchmark-no-progress.csv` and `/tmp/zstd-rs-benchmark-no-progress.md`.
+- Markdown benchmark reports should use a fixed-width table with these columns: `fixture`, `upstream bytes`, `C bytes`, `new bytes`, `% improvement`, `upstream cpu`, `C cpu`, `new cpu`, `% improvement`.
+- Treat the PR's four fixtures as the stable review table, not as sufficient proof of compressor quality. Any major parser/Huffman change should also be checked against the broader fixture expansion plan below.
+- Compare against both upstream Rust and C zstd `-1`. Compression wins should state whether they are against upstream, C, or both; CPU regressions should be called out even when size improves.
+- For profile runs, prefer `perf record -m 64 -F 999 -g` followed by `perf report --stdio --sort=symbol --no-children`, and record in this file which symbols remain dominant.
+
+## Rejected Ideas To Avoid Repeating
+
+- Directly expanding the matcher repeat-probe fixed-array helper into three explicit branches preserved bytes but repeatedly regressed decodecorpus CPU from the retained 0.16s band to about 0.17s.
+- Searching only the newest suffix candidate when a hash slot has both oldest and newest candidates regressed compression: decodecorpus grew to 5,437,724 bytes, larger than C zstd's 5,385,951 bytes, with no CPU win.
+- Text-only 4 Ki effective suffix hash tables regressed JSON size with no CPU gain; keep the retained 8 Ki C-fast hash scale.
+- Narrowing the no-match skip guard to only the primary repeat offset regressed both decodecorpus and JSON without a JSON CPU improvement.
+- Forcing sequence/FSE helpers inline, forcing `encode_offset()` inline, specializing all-table FSE state updates, and caching offset-code tables all failed to produce stable CPU wins.
+- Stable safe SIMD-adjacent rewrites tried so far, including wider chunk comparisons and `as_chunks::<N>()`, did not beat the retained `chunks_exact` comparison shape.
 
 ## Fixture Expansion Plan
 
