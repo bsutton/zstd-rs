@@ -87,7 +87,7 @@ impl Matcher for MatchGeneratorDriver {
         let vec_pool = &mut self.vec_pool;
         let suffixes = match self.suffix_pool.pop() {
             Some(suffixes) => suffixes,
-            None => SuffixStore::with_capacity(space.len()),
+            None => SuffixStore::with_capacity(self.slice_size),
         };
         let suffix_pool = &mut self.suffix_pool;
         self.match_generator
@@ -144,6 +144,7 @@ struct CandidateIndexes {
 
 impl SuffixStore {
     fn with_capacity(capacity: usize) -> Self {
+        let capacity = capacity.max(2);
         Self {
             slots: alloc::vec![None; capacity],
             touched_slots: Vec::with_capacity(INITIAL_TOUCHED_SLOT_CAPACITY),
@@ -1109,6 +1110,19 @@ fn suffix_store_preallocates_touched_slots_modestly() {
 }
 
 #[test]
+fn suffix_store_handles_zero_capacity_request() {
+    let mut suffixes = SuffixStore::with_capacity(0);
+
+    suffixes.insert(b"abcde", 0);
+
+    let candidates = suffixes
+        .candidates(b"abcde")
+        .expect("candidate should exist with minimum backing storage");
+    assert_eq!(candidates.oldest, 0);
+    assert_eq!(candidates.newest, None);
+}
+
+#[test]
 fn suffix_store_key_is_bounded_without_modulo() {
     let suffixes = SuffixStore::with_capacity(100);
 
@@ -1682,6 +1696,20 @@ fn empty_committed_entry_has_no_sequences() {
         |_, _| {},
     );
     assert!(matcher.next_sequence(|_| {}));
+}
+
+#[test]
+fn driver_reuses_short_frame_suffix_store_for_larger_frame() {
+    let mut matcher = MatchGeneratorDriver::new(32, 2);
+    matcher.commit_space(b"a".to_vec());
+    matcher.skip_matching_for_rle();
+    matcher.reset(CompressionLevel::Fastest);
+
+    matcher.commit_space(b"abcdeabcdeabcde".to_vec());
+
+    let mut emitted_sequence = false;
+    matcher.start_matching(|_| emitted_sequence = true);
+    assert!(emitted_sequence);
 }
 
 #[test]
