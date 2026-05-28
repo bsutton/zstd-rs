@@ -257,6 +257,40 @@ impl HuffmanTable {
         }
         Some(sum)
     }
+
+    pub(crate) fn encoded_len(&self, data: &[u8], with_table: bool, four_streams: bool) -> usize {
+        let table_len = if with_table {
+            self.table_description_len()
+        } else {
+            0
+        };
+        let data_len = if four_streams {
+            let split_size = data.len().div_ceil(4);
+            6 + self.stream_encoded_len(&data[..split_size])
+                + self.stream_encoded_len(&data[split_size..split_size * 2])
+                + self.stream_encoded_len(&data[split_size * 2..split_size * 3])
+                + self.stream_encoded_len(&data[split_size * 3..])
+        } else {
+            self.stream_encoded_len(data)
+        };
+        table_len + data_len
+    }
+
+    fn table_description_len(&self) -> usize {
+        let mut encoded = Vec::new();
+        let mut writer = BitWriter::from(&mut encoded);
+        HuffmanEncoder::new(self, &mut writer).write_table();
+        writer.flush();
+        encoded.len()
+    }
+
+    fn stream_encoded_len(&self, data: &[u8]) -> usize {
+        let bit_len = data
+            .iter()
+            .map(|symbol| self.codes[*symbol as usize].1 as usize)
+            .sum::<usize>();
+        bit_len / 8 + 1
+    }
 }
 
 fn is_flat_distribution(counts: &[usize]) -> bool {
@@ -639,4 +673,53 @@ fn from_data() {
         assert!(table[symbol].1 > 0);
         assert!(table[symbol].1 <= MAX_HUFFMAN_BITS as u8);
     }
+}
+
+#[test]
+fn encoded_len_matches_single_stream_encoder() {
+    let data = b"abbcccddddeeeee";
+    let table = HuffmanTable::build_from_data(data);
+
+    assert_eq!(
+        table.encoded_len(data, true, false),
+        actual_encoded_len(&table, data, true, false)
+    );
+    assert_eq!(
+        table.encoded_len(data, false, false),
+        actual_encoded_len(&table, data, false, false)
+    );
+}
+
+#[test]
+fn encoded_len_matches_four_stream_encoder() {
+    let data = b"tenant=alpha path=/v1/archive status=200 tenant=beta path=/v1/search status=404";
+    let table = HuffmanTable::build_from_data(data);
+
+    assert_eq!(
+        table.encoded_len(data, true, true),
+        actual_encoded_len(&table, data, true, true)
+    );
+    assert_eq!(
+        table.encoded_len(data, false, true),
+        actual_encoded_len(&table, data, false, true)
+    );
+}
+
+#[cfg(test)]
+fn actual_encoded_len(
+    table: &HuffmanTable,
+    data: &[u8],
+    with_table: bool,
+    four_streams: bool,
+) -> usize {
+    let mut encoded = Vec::new();
+    let mut writer = BitWriter::from(&mut encoded);
+    let mut encoder = HuffmanEncoder::new(table, &mut writer);
+    if four_streams {
+        encoder.encode4x(data, with_table);
+    } else {
+        encoder.encode(data, with_table);
+    }
+    writer.flush();
+    encoded.len()
 }

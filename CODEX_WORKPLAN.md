@@ -50,6 +50,7 @@ Quality constraints:
 - Reworked overlapping match extension to compare contiguous slices in chunks instead of one byte at a time, staying in safe Rust and adding focused tests for same-block overlap, previous-window lookups, and chunk-boundary mismatches.
 - Added matcher-side repeat-offset probing. The default matcher now stays synchronized with the encoder repeat-offset history, probes repeat offsets even when no suffix entry exists, and restores matcher repeat-offset state when a compressed attempt is discarded as raw.
 - Added safe backward extension for hash-table match candidates, following C zstd's fast parser behavior of moving a match start back toward the current sequence anchor when the preceding bytes also match.
+- Replaced the rough Huffman previous-table reuse heuristic with an exact encoded-size estimate. The estimator is covered against the real single-stream and four-stream Huffman encoders, and avoids full trial encoding of the literal payload.
 
 ## Verification So Far
 
@@ -60,6 +61,7 @@ Latest successful commands after the raw-fallback history fix:
 - `cargo test -q -p ruzstd encoding::match_generator`
 - `cargo test -q -p ruzstd fastest_reuses_history_across_blocks`
 - `cargo test -q -p ruzstd encoding::levels::fastest_tests`
+- `cargo test -q -p ruzstd huff0::huff0_encoder::encoded_len`
 - `cargo clippy -q -p ruzstd --lib -- -D warnings`
 - `cargo test -q -p ruzstd`
 - `cargo build --release -p ruzstd-cli`
@@ -75,13 +77,13 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, and hash-match backward extension:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, and exact Huffman table reuse estimates:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,113,672 | 5,385,951 | 0.13s | 0.41s | 0.04s |
-| `json_logs_32m.jsonl` | 3,392,237 | 1,515,530 | 1,138,701 | 0.18s | 0.29s | 0.05s |
-| `repeated_text_32m.txt` | 31,757 | 2,875 | 3,116 | 0.12s | 0.20s | 0.02s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,113,672 | 5,385,951 | 0.13s | 0.42s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 1,515,406 | 1,138,701 | 0.18s | 0.31s | 0.04s |
+| `repeated_text_32m.txt` | 31,757 | 2,875 | 3,116 | 0.11s | 0.21s | 0.02s |
 | `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.59s | 0.03s | 0.06s |
 
 Interpretation:

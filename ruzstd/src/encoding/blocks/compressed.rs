@@ -425,15 +425,24 @@ fn compress_literals(
         return None;
     }
 
-    let new_encoder_table = huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts());
+    let (size_format, size_bits) = match literals.len() {
+        0..6 => (0b00u8, 10),
+        6..1024 => (0b01, 10),
+        1024..16384 => (0b10, 14),
+        16384..262144 => (0b11, 18),
+        _ => unimplemented!("too many literals"),
+    };
 
-    let (encoder_table, new_table) = if let Some(_table) = last_table {
-        if let Some(diff) = _table.can_encode(&new_encoder_table) {
-            // TODO this is a very simple heuristic, maybe we should try to do better
-            if diff > 5 {
-                (&new_encoder_table, true)
+    let new_encoder_table = huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts());
+    let (encoder_table, new_table) = if let Some(previous_table) = last_table {
+        if previous_table.can_encode(&new_encoder_table).is_some() {
+            let four_streams = size_format != 0;
+            let previous_len = previous_table.encoded_len(literals, false, four_streams);
+            let new_len = new_encoder_table.encoded_len(literals, true, four_streams);
+            if previous_len <= new_len {
+                (previous_table, false)
             } else {
-                (_table, false)
+                (&new_encoder_table, true)
             }
         } else {
             (&new_encoder_table, true)
@@ -447,14 +456,6 @@ fn compress_literals(
     } else {
         writer.write_bits(3u8, 2); // treeless compressed literals type
     }
-
-    let (size_format, size_bits) = match literals.len() {
-        0..6 => (0b00u8, 10),
-        6..1024 => (0b01, 10),
-        1024..16384 => (0b10, 14),
-        16384..262144 => (0b11, 18),
-        _ => unimplemented!("too many literals"),
-    };
 
     writer.write_bits(size_format, 2);
     writer.write_bits(literals.len() as u32, size_bits);
