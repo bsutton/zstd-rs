@@ -20,6 +20,7 @@ const REPEAT_MATCH_LEN_MARGIN: usize = 2;
 const REPEAT_SEARCH_EARLY_EXIT_LEN: usize = 10;
 const DENSE_MATCH_INDEX_LIMIT: usize = 128;
 const NO_MATCH_PROBE_STEP: usize = 2;
+const TEXT_NO_MATCH_PROBE_STEP: usize = 3;
 
 /// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
 pub struct MatchGeneratorDriver {
@@ -454,13 +455,15 @@ impl MatchGenerator {
 
             let suffix_idx = self.suffix_idx;
             let last_entry_len = last_entry.data.len();
-            let can_skip_next_probe = suffix_idx + NO_MATCH_PROBE_STEP + MIN_MATCH_LEN
-                <= last_entry_len
-                && !self.repeat_offset_can_match_at(suffix_idx + 1);
+            let probe_step = self.no_match_probe_step();
+            let can_skip_next_probe = suffix_idx + probe_step + MIN_MATCH_LEN <= last_entry_len
+                && (1..probe_step).all(|skip| !self.repeat_offset_can_match_at(suffix_idx + skip));
             self.add_suffix_at(suffix_idx);
             let step = if can_skip_next_probe {
-                self.add_suffix_at(suffix_idx + 1);
-                NO_MATCH_PROBE_STEP
+                for skip in 1..probe_step {
+                    self.add_suffix_at(suffix_idx + skip);
+                }
+                probe_step
             } else {
                 1
             };
@@ -515,6 +518,15 @@ impl MatchGenerator {
             }
         }
         false
+    }
+
+    #[inline(always)]
+    fn no_match_probe_step(&self) -> usize {
+        if self.min_non_repeat_match_len == TEXT_MIN_NON_REPEAT_MATCH_LEN {
+            TEXT_NO_MATCH_PROBE_STEP
+        } else {
+            NO_MATCH_PROBE_STEP
+        }
     }
 
     #[inline(always)]
@@ -1089,6 +1101,28 @@ fn binary_blocks_keep_short_non_repeat_matches() {
     matcher.add_data(xorshift(2048), SuffixStore::with_capacity(2048), |_, _| {});
 
     assert_eq!(matcher.min_non_repeat_match_len, MIN_MATCH_LEN);
+}
+
+#[test]
+fn text_blocks_use_wider_no_match_probe_step() {
+    let mut matcher = MatchGenerator::new(2048);
+    matcher.add_data(
+        b"tenant=alpha path=/v1/archive status=200\n"
+            .repeat(32)
+            .to_vec(),
+        SuffixStore::with_capacity(2048),
+        |_, _| {},
+    );
+
+    assert_eq!(matcher.no_match_probe_step(), TEXT_NO_MATCH_PROBE_STEP);
+}
+
+#[test]
+fn binary_blocks_keep_default_no_match_probe_step() {
+    let mut matcher = MatchGenerator::new(2048);
+    matcher.add_data(xorshift(2048), SuffixStore::with_capacity(2048), |_, _| {});
+
+    assert_eq!(matcher.no_match_probe_step(), NO_MATCH_PROBE_STEP);
 }
 
 #[test]
