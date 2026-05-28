@@ -165,6 +165,7 @@ Interpretation:
 - Tested replacing the no-match skip guard's small range iterator with explicit branches for probe steps 2 and 3. Output bytes were unchanged, but decodecorpus drifted to 0.26s and JSON to 0.18s on the table run, so the original iterator-shaped guard was kept.
 - Tested replacing FSE `SymbolStates::get()`'s iterator search with an explicit indexed loop and cold panic path. Output bytes were unchanged, but decodecorpus drifted to 0.26s and JSON to 0.18s on the table run, so the original iterator/`unwrap` form was kept for this hot lookup.
 - Tested splitting the common literal-length and match-length code ranges into explicit early-return branches before the larger range matches. Output bytes were unchanged, but decodecorpus drifted to 0.26s and JSON to 0.18s on the table run, so the original single-match form was kept.
+- Tested scanning hash-candidate window entries newest-first. Output bytes were unchanged and one run improved JSON to 0.16s, but the repeat run returned JSON to 0.18s while decodecorpus stayed at 0.25s, so the change was treated as noise and not kept.
 
 ## Next Steps
 
