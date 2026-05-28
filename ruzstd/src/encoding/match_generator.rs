@@ -456,7 +456,7 @@ impl MatchGenerator {
             let last_entry_len = last_entry.data.len();
             let can_skip_next_probe = suffix_idx + NO_MATCH_PROBE_STEP + MIN_MATCH_LEN
                 <= last_entry_len
-                && !self.repeat_offset_can_match_at(suffix_idx + 1, last_entry);
+                && !self.repeat_offset_can_match_at(suffix_idx + 1);
             self.add_suffix_at(suffix_idx);
             let step = if can_skip_next_probe {
                 self.add_suffix_at(suffix_idx + 1);
@@ -505,25 +505,28 @@ impl MatchGenerator {
         })
     }
 
-    fn repeat_offset_can_match_at(&self, suffix_idx: usize, last_entry: &WindowEntry) -> bool {
+    fn repeat_offset_can_match_at(&self, suffix_idx: usize) -> bool {
         let literal_len = Self::bounded_u32(suffix_idx - self.last_idx_in_sequence);
-        let context = MatchCandidateContext {
-            suffix_idx,
-            anchor_idx: self.last_idx_in_sequence,
-            min_non_repeat_match_len: self.min_non_repeat_match_len,
-            data_slice: &last_entry.data[suffix_idx..],
-            #[cfg(debug_assertions)]
-            last_entry_len: last_entry.data.len(),
-            #[cfg(debug_assertions)]
-            concat_window: &self.concat_window,
-        };
-
         for offset in self.repeat_offset_candidates(literal_len) {
-            if offset != 0 && self.has_min_match_at_offset(offset as usize, &context) {
+            if offset != 0 && self.has_min_match_at_index_offset(suffix_idx, offset as usize) {
                 return true;
             }
         }
         false
+    }
+
+    #[inline(always)]
+    fn has_min_match_at_index_offset(&self, suffix_idx: usize, offset: usize) -> bool {
+        let source_relative = suffix_idx as isize - offset as isize;
+        let Some(source) = self.slice_at_relative(source_relative) else {
+            return false;
+        };
+
+        if source.len() < MIN_MATCH_LEN {
+            return true;
+        }
+
+        source[..MIN_MATCH_LEN] == self.last_entry().data[suffix_idx..suffix_idx + MIN_MATCH_LEN]
     }
 
     #[inline(always)]
@@ -1169,8 +1172,7 @@ fn no_match_step_does_not_skip_next_repeat_offset_match() {
         |_, _| {},
     );
 
-    let last_entry = matcher.last_entry();
-    assert!(matcher.repeat_offset_can_match_at(1, last_entry));
+    assert!(matcher.repeat_offset_can_match_at(1));
 }
 
 #[test]
