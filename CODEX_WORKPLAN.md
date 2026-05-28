@@ -263,6 +263,7 @@ Interpretation:
 - Tested replacing hot five-byte minimum-match slice comparisons with an explicit safe byte-by-byte helper, as a safe approximation of C zstd's fixed-width `MEM_read32` prechecks. Output bytes stayed unchanged and focused matcher tests passed, but decodecorpus regressed to 0.24s then 0.23s and JSON to 0.12s across two table runs, so the compiler's original slice-comparison shape remains better.
 - Tested reducing the matcher text-classifier sample count from 256 to 128 to lower per-block classifier work while preserving the text/binary parser split. Output bytes stayed unchanged and matcher classifier tests passed, but the measured CPU band was indistinguishable from the 256-sample A/B run, so the original more conservative 256-sample classifier remains.
 - Tested precomputing the non-zero-literal repeat-candidate array for the no-match skip guard, since skipped probe positions always have at least one literal before them. Output bytes stayed unchanged and focused matcher tests passed, but JSON stayed at 0.12s and decodecorpus drifted to 0.22s on the repeat run, so the original per-position helper remains better.
+- Tested forcing the sequence FSE state helper functions inline after JSON profiles showed sequence encoding as a secondary CPU target. Output bytes stayed unchanged and focused tests passed, but JSON regressed to 0.12s across two table runs, so the optimizer's original helper inlining decisions remain better.
 
 ## Next Steps
 
