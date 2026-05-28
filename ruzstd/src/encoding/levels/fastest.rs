@@ -37,6 +37,15 @@ pub fn compress_fastest<M: Matcher>(
         // Write the header, then the block
         header.serialize(output);
         output.push(rle_byte);
+    } else if likely_incompressible(&uncompressed_data) {
+        state.matcher.commit_space(uncompressed_data);
+        state.matcher.skip_matching();
+        write_raw_block(
+            last_block,
+            block_size,
+            state.matcher.get_last_space(),
+            output,
+        );
     } else {
         // Compress as a standard compressed block
         let mut compressed = Vec::new();
@@ -56,14 +65,12 @@ pub fn compress_fastest<M: Matcher>(
             state.fse_tables.of_previous = previous_of;
             state.offset_history = previous_offsets;
 
-            let header = BlockHeader {
+            write_raw_block(
                 last_block,
-                block_type: crate::blocks::block::BlockType::Raw,
                 block_size,
-            };
-            // Write the header, then the block
-            header.serialize(output);
-            output.extend_from_slice(state.matcher.get_last_space());
+                state.matcher.get_last_space(),
+                output,
+            );
         } else {
             let header = BlockHeader {
                 last_block,
@@ -78,4 +85,42 @@ pub fn compress_fastest<M: Matcher>(
             output.extend(compressed);
         }
     }
+}
+
+fn write_raw_block(last_block: bool, block_size: u32, data: &[u8], output: &mut Vec<u8>) {
+    let header = BlockHeader {
+        last_block,
+        block_type: crate::blocks::block::BlockType::Raw,
+        block_size,
+    };
+    header.serialize(output);
+    output.extend_from_slice(data);
+}
+
+pub(super) fn likely_incompressible(data: &[u8]) -> bool {
+    const MIN_MATCH_LEN: usize = 5;
+    const SAMPLE_COUNT: usize = 256;
+
+    if data.len() < 8 * 1024 {
+        return false;
+    }
+
+    let max_start = data.len() - MIN_MATCH_LEN;
+    let samples = SAMPLE_COUNT.min(max_start + 1);
+    let step = (max_start / samples).max(1);
+    let mut keys = [0u64; SAMPLE_COUNT];
+    for (used, sample) in (0..samples).enumerate() {
+        let pos = (sample * step).min(max_start);
+        let key = u64::from(data[pos])
+            | (u64::from(data[pos + 1]) << 8)
+            | (u64::from(data[pos + 2]) << 16)
+            | (u64::from(data[pos + 3]) << 24)
+            | (u64::from(data[pos + 4]) << 32);
+        if keys[..used].contains(&key) {
+            return false;
+        }
+        keys[used] = key;
+    }
+
+    true
 }

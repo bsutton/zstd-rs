@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 
+use crate::decoding::FrameDecoder;
 use crate::encoding::{compress_to_vec, CompressionLevel};
 
 #[test]
@@ -10,6 +11,47 @@ fn fastest_does_not_expand_incompressible_blocks_past_raw_size() {
 #[test]
 fn fastest_does_not_expand_incompressible_max_size_blocks() {
     assert_fastest_does_not_exceed_raw(128 * 1024);
+}
+
+#[test]
+fn fastest_reuses_history_across_blocks() {
+    let phrase = b"the quick brown fox jumps over the lazy dog\n";
+    let mut data = Vec::with_capacity(512 * 1024);
+    while data.len() < 512 * 1024 {
+        data.extend_from_slice(phrase);
+    }
+    data.truncate(512 * 1024);
+
+    let fastest = compress_to_vec(data.as_slice(), CompressionLevel::Fastest);
+    let mut decoded = Vec::with_capacity(data.len());
+    FrameDecoder::new()
+        .decode_all_to_vec(fastest.as_slice(), &mut decoded)
+        .unwrap();
+
+    assert_eq!(decoded, data);
+
+    let mut decoded_by_c = Vec::new();
+    zstd::stream::copy_decode(fastest.as_slice(), &mut decoded_by_c).unwrap();
+    assert_eq!(decoded_by_c, data);
+
+    assert!(
+        fastest.len() < 1024,
+        "fastest should reuse previous blocks for repetitive data: got {} bytes",
+        fastest.len()
+    );
+}
+
+#[test]
+fn incompressible_gate_distinguishes_random_from_repetitive_data() {
+    let random = xorshift(128 * 1024);
+    assert!(super::fastest::likely_incompressible(&random));
+
+    let mut repetitive = Vec::with_capacity(128 * 1024);
+    while repetitive.len() < 128 * 1024 {
+        repetitive.extend_from_slice(b"tenant=alpha path=/v1/archive status=200\n");
+    }
+    repetitive.truncate(128 * 1024);
+    assert!(!super::fastest::likely_incompressible(&repetitive));
 }
 
 fn assert_fastest_does_not_exceed_raw(len: usize) {

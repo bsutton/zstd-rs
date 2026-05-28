@@ -103,7 +103,7 @@ struct SuffixStore {
 
 #[derive(Copy, Clone)]
 struct Candidates {
-    // We need 17 bits per index to store the maximum window size of 128kb.
+    // We need 17 bits per index to store the maximum block size of 128kb.
     // We store indexes using one-based so Option can use a NonZeroU32 niche.
     oldest: NonZeroU32,
     newest: NonZeroU32,

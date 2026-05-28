@@ -11,6 +11,13 @@ Implement and verify the two follow-up compression improvements after merging th
 
 Keep the branch correct against the local Rust decoder and C zstd decoder, then benchmark against upstream and C zstd.
 
+Quality constraints:
+
+- Keep the Rust implementation high quality, well structured, and idiomatic.
+- Avoid `unsafe` code. Treat safe Rust as a goal constraint, not just a preference.
+- Prefer clear state machines and small helpers over clever code that is harder to verify.
+- Maintain excellent test coverage for each compression feature, including tests that exercise emitted bitstreams and decoder interoperability, not only helper-level behavior.
+
 ## C zstd Guidance Used
 
 - Repeat offsets: mirror the decoder/spec rules and the C compressor's repeat-code choice/update behavior.
@@ -32,6 +39,11 @@ Keep the branch correct against the local Rust decoder and C zstd decoder, then 
 - Added a scalar `OffsetHistory` struct instead of a `[u32; 3]` array in encoder state.
 - Found and fixed a correctness issue in raw fallback: if `compress_fastest` builds a compressed block and then discards it as raw, it now restores FSE and repeat-offset encoder history because the decoder will not see the discarded compressed block.
 - Deferred committing a new Huffman table until `compress_fastest` knows the compressed block will actually be emitted. This avoids cloning `HuffmanTable`, which is not `Clone`, and avoids committing entropy history for a discarded raw fallback block.
+- Added encoder support for RLE sequence table modes and a decoder-facing RLE bitstream round-trip test.
+- Increased the default fastest matcher window from one 128 KiB block to four 128 KiB blocks, matching the 512 KiB level-1 window observed from C zstd on the repeated-text fixture.
+- Fixed match-length code 52 encoding, which had the wrong baseline and corrupted streams once cross-block matches exposed match lengths above 65,538 bytes.
+- Added a cross-block repetitive-data test that verifies both the Rust decoder and C zstd decoder can decode the emitted stream and that compression stays compact.
+- Added a sampled incompressibility gate so random-looking blocks skip expensive match search and are emitted raw while still being committed for future history.
 
 ## Verification So Far
 
@@ -54,19 +66,20 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the raw-fallback history fix:
+Last run after the larger window, match-length fix, RLE sequence modes, and incompressibility gate:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,450,882 | 5,385,951 | 0.13s | 0.15s | 0.05s |
-| `json_logs_32m.jsonl` | 3,392,237 | 2,254,327 | 1,138,701 | 0.18s | 0.19s | 0.04s |
-| `repeated_text_32m.txt` | 31,757 | 25,382 | 3,116 | 0.11s | 0.12s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.59s | 0.56s | 0.05s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,240,734 | 5,385,951 | 0.14s | 0.27s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 2,105,678 | 1,138,701 | 0.18s | 0.23s | 0.05s |
+| `repeated_text_32m.txt` | 31,757 | 3,968 | 3,116 | 0.11s | 0.19s | 0.02s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.59s | 0.33s | 0.05s |
 
 Interpretation:
 
-- Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`.
-- CPU is roughly flat on the repetitive fixture after the raw-fallback history fix and faster on the incompressible fixture in the latest run.
+- Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; repeated text is now close to C zstd.
+- The incompressible fixture is faster than upstream after the sampled raw gate, but still much slower than C zstd.
+- The larger window improves compression but raises CPU and RSS on compressible fixtures; next work should focus on matcher search strategy and early-exit heuristics.
 - Perf sample on `repeated_text_32m.txt` showed time dominated by `MatchGeneratorDriver::start_matching`; the repeat-offset callback is inlined into that symbol, but the larger future CPU opportunity is still matcher logic.
 
 ## Next Steps
