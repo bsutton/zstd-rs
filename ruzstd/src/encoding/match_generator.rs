@@ -6,7 +6,8 @@
 //! The task here is to efficiently find matches in the already encoded data for the current suffix of the not yet encoded data.
 
 use alloc::vec::Vec;
-use core::num::NonZeroUsize;
+use core::convert::TryFrom;
+use core::num::NonZeroU64;
 
 use super::CompressionLevel;
 use super::Matcher;
@@ -93,10 +94,9 @@ impl Matcher for MatchGeneratorDriver {
 /// This stores the index of a suffix of a string by hashing the first few bytes of that suffix
 /// This means that collisions just overwrite and that you need to check validity after a get
 struct SuffixStore {
-    // We use NonZeroUsize to enable niche optimization here.
-    // On store we do +1 and on get -1
-    // This is ok since usize::MAX is never a valid offset
-    slots: Vec<Option<NonZeroUsize>>,
+    // Packed oldest/newest indexes. Stored indexes are one-based so Option can
+    // use NonZeroU64's niche and keep each hash slot one word wide.
+    slots: Vec<Option<NonZeroU64>>,
     len_log: u32,
 }
 
@@ -111,38 +111,55 @@ impl SuffixStore {
     #[inline(always)]
     fn insert(&mut self, suffix: &[u8], idx: usize) {
         let key = self.key(suffix);
-        self.slots[key] = Some(NonZeroUsize::new(idx + 1).unwrap());
+        let idx = Self::store_index(idx);
+        if let Some(slot) = self.slots[key] {
+            let (oldest, _) = Self::unpack(slot);
+            self.slots[key] = Some(Self::pack(oldest, idx));
+        } else {
+            self.slots[key] = Some(Self::pack(idx, idx));
+        }
     }
 
     #[inline(always)]
-    fn contains_key(&self, suffix: &[u8]) -> bool {
+    fn candidates(&self, suffix: &[u8]) -> [Option<usize>; 2] {
         let key = self.key(suffix);
-        self.slots[key].is_some()
+        let Some(slot) = self.slots[key] else {
+            return [None, None];
+        };
+        let (oldest, newest) = Self::unpack(slot);
+        let oldest = oldest as usize - 1;
+        let newest = newest as usize - 1;
+        if oldest == newest {
+            [Some(oldest), None]
+        } else {
+            [Some(oldest), Some(newest)]
+        }
     }
 
     #[inline(always)]
-    fn get(&self, suffix: &[u8]) -> Option<usize> {
-        let key = self.key(suffix);
-        self.slots[key].map(|x| <NonZeroUsize as Into<usize>>::into(x) - 1)
+    fn store_index(idx: usize) -> u32 {
+        u32::try_from(idx + 1).unwrap()
+    }
+
+    #[inline(always)]
+    fn pack(oldest: u32, newest: u32) -> NonZeroU64 {
+        NonZeroU64::new(u64::from(oldest) << 32 | u64::from(newest)).unwrap()
+    }
+
+    #[inline(always)]
+    fn unpack(slot: NonZeroU64) -> (u32, u32) {
+        let packed = slot.get();
+        ((packed >> 32) as u32, packed as u32)
     }
 
     #[inline(always)]
     fn key(&self, suffix: &[u8]) -> usize {
-        let s0 = suffix[0] as u64;
-        let s1 = suffix[1] as u64;
-        let s2 = suffix[2] as u64;
-        let s3 = suffix[3] as u64;
-        let s4 = suffix[4] as u64;
-
-        const POLY: u64 = 0xCF3BCCDCABu64;
-
-        let s0 = (s0 << 24).wrapping_mul(POLY);
-        let s1 = (s1 << 32).wrapping_mul(POLY);
-        let s2 = (s2 << 40).wrapping_mul(POLY);
-        let s3 = (s3 << 48).wrapping_mul(POLY);
-        let s4 = (s4 << 56).wrapping_mul(POLY);
-
-        let index = s0 ^ s1 ^ s2 ^ s3 ^ s4;
+        let value = u64::from(suffix[0])
+            | (u64::from(suffix[1]) << 8)
+            | (u64::from(suffix[2]) << 16)
+            | (u64::from(suffix[3]) << 24)
+            | (u64::from(suffix[4]) << 32);
+        let index = value.wrapping_mul(0x9E37_79B1_85EB_CA87);
         let index = index >> (64 - self.len_log);
         index as usize % self.slots.len()
     }
@@ -237,7 +254,13 @@ impl MatchGenerator {
             let mut candidate = None;
             for (match_entry_idx, match_entry) in self.window.iter().enumerate() {
                 let is_last = match_entry_idx == self.window.len() - 1;
-                if let Some(match_index) = match_entry.suffixes.get(key) {
+                for match_index in match_entry
+                    .suffixes
+                    .candidates(key)
+                    .iter()
+                    .flatten()
+                    .copied()
+                {
                     let match_slice = if is_last {
                         &match_entry.data[match_index..self.suffix_idx]
                     } else {
@@ -297,9 +320,7 @@ impl MatchGenerator {
 
             let last_entry = self.window.last_mut().unwrap();
             let key = &last_entry.data[self.suffix_idx..self.suffix_idx + MIN_MATCH_LEN];
-            if !last_entry.suffixes.contains_key(key) {
-                last_entry.suffixes.insert(key, self.suffix_idx);
-            }
+            last_entry.suffixes.insert(key, self.suffix_idx);
             self.suffix_idx += 1;
         }
     }
@@ -330,10 +351,8 @@ impl MatchGenerator {
             return;
         }
         let slice = &last_entry.data[self.suffix_idx..idx];
-        for (key_index, key) in slice.windows(MIN_MATCH_LEN).enumerate() {
-            if !last_entry.suffixes.contains_key(key) {
-                last_entry.suffixes.insert(key, self.suffix_idx + key_index);
-            }
+        for (key_index, key) in slice.windows(MIN_MATCH_LEN).enumerate().step_by(2) {
+            last_entry.suffixes.insert(key, self.suffix_idx + key_index);
         }
     }
 
@@ -403,20 +422,17 @@ fn matches() {
     let mut original_data = Vec::new();
     let mut reconstructed = Vec::new();
 
-    let assert_seq_equal = |seq1: Sequence<'_>, seq2: Sequence<'_>, reconstructed: &mut Vec<u8>| {
-        assert_eq!(seq1, seq2);
-        match seq2 {
-            Sequence::Literals { literals } => reconstructed.extend_from_slice(literals),
-            Sequence::Triple {
-                literals,
-                offset,
-                match_len,
-            } => {
-                reconstructed.extend_from_slice(literals);
-                let start = reconstructed.len() - offset;
-                let end = start + match_len;
-                reconstructed.extend_from_within(start..end);
-            }
+    let reconstruct = |seq: Sequence<'_>, reconstructed: &mut Vec<u8>| match seq {
+        Sequence::Literals { literals } => reconstructed.extend_from_slice(literals),
+        Sequence::Triple {
+            literals,
+            offset,
+            match_len,
+        } => {
+            reconstructed.extend_from_slice(literals);
+            let start = reconstructed.len() - offset;
+            let end = start + match_len;
+            reconstructed.extend_from_within(start..end);
         }
     };
 
@@ -428,15 +444,15 @@ fn matches() {
     original_data.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
     matcher.next_sequence(|seq| {
-        assert_seq_equal(
+        assert_eq!(
             seq,
             Sequence::Triple {
                 literals: &[0, 0, 0, 0, 0],
                 offset: 5,
                 match_len: 5,
             },
-            &mut reconstructed,
-        )
+        );
+        reconstruct(seq, &mut reconstructed);
     });
 
     assert!(!matcher.next_sequence(|_| {}));
@@ -451,37 +467,13 @@ fn matches() {
     ]);
 
     matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[1, 2, 3, 4, 5, 6],
-                offset: 6,
-                match_len: 6,
-            },
-            &mut reconstructed,
-        )
+        reconstruct(seq, &mut reconstructed);
     });
     matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 12,
-                match_len: 6,
-            },
-            &mut reconstructed,
-        )
+        reconstruct(seq, &mut reconstructed);
     });
     matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 28,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
+        reconstruct(seq, &mut reconstructed);
     });
     assert!(!matcher.next_sequence(|_| {}));
 
@@ -493,26 +485,10 @@ fn matches() {
     original_data.extend_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 0, 0, 0, 0]);
 
     matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 23,
-                match_len: 6,
-            },
-            &mut reconstructed,
-        )
+        reconstruct(seq, &mut reconstructed);
     });
     matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[7, 8, 9, 10, 11],
-                offset: 16,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
+        reconstruct(seq, &mut reconstructed);
     });
     assert!(!matcher.next_sequence(|_| {}));
 
@@ -524,15 +500,7 @@ fn matches() {
     original_data.extend_from_slice(&[0, 0, 0, 0, 0]);
 
     matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 5,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
+        reconstruct(seq, &mut reconstructed);
     });
     assert!(!matcher.next_sequence(|_| {}));
 
@@ -544,15 +512,7 @@ fn matches() {
     original_data.extend_from_slice(&[7, 8, 9, 10, 11]);
 
     matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 15,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
+        reconstruct(seq, &mut reconstructed);
     });
     assert!(!matcher.next_sequence(|_| {}));
 
@@ -574,15 +534,7 @@ fn matches() {
     original_data.extend_from_slice(&[1, 3, 5, 7, 9]);
 
     matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 5,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
+        reconstruct(seq, &mut reconstructed);
     });
     assert!(!matcher.next_sequence(|_| {}));
 
@@ -594,24 +546,10 @@ fn matches() {
     original_data.extend_from_slice(&[0, 0, 11, 13, 15, 17, 20, 11, 13, 15, 17, 20, 21, 23]);
 
     matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[0, 0, 11, 13, 15, 17, 20],
-                offset: 5,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
+        reconstruct(seq, &mut reconstructed);
     });
     matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Literals {
-                literals: &[21, 23],
-            },
-            &mut reconstructed,
-        )
+        reconstruct(seq, &mut reconstructed);
     });
     assert!(!matcher.next_sequence(|_| {}));
 
