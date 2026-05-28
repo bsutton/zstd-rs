@@ -203,7 +203,7 @@ impl HuffmanTable {
             }
         }
         // We process symbols ordered by weight and then ordered by symbol
-        sorted.sort_by(|left, right| match left.weight.cmp(&right.weight) {
+        sorted.sort_unstable_by(|left, right| match left.weight.cmp(&right.weight) {
             Ordering::Equal => left.symbol.cmp(&right.symbol),
             other => other,
         });
@@ -406,7 +406,7 @@ fn limit_code_lengths(lengths: &mut [usize], counts: &[usize], max_bits: usize) 
         .enumerate()
         .filter(|(_, count)| *count > 0)
         .collect::<Vec<_>>();
-    symbols.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(&left.0)));
+    symbols.sort_unstable_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(&left.0)));
 
     lengths.fill(0);
     let mut symbol_idx = 0;
