@@ -53,6 +53,7 @@ Quality constraints:
 - Replaced the rough Huffman previous-table reuse heuristic with an exact encoded-size estimate. The estimator is covered against the real single-stream and four-stream Huffman encoders, and avoids full trial encoding of the literal payload.
 - Added a text-like block classifier that uses a longer non-repeat match threshold on mostly printable blocks while preserving short non-repeat matches for binary-looking blocks. Thresholds 7, 8, 9, 10, and 12 were benchmarked; 10 was the best measured aggregate point on the current fixture set.
 - Broadened predefined FSE table use from tiny blocks to small non-RLE sequence blocks. A broad "always predefined when possible" experiment heavily regressed JSON, so this stays intentionally narrow.
+- Added repeat-offset-biased match selection. Repeat candidates may win when they are only slightly shorter than a normal match; margins 1, 2, 3, and 4 were benchmarked, and margin 2 was the best measured aggregate point.
 
 ## Verification So Far
 
@@ -79,18 +80,18 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, and text-aware non-repeat match threshold:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, and repeat-offset-biased match selection:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,108,891 | 5,385,951 | 0.14s | 0.40s | 0.04s |
-| `json_logs_32m.jsonl` | 3,392,237 | 1,354,927 | 1,138,701 | 0.18s | 0.30s | 0.05s |
-| `repeated_text_32m.txt` | 31,757 | 2,875 | 3,116 | 0.12s | 0.20s | 0.03s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.59s | 0.03s | 0.05s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,107,099 | 5,385,951 | 0.13s | 0.40s | 0.05s |
+| `json_logs_32m.jsonl` | 3,392,237 | 905,506 | 1,138,701 | 0.18s | 0.27s | 0.04s |
+| `repeated_text_32m.txt` | 31,757 | 2,875 | 3,116 | 0.12s | 0.20s | 0.02s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.58s | 0.03s | 0.05s |
 
 Interpretation:
 
-- Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; repeated text is now smaller than C zstd on this fixture, JSON moved much closer to C zstd after repeat-offset probing, and text-aware match selection improved both JSON and decodecorpus size.
+- Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; repeated text and JSON are now smaller than C zstd on these fixtures, and repeat-offset-biased match selection is the largest JSON improvement so far.
 - Backward extension is a net size win across the fixture set, but it slightly worsened JSON size versus repeat-offset probing alone; keep that tradeoff visible when evaluating future match selection changes.
 - The incompressible fixture is now near C zstd CPU after the no-index raw fast path.
 - The larger window, overlapping extension, and repeat-offset probing improve compression but raise CPU and RSS on compressible fixtures; next work should focus on matcher search strategy and early-exit heuristics.

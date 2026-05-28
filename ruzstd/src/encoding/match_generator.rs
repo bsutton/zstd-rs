@@ -16,6 +16,7 @@ use super::Sequence;
 
 const MIN_MATCH_LEN: usize = 5;
 const TEXT_MIN_NON_REPEAT_MATCH_LEN: usize = 10;
+const REPEAT_MATCH_LEN_MARGIN: usize = 2;
 
 /// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
 pub struct MatchGeneratorDriver {
@@ -215,12 +216,17 @@ struct MatchCandidate {
 
 impl MatchCandidate {
     fn is_better_than(self, other: Self) -> bool {
+        if self.repeat_offset != other.repeat_offset {
+            if self.repeat_offset {
+                return self.match_len + REPEAT_MATCH_LEN_MARGIN >= other.match_len;
+            }
+            return self.match_len > other.match_len + REPEAT_MATCH_LEN_MARGIN;
+        }
+
         self.match_len > other.match_len
             || (self.match_len == other.match_len
-                && (self.repeat_offset && !other.repeat_offset
-                    || self.repeat_offset == other.repeat_offset
-                        && (self.start_idx < other.start_idx
-                            || self.start_idx == other.start_idx && self.offset < other.offset)))
+                && (self.start_idx < other.start_idx
+                    || self.start_idx == other.start_idx && self.offset < other.offset))
     }
 
     fn worth_emitting(self, min_non_repeat_match_len: usize) -> bool {
@@ -831,6 +837,42 @@ fn binary_blocks_keep_short_non_repeat_matches() {
     matcher.add_data(xorshift(2048), SuffixStore::with_capacity(2048), |_, _| {});
 
     assert_eq!(matcher.min_non_repeat_match_len, MIN_MATCH_LEN);
+}
+
+#[test]
+fn repeat_offset_candidate_can_win_with_small_length_deficit() {
+    let repeat = MatchCandidate {
+        start_idx: 10,
+        offset: 16,
+        match_len: 8,
+        repeat_offset: true,
+    };
+    let normal = MatchCandidate {
+        start_idx: 10,
+        offset: 1024,
+        match_len: 8 + REPEAT_MATCH_LEN_MARGIN,
+        repeat_offset: false,
+    };
+
+    assert!(repeat.is_better_than(normal));
+}
+
+#[test]
+fn longer_normal_candidate_wins_beyond_repeat_offset_margin() {
+    let repeat = MatchCandidate {
+        start_idx: 10,
+        offset: 16,
+        match_len: 8,
+        repeat_offset: true,
+    };
+    let normal = MatchCandidate {
+        start_idx: 10,
+        offset: 1024,
+        match_len: 8 + REPEAT_MATCH_LEN_MARGIN + 1,
+        repeat_offset: false,
+    };
+
+    assert!(normal.is_better_than(repeat));
 }
 
 #[test]
