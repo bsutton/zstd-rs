@@ -265,6 +265,7 @@ Interpretation:
 - Tested precomputing the non-zero-literal repeat-candidate array for the no-match skip guard, since skipped probe positions always have at least one literal before them. Output bytes stayed unchanged and focused matcher tests passed, but JSON stayed at 0.12s and decodecorpus drifted to 0.22s on the repeat run, so the original per-position helper remains better.
 - Tested forcing the sequence FSE state helper functions inline after JSON profiles showed sequence encoding as a secondary CPU target. Output bytes stayed unchanged and focused tests passed, but JSON regressed to 0.12s across two table runs, so the optimizer's original helper inlining decisions remain better.
 - Tested rewriting the whole-block RLE check to load the first byte once and scan the rest of the block. Output bytes stayed unchanged and focused fastest/compressed-block tests passed, but decodecorpus drifted to 0.21s on the repeat run with no clear fixture-wide CPU win, so the original compact iterator check remains.
+- Tested using RLE FSE table modes for two repeated sequence codes instead of only three-or-more repeated codes. Output bytes stayed unchanged on the PR fixtures and CPU had no stable win, so the existing small-block predefined-table preference remains better.
 
 ## Next Steps
 
