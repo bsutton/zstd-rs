@@ -25,6 +25,7 @@ const SPARSE_MATCH_END_INDEX_BACKOFF: usize = 2;
 const INITIAL_TOUCHED_SLOT_CAPACITY: usize = 1024;
 const TOUCHED_SLOT_CLEAR_LIMIT: usize = 32 * 1024;
 const SUFFIX_STORE_CAPACITY_DIVISOR: usize = 16;
+const BEST_SUFFIX_STORE_CAPACITY_DIVISOR: usize = 2;
 const FASTEST_WINDOW_BLOCKS: usize = 4;
 const BEST_WINDOW_BLOCKS: usize = 16;
 
@@ -34,6 +35,7 @@ pub struct MatchGeneratorDriver {
     suffix_pool: Vec<SuffixStore>,
     match_generator: MatchGenerator,
     slice_size: usize,
+    suffix_store_capacity_divisor: usize,
 }
 
 impl MatchGeneratorDriver {
@@ -45,6 +47,7 @@ impl MatchGeneratorDriver {
             suffix_pool: Vec::new(),
             match_generator: MatchGenerator::new(max_slices_in_window * slice_size),
             slice_size,
+            suffix_store_capacity_divisor: SUFFIX_STORE_CAPACITY_DIVISOR,
         }
     }
 
@@ -59,6 +62,7 @@ impl Matcher for MatchGeneratorDriver {
         let vec_pool = &mut self.vec_pool;
         let suffix_pool = &mut self.suffix_pool;
         let fast_window_size = self.slice_size * FASTEST_WINDOW_BLOCKS;
+        self.suffix_store_capacity_divisor = Self::suffix_store_capacity_divisor(level);
 
         self.match_generator.reset(|mut data, mut suffixes| {
             data.resize(data.capacity(), 0);
@@ -93,9 +97,14 @@ impl Matcher for MatchGeneratorDriver {
 
     fn commit_space(&mut self, space: Vec<u8>) {
         let vec_pool = &mut self.vec_pool;
+        let suffix_capacity = self.slice_size / self.suffix_store_capacity_divisor;
         let suffixes = match self.suffix_pool.pop() {
-            Some(suffixes) => suffixes,
-            None => SuffixStore::with_capacity(self.slice_size / SUFFIX_STORE_CAPACITY_DIVISOR),
+            Some(suffixes)
+                if suffixes.capacity() == SuffixStore::normalized_capacity(suffix_capacity) =>
+            {
+                suffixes
+            }
+            _ => SuffixStore::with_capacity(suffix_capacity),
         };
         let suffix_pool = &mut self.suffix_pool;
         self.match_generator
@@ -138,6 +147,16 @@ impl MatchGeneratorDriver {
             | CompressionLevel::Better => FASTEST_WINDOW_BLOCKS,
         }
     }
+
+    fn suffix_store_capacity_divisor(level: CompressionLevel) -> usize {
+        match level {
+            CompressionLevel::Best => BEST_SUFFIX_STORE_CAPACITY_DIVISOR,
+            CompressionLevel::Uncompressed
+            | CompressionLevel::Fastest
+            | CompressionLevel::Default
+            | CompressionLevel::Better => SUFFIX_STORE_CAPACITY_DIVISOR,
+        }
+    }
 }
 
 /// This stores the index of a suffix of a string by hashing the first few bytes of that suffix
@@ -164,13 +183,21 @@ struct CandidateIndexes {
 
 impl SuffixStore {
     fn with_capacity(capacity: usize) -> Self {
-        let capacity = capacity.max(2);
+        let capacity = Self::normalized_capacity(capacity);
         Self {
             slots: alloc::vec![None; capacity],
             touched_slots: Vec::with_capacity(INITIAL_TOUCHED_SLOT_CAPACITY),
             clear_all_slots: false,
             len_log: capacity.ilog2(),
         }
+    }
+
+    fn normalized_capacity(capacity: usize) -> usize {
+        capacity.max(2)
+    }
+
+    fn capacity(&self) -> usize {
+        self.slots.len()
     }
 
     #[inline(always)]
@@ -1819,6 +1846,19 @@ fn driver_uses_c_fast_sized_suffix_store() {
     assert_eq!(
         matcher.match_generator.last_entry().suffixes.slots.len(),
         128 / SUFFIX_STORE_CAPACITY_DIVISOR
+    );
+}
+
+#[test]
+fn driver_uses_larger_suffix_store_for_best_level() {
+    let mut matcher = MatchGeneratorDriver::new(128, 2);
+
+    matcher.reset(CompressionLevel::Best);
+    matcher.commit_space(b"abcdeabcde".to_vec());
+
+    assert_eq!(
+        matcher.match_generator.last_entry().suffixes.slots.len(),
+        128 / BEST_SUFFIX_STORE_CAPACITY_DIVISOR
     );
 }
 
