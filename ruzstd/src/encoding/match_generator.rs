@@ -368,6 +368,9 @@ impl MatchGenerator {
                 .flatten()
             {
                 let offset = offset as usize;
+                if !self.has_min_match_at_offset(offset, &match_context) {
+                    continue;
+                }
                 let match_len = self.match_len_at_offset(offset, &match_context);
                 if match_len >= MIN_MATCH_LEN {
                     let found = MatchCandidate {
@@ -581,6 +584,23 @@ impl MatchGenerator {
             }
         }
         len
+    }
+
+    fn has_min_match_at_offset(&self, offset: usize, context: &MatchCandidateContext<'_>) -> bool {
+        if offset == 0 {
+            return false;
+        }
+
+        let source_relative = context.suffix_idx as isize - offset as isize;
+        let Some(source) = self.slice_at_relative(source_relative) else {
+            return false;
+        };
+
+        if source.len() < MIN_MATCH_LEN {
+            return true;
+        }
+
+        source[..MIN_MATCH_LEN] == context.data_slice[..MIN_MATCH_LEN]
     }
 
     fn slice_at_relative(&self, relative_to_current: isize) -> Option<&[u8]> {
@@ -824,6 +844,54 @@ fn match_len_reads_from_previous_window_entry() {
     };
 
     assert_eq!(matcher.match_len_at_offset(b"MATCHTAIL".len(), &context), 9);
+}
+
+#[test]
+fn repeat_offset_precheck_rejects_obvious_miss() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        b"abcde-----vwxyz".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    let context = MatchCandidateContext {
+        suffix_idx: 10,
+        anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
+        data_slice: &last_entry.data[10..],
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+
+    assert!(!matcher.has_min_match_at_offset(10, &context));
+}
+
+#[test]
+fn repeat_offset_precheck_accepts_candidate_match() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        b"abcde-----abcde".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    let context = MatchCandidateContext {
+        suffix_idx: 10,
+        anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
+        data_slice: &last_entry.data[10..],
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+
+    assert!(matcher.has_min_match_at_offset(10, &context));
 }
 
 #[test]
