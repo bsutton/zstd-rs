@@ -142,6 +142,10 @@ Latest successful commands:
 - `perf report --stdio -i /tmp/ruzstd-decodecorpus-after-keyvalue.perf.data --sort=symbol --no-children`
 - `perf record -m 64 -F 999 -g -o /tmp/ruzstd-json-after-keyvalue.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/json_logs_32m.jsonl /tmp/ruzstd-json-profile.zst -l 1`
 - `perf report --stdio -i /tmp/ruzstd-json-after-keyvalue.perf.data --sort=symbol --no-children`
+- `perf record -m 64 -F 999 -g -o /tmp/ruzstd-decodecorpus-current.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/decodecorpus_pack.bin /tmp/ruzstd-decodecorpus-profile.zst -l 1`
+- `perf report --stdio -i /tmp/ruzstd-decodecorpus-current.perf.data --sort=symbol --no-children`
+- `perf record -m 64 -F 999 -g -o /tmp/ruzstd-json-current.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/json_logs_32m.jsonl /tmp/ruzstd-json-profile.zst -l 1`
+- `perf report --stdio -i /tmp/ruzstd-json-current.perf.data --sort=symbol --no-children`
 
 ## Latest Benchmark Snapshot
 
@@ -266,6 +270,7 @@ Interpretation:
 - Tested forcing the sequence FSE state helper functions inline after JSON profiles showed sequence encoding as a secondary CPU target. Output bytes stayed unchanged and focused tests passed, but JSON regressed to 0.12s across two table runs, so the optimizer's original helper inlining decisions remain better.
 - Tested rewriting the whole-block RLE check to load the first byte once and scan the rest of the block. Output bytes stayed unchanged and focused fastest/compressed-block tests passed, but decodecorpus drifted to 0.21s on the repeat run with no clear fixture-wide CPU win, so the original compact iterator check remains.
 - Tested using RLE FSE table modes for two repeated sequence codes instead of only three-or-more repeated codes. Output bytes stayed unchanged on the PR fixtures and CPU had no stable win, so the existing small-block predefined-table preference remains better.
+- Tested reducing the fastest incompressibility gate sample count from 256 to 128 after fresh profiles showed the gate as a small JSON cost. Focused gate tests passed and xorshift stayed raw, but decodecorpus grew from 5,159,814 bytes to 5,223,327 bytes, so 128 samples are too weak for mixed binary/text inputs and the 256-sample gate remains.
 
 ## Next Steps
 
