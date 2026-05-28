@@ -64,12 +64,36 @@ impl FseTables {
             of_previous: None,
         }
     }
+
+    pub fn reset(&mut self) {
+        self.ll_previous = None;
+        self.ml_previous = None;
+        self.of_previous = None;
+    }
 }
 
 pub(crate) struct CompressState<M: Matcher> {
     pub(crate) matcher: M,
     pub(crate) last_huff_table: Option<crate::huff0::huff0_encoder::HuffmanTable>,
     pub(crate) fse_tables: FseTables,
+    pub(crate) offset_history: OffsetHistory,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct OffsetHistory {
+    pub(crate) newest: u32,
+    pub(crate) second: u32,
+    pub(crate) third: u32,
+}
+
+impl OffsetHistory {
+    pub(crate) const fn new() -> Self {
+        Self {
+            newest: 1,
+            second: 4,
+            third: 8,
+        }
+    }
 }
 
 impl<R: Read, W: Write> FrameCompressor<R, W, MatchGeneratorDriver> {
@@ -83,6 +107,7 @@ impl<R: Read, W: Write> FrameCompressor<R, W, MatchGeneratorDriver> {
                 matcher: MatchGeneratorDriver::new(1024 * 128, 1),
                 last_huff_table: None,
                 fse_tables: FseTables::new(),
+                offset_history: OffsetHistory::new(),
             },
             #[cfg(feature = "hash")]
             hasher: XxHash64::with_seed(0),
@@ -100,6 +125,7 @@ impl<R: Read, W: Write, M: Matcher> FrameCompressor<R, W, M> {
                 matcher,
                 last_huff_table: None,
                 fse_tables: FseTables::new(),
+                offset_history: OffsetHistory::new(),
             },
             compression_level,
             #[cfg(feature = "hash")]
@@ -132,6 +158,8 @@ impl<R: Read, W: Write, M: Matcher> FrameCompressor<R, W, M> {
         // Clearing buffers to allow re-using of the compressor
         self.state.matcher.reset(self.compression_level);
         self.state.last_huff_table = None;
+        self.state.fse_tables.reset();
+        self.state.offset_history = OffsetHistory::new();
         #[cfg(feature = "hash")]
         {
             self.hasher = XxHash64::with_seed(0);

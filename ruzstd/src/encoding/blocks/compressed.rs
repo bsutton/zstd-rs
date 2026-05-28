@@ -1,32 +1,37 @@
 use alloc::vec::Vec;
+use core::convert::TryFrom;
 
 use crate::{
     bit_io::BitWriter,
-    encoding::frame_compressor::CompressState,
+    encoding::frame_compressor::{CompressState, OffsetHistory},
     encoding::{Matcher, Sequence},
     fse::fse_encoder::{build_table_from_data, FSETable, State},
     huff0::huff0_encoder,
 };
 
 /// A block of [`crate::common::BlockType::Compressed`]
-pub fn compress_block<M: Matcher>(state: &mut CompressState<M>, output: &mut Vec<u8>) {
+pub fn compress_block<M: Matcher>(
+    state: &mut CompressState<M>,
+    output: &mut Vec<u8>,
+) -> Option<huff0_encoder::HuffmanTable> {
     let mut literals_vec = Vec::new();
     let mut sequences = Vec::new();
-    state.matcher.start_matching(|seq| {
-        match seq {
-            Sequence::Literals { literals } => literals_vec.extend_from_slice(literals),
-            Sequence::Triple {
-                literals,
-                offset,
-                match_len,
-            } => {
-                literals_vec.extend_from_slice(literals);
-                sequences.push(crate::blocks::sequence_section::Sequence {
-                    ll: literals.len() as u32,
-                    ml: match_len as u32,
-                    of: (offset + 3) as u32, // TODO make use of the offset history
-                });
-            }
+    let mut new_huffman_table = None;
+    let offset_history = &mut state.offset_history;
+    state.matcher.start_matching(|seq| match seq {
+        Sequence::Literals { literals } => literals_vec.extend_from_slice(literals),
+        Sequence::Triple {
+            literals,
+            offset,
+            match_len,
+        } => {
+            literals_vec.extend_from_slice(literals);
+            let offset = offset_to_u32(offset);
+            sequences.push(crate::blocks::sequence_section::Sequence {
+                ll: literals.len() as u32,
+                ml: match_len as u32,
+                of: offset_history.encode_offset_value(offset, literals.len() as u32),
+            });
         }
     });
 
@@ -37,7 +42,7 @@ pub fn compress_block<M: Matcher>(state: &mut CompressState<M>, output: &mut Vec
         if let Some(table) =
             compress_literals(&literals_vec, state.last_huff_table.as_ref(), &mut writer)
         {
-            state.last_huff_table.replace(table);
+            new_huffman_table = Some(table);
         }
     } else {
         raw_literals(&literals_vec, &mut writer);
@@ -50,24 +55,26 @@ pub fn compress_block<M: Matcher>(state: &mut CompressState<M>, output: &mut Vec
     } else {
         encode_seqnum(sequences.len(), &mut writer);
 
-        // Choose the tables
-        // TODO store previously used tables
+        // Choose the tables.
         let ll_mode = choose_table(
             state.fse_tables.ll_previous.as_ref(),
             &state.fse_tables.ll_default,
-            sequences.iter().map(|seq| encode_literal_length(seq.ll).0),
+            &sequences,
+            |seq| encode_literal_length(seq.ll).0,
             9,
         );
         let ml_mode = choose_table(
             state.fse_tables.ml_previous.as_ref(),
             &state.fse_tables.ml_default,
-            sequences.iter().map(|seq| encode_match_len(seq.ml).0),
+            &sequences,
+            |seq| encode_match_len(seq.ml).0,
             9,
         );
         let of_mode = choose_table(
             state.fse_tables.of_previous.as_ref(),
             &state.fse_tables.of_default,
-            sequences.iter().map(|seq| encode_offset(seq.of).0),
+            &sequences,
+            |seq| encode_offset(seq.of).0,
             8,
         );
 
@@ -85,17 +92,97 @@ pub fn compress_block<M: Matcher>(state: &mut CompressState<M>, output: &mut Vec
             of_mode.as_ref(),
         );
 
-        if let FseTableMode::Encoded(table) = ll_mode {
-            state.fse_tables.ll_previous = Some(table)
+        match ll_mode {
+            FseTableMode::Encoded(table) => state.fse_tables.ll_previous = Some(table),
+            FseTableMode::Predefined(_) => state.fse_tables.ll_previous = None,
+            FseTableMode::RepeateLast(_) => {}
         }
-        if let FseTableMode::Encoded(table) = ml_mode {
-            state.fse_tables.ml_previous = Some(table)
+        match ml_mode {
+            FseTableMode::Encoded(table) => state.fse_tables.ml_previous = Some(table),
+            FseTableMode::Predefined(_) => state.fse_tables.ml_previous = None,
+            FseTableMode::RepeateLast(_) => {}
         }
-        if let FseTableMode::Encoded(table) = of_mode {
-            state.fse_tables.of_previous = Some(table)
+        match of_mode {
+            FseTableMode::Encoded(table) => state.fse_tables.of_previous = Some(table),
+            FseTableMode::Predefined(_) => state.fse_tables.of_previous = None,
+            FseTableMode::RepeateLast(_) => {}
         }
     }
     writer.flush();
+    new_huffman_table
+}
+
+fn offset_to_u32(offset: usize) -> u32 {
+    match u32::try_from(offset) {
+        Ok(offset) => offset,
+        Err(_) => unreachable!("match offsets are bounded by the compressor window"),
+    }
+}
+
+trait OffsetHistoryExt {
+    fn encode_offset_value(&mut self, offset: u32, lit_len: u32) -> u32;
+}
+
+impl OffsetHistoryExt for OffsetHistory {
+    fn encode_offset_value(&mut self, offset: u32, lit_len: u32) -> u32 {
+        let offset_value = if lit_len > 0 {
+            if self.newest == offset {
+                1
+            } else if self.second == offset {
+                2
+            } else if self.third == offset {
+                3
+            } else {
+                offset + 3
+            }
+        } else if self.second == offset {
+            1
+        } else if self.third == offset {
+            2
+        } else if self.newest > 1 && self.newest - 1 == offset {
+            3
+        } else {
+            offset + 3
+        };
+
+        self.update_from_offset_value(offset_value, lit_len, offset);
+        offset_value
+    }
+}
+
+trait OffsetHistoryUpdate {
+    fn update_from_offset_value(&mut self, offset_value: u32, lit_len: u32, actual_offset: u32);
+}
+
+impl OffsetHistoryUpdate for OffsetHistory {
+    fn update_from_offset_value(&mut self, offset_value: u32, lit_len: u32, actual_offset: u32) {
+        if lit_len > 0 {
+            match offset_value {
+                1 => {}
+                2 => {
+                    self.second = self.newest;
+                    self.newest = actual_offset;
+                }
+                _ => {
+                    self.third = self.second;
+                    self.second = self.newest;
+                    self.newest = actual_offset;
+                }
+            }
+        } else {
+            match offset_value {
+                1 => {
+                    self.second = self.newest;
+                    self.newest = actual_offset;
+                }
+                _ => {
+                    self.third = self.second;
+                    self.second = self.newest;
+                    self.newest = actual_offset;
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -119,19 +206,33 @@ impl FseTableMode<'_> {
 fn choose_table<'a>(
     previous: Option<&'a FSETable>,
     default_table: &'a FSETable,
-    data: impl Iterator<Item = u8>,
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    code: impl Fn(&crate::blocks::sequence_section::Sequence) -> u8 + Copy,
     max_log: u8,
 ) -> FseTableMode<'a> {
-    // TODO check if the new table is better than the predefined and previous table
-    let use_new_table = true;
-    let use_previous_table = false;
-    if use_previous_table {
-        FseTableMode::RepeateLast(previous.unwrap())
-    } else if use_new_table {
-        FseTableMode::Encoded(build_table_from_data(data, max_log, true))
-    } else {
-        FseTableMode::Predefined(default_table)
+    if sequences.len() <= 2
+        && sequences
+            .iter()
+            .all(|sequence| default_table.can_encode_symbol(code(sequence)))
+    {
+        return FseTableMode::Predefined(default_table);
     }
+
+    if let Some(previous) = previous {
+        if sequences.len() < 64
+            && sequences
+                .iter()
+                .all(|sequence| previous.can_encode_symbol(code(sequence)))
+        {
+            return FseTableMode::RepeateLast(previous);
+        }
+    }
+
+    FseTableMode::Encoded(build_table_from_data(
+        sequences.iter().map(code),
+        max_log,
+        true,
+    ))
 }
 
 fn encode_table(mode: &FseTableMode<'_>, writer: &mut BitWriter<&mut Vec<u8>>) {
@@ -413,5 +514,100 @@ impl LiteralStats {
 
     fn likely_incompressible(&self, len: usize) -> bool {
         self.largest <= (len >> 7) + 4
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fse::fse_encoder::{default_ll_table, default_of_table};
+
+    fn offset_history(newest: u32, second: u32, third: u32) -> OffsetHistory {
+        OffsetHistory {
+            newest,
+            second,
+            third,
+        }
+    }
+
+    #[test]
+    fn offset_history_uses_repeat_offsets_when_literals_are_present() {
+        let mut history = OffsetHistory::new();
+
+        assert_eq!(history.encode_offset_value(4, 3), 2);
+        assert_eq!(history, offset_history(4, 1, 8));
+
+        assert_eq!(history.encode_offset_value(4, 1), 1);
+        assert_eq!(history, offset_history(4, 1, 8));
+
+        assert_eq!(history.encode_offset_value(8, 2), 3);
+        assert_eq!(history, offset_history(8, 4, 1));
+    }
+
+    #[test]
+    fn offset_history_uses_shifted_repeat_offsets_for_zero_literals() {
+        let mut history = offset_history(5, 9, 13);
+
+        assert_eq!(history.encode_offset_value(9, 0), 1);
+        assert_eq!(history, offset_history(9, 5, 13));
+
+        let mut history = offset_history(5, 9, 13);
+        assert_eq!(history.encode_offset_value(13, 0), 2);
+        assert_eq!(history, offset_history(13, 5, 9));
+
+        let mut history = offset_history(5, 9, 13);
+        assert_eq!(history.encode_offset_value(4, 0), 3);
+        assert_eq!(history, offset_history(4, 5, 9));
+    }
+
+    #[test]
+    fn offset_history_encodes_new_offsets_and_updates_history() {
+        let mut history = OffsetHistory::new();
+
+        assert_eq!(history.encode_offset_value(10, 1), 13);
+        assert_eq!(history, offset_history(10, 1, 4));
+    }
+
+    #[test]
+    fn choose_table_uses_predefined_tables_for_tiny_sequence_counts() {
+        let default = default_ll_table();
+        let sequences = [crate::blocks::sequence_section::Sequence {
+            ll: 0,
+            ml: 3,
+            of: 1,
+        }];
+
+        assert!(matches!(
+            choose_table(
+                None,
+                &default,
+                &sequences,
+                |seq| encode_literal_length(seq.ll).0,
+                9
+            ),
+            FseTableMode::Predefined(_)
+        ));
+    }
+
+    #[test]
+    fn choose_table_repeats_previous_table_for_small_blocks_when_valid() {
+        let default = default_of_table();
+        let previous = build_table_from_data([30u8, 30, 30].iter().copied(), 8, true);
+        let sequences = [crate::blocks::sequence_section::Sequence {
+            ll: 0,
+            ml: 3,
+            of: 1 << 30,
+        }; 3];
+
+        assert!(matches!(
+            choose_table(
+                Some(&previous),
+                &default,
+                &sequences,
+                |seq| encode_offset(seq.of).0,
+                8
+            ),
+            FseTableMode::RepeateLast(_)
+        ));
     }
 }

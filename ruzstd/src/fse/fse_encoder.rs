@@ -140,6 +140,10 @@ impl FSETable {
         &states.states[0]
     }
 
+    pub(crate) fn can_encode_symbol(&self, symbol: u8) -> bool {
+        !self.states[symbol as usize].states.is_empty()
+    }
+
     pub fn acc_log(&self) -> u8 {
         self.table_size.ilog2() as u8
     }
