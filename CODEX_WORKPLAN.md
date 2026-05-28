@@ -82,6 +82,7 @@ Quality constraints:
 - Cached the encoder Huffman table's actual maximum code length when building the table, avoiding a scan over `codes` each time table-description weights are generated. Added a focused invariant test so the cached value stays tied to the generated codes.
 - Removed the temporary compressed-block buffer in the fastest path. Compressed attempts now write directly behind a 3-byte header placeholder in the caller's output buffer, then either patch the compressed header or truncate and emit raw fallback after restoring entropy/repeat state.
 - Added conservative initial capacities for per-block literals and sequence buffers to avoid early growth in compressed blocks without reserving a full 128 KiB block.
+- Kept repeat-offset probe candidate selection in `usize` until sequence emission. The repeat-candidate order only depends on whether the current literal length is zero, so this avoids a hot checked `u32` conversion while preserving checked conversion at the bitstream boundary. Added focused tests for zero-literal and non-zero-literal repeat-candidate ordering.
 
 ## Verification So Far
 
@@ -97,6 +98,8 @@ Latest successful commands:
 - `cargo test -q -p ruzstd`
 - `cargo build --release -p ruzstd-cli`
 - `/tmp/zstd_bench_current_branch.py`
+- `perf record -F 999 -g -o /tmp/ruzstd-decodecorpus-after-usize-rep.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/decodecorpus_pack.bin /tmp/ruzstd-decodecorpus-profile.zst -l 1`
+- `perf report --stdio -i /tmp/ruzstd-decodecorpus-after-usize-rep.perf.data --sort=symbol --no-children`
 
 ## Latest Benchmark Snapshot
 
@@ -104,14 +107,14 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, and text-only wider no-match probing:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, and `usize` repeat-candidate selection:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,161,043 | 5,385,951 | 0.14s | 0.26s | 0.05s |
-| `json_logs_32m.jsonl` | 3,392,237 | 826,471 | 1,138,701 | 0.18s | 0.19s | 0.05s |
-| `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.12s | 0.02s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.60s | 0.03s | 0.06s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,161,043 | 5,385,951 | 0.13s | 0.25s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 826,471 | 1,138,701 | 0.18s | 0.19s | 0.06s |
+| `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.12s | 0.01s | 0.02s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.59s | 0.03s | 0.06s |
 
 Interpretation:
 
@@ -148,6 +151,7 @@ Interpretation:
 - Direct compressed-block output preserved exact fixture byte counts and removed one allocation/copy from accepted compressed blocks. Clean benchmark passes measured decodecorpus at 0.26s and JSON at 0.18s.
 - Conservative literals/sequences preallocation preserved exact fixture byte counts and improved decodecorpus CPU to 0.25s across two clean runs while keeping JSON at 0.18s. RSS stayed within the existing measurement band.
 - Tested moving per-block literal and sequence scratch buffers into `CompressState` for reuse across compressed blocks. Output bytes stayed unchanged and RSS was slightly lower, but decodecorpus CPU repeatedly measured about 0.27s instead of the 0.25s seen with simple per-block preallocation, so the added state complexity was not kept.
+- Keeping repeat-offset probe candidate selection in `usize` preserved exact fixture byte counts, reduced decodecorpus CPU to 0.25s on the table run, and moved `bounded_u32` from a visible multi-percent matcher cost to a small residual emission-side cost in the follow-up profile.
 
 ## Next Steps
 

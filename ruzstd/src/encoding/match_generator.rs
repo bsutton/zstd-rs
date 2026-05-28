@@ -383,12 +383,11 @@ impl MatchGenerator {
                 concat_window: &self.concat_window,
             };
 
-            let literal_len = Self::bounded_u32(self.suffix_idx - self.last_idx_in_sequence);
+            let literal_len = self.suffix_idx - self.last_idx_in_sequence;
             for offset in self.repeat_offset_candidates(literal_len) {
                 if offset == 0 {
                     continue;
                 }
-                let offset = offset as usize;
                 if !self.has_min_match_at_offset(offset, &match_context) {
                     continue;
                 }
@@ -533,9 +532,9 @@ impl MatchGenerator {
 
     #[inline(always)]
     fn repeat_offset_can_match_at(&self, suffix_idx: usize) -> bool {
-        let literal_len = Self::bounded_u32(suffix_idx - self.last_idx_in_sequence);
+        let literal_len = suffix_idx - self.last_idx_in_sequence;
         for offset in self.repeat_offset_candidates(literal_len) {
-            if offset != 0 && self.has_min_match_at_index_offset(suffix_idx, offset as usize) {
+            if offset != 0 && self.has_min_match_at_index_offset(suffix_idx, offset) {
                 return true;
             }
         }
@@ -566,18 +565,18 @@ impl MatchGenerator {
     }
 
     #[inline(always)]
-    fn repeat_offset_candidates(&self, literal_len: u32) -> [u32; 3] {
+    fn repeat_offset_candidates(&self, literal_len: usize) -> [usize; 3] {
         if literal_len > 0 {
             [
-                self.offset_history.newest,
-                self.offset_history.second,
-                self.offset_history.third,
+                self.offset_history.newest as usize,
+                self.offset_history.second as usize,
+                self.offset_history.third as usize,
             ]
         } else {
             [
-                self.offset_history.second,
-                self.offset_history.third,
-                self.offset_history.newest.saturating_sub(1),
+                self.offset_history.second as usize,
+                self.offset_history.third as usize,
+                self.offset_history.newest.saturating_sub(1) as usize,
             ]
         }
     }
@@ -1076,6 +1075,22 @@ fn repeat_offset_probe_finds_match_without_suffix_index() {
     });
     assert!(!matcher.next_sequence(|_| {}));
     assert_eq!(matcher.offset_history.as_offsets(), (10, 4, 8));
+}
+
+#[test]
+fn repeat_offset_candidates_keep_history_order_after_literals() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.offset_history = OffsetHistory::from_offsets(7, 11, 13);
+
+    assert_eq!(matcher.repeat_offset_candidates(3), [7, 11, 13]);
+}
+
+#[test]
+fn repeat_offset_candidates_shift_for_zero_literals() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.offset_history = OffsetHistory::from_offsets(7, 11, 13);
+
+    assert_eq!(matcher.repeat_offset_candidates(0), [11, 13, 6]);
 }
 
 #[test]
