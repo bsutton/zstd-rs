@@ -208,6 +208,7 @@ Interpretation:
 - Tested reusing the already-computed current suffix hash when inserting the current suffix after a no-match probe miss. Output bytes were unchanged and focused tests passed, but JSON regressed to 0.13s across two runs while decodecorpus stayed in its normal 0.20s-0.21s band, so the simpler insertion path remains better.
 - Tested replacing FSE probability-normalization `unwrap()` calls with explicit helper loops and cold invariant panics. After matching iterator tie behavior, output bytes were unchanged, but decodecorpus measured 0.22s then 0.21s and JSON stayed at 0.12s, so the original iterator form remains better for this setup path.
 - Tested C-fast-style sparse miss indexing that only stores the current suffix when the no-match probe skips ahead. CPU improved slightly on decodecorpus, but size regressed badly: decodecorpus grew to 5,387,388 bytes, JSON to 862,050 bytes, and repeated text to 2,965 bytes. The retained parser continues indexing skipped miss positions to preserve compression.
+- Tested replacing Huffman `build_from_weights()`'s temporary sorted `Vec` with a fixed 256-entry stack array sorted over the filled prefix. Output bytes were unchanged and Huffman tests passed, but decodecorpus measured 0.23s then 0.21s with no clear win, so the existing temporary `Vec` remains better.
 
 ## Next Steps
 
