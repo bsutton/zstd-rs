@@ -183,6 +183,7 @@ Interpretation:
 - Caching the encoder FSE `acc_log` preserved exact fixture byte counts. The table run measured decodecorpus unchanged at 0.24s and JSON at 0.16s; treat the JSON improvement cautiously as run-to-run noise, but keep the change because it removes repeated `ilog2` work and has focused invariant coverage.
 - Moving the sparse long-match tail hash from `match_end - MIN_MATCH_LEN` to `match_end - 2`, matching the C fast parser, improved decodecorpus by 65 bytes with no size change on the other fixtures. Two benchmark runs kept decodecorpus at 0.24s and JSON in the 0.16-0.17s noise band, so the C-shaped indexing position was kept.
 - Carrying a verified minimum-match prefix into full match-length scans preserved exact fixture byte counts. The benchmark stayed neutral in the current noise band, but the change avoids rechecking the first five bytes for accepted candidates while preserving the full scan for previous-window boundary cases.
+- Tested probing only the first two repeat-offset candidates in matcher search, closer to C fast's active repeat-offset checks. It regressed decodecorpus from 5,160,978 bytes to 5,166,985 bytes and JSON from 826,471 bytes to 854,443 bytes with no measurable CPU win, so the three-candidate matcher probe was kept.
 
 ## Next Steps
 
