@@ -56,6 +56,30 @@ fn incompressible_gate_distinguishes_random_from_repetitive_data() {
 }
 
 #[test]
+fn fastest_emits_whole_block_rle_and_round_trips() {
+    let data = alloc::vec![0x5A; 64 * 1024];
+    let fastest = assert_fastest_round_trips_with_rust_and_c(&data);
+    let (_, frame_header_size) = crate::decoding::frame::read_frame_header(fastest.as_slice())
+        .expect("fastest frame header should parse");
+    let mut block_decoder = crate::decoding::block_decoder::new();
+    let (block_header, block_header_size) = block_decoder
+        .read_block_header(&fastest[frame_header_size as usize..])
+        .expect("fastest block header should parse");
+
+    assert!(block_header.last_block);
+    assert_eq!(
+        block_header.block_type,
+        crate::blocks::block::BlockType::RLE
+    );
+    assert_eq!(block_header.decompressed_size, data.len() as u32);
+    assert_eq!(block_header.content_size, 1);
+    assert_eq!(
+        fastest[frame_header_size as usize + block_header_size as usize],
+        data[0]
+    );
+}
+
+#[test]
 fn fastest_round_trips_mixed_text_binary_and_random_blocks() {
     let mut data = Vec::new();
     extend_repeated_to_len(

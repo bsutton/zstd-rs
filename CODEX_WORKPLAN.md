@@ -258,5 +258,6 @@ Interpretation:
 - Current branch has exhaustive helper-level coverage for the cached common literal-length and match-length sequence code tables, including the first uncached boundary for each table.
 - Current branch has helper-level coverage for offset-code generation across the small repeat-code range plus the first uncached boundary from the rejected offset-code cache experiment.
 - Current branch has emitted-bitstream tests that round-trip fastest compression through the Rust decoder and the C zstd decoder, including mixed text/binary/random frames, history reuse after incompressible blocks, and cross-block repetitive data.
+- Current branch has focused fastest-level coverage that whole-block RLE emission uses an RLE block header and round-trips through both the Rust decoder and the C zstd decoder.
 - Current branch still has the existing encode/decode corpus tests and fuzz targets for encode/decode/FSE/Huff0 interop. These are not a replacement for focused regression tests, but they are useful broad coverage.
 - Acceptance rule for future retained changes: add a focused unit/regression test for the changed invariant or an end-to-end Rust+C decode test for emitted-bitstream behavior. If a change is purely a benchmark-only micro-optimization, document why in this file.
