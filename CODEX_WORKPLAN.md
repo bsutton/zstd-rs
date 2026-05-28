@@ -72,6 +72,7 @@ Quality constraints:
 - Added focused coverage that the no-match step does not skip the next repeat-offset match.
 - Replaced hot repeat-offset candidate iterator chains in the matcher with fixed arrays and explicit loops. This keeps output bytes unchanged while reducing iterator overhead in repeat probing and no-match skip guards.
 - Simplified the no-match skip guard so it checks repeat-offset bytes directly instead of building a temporary match context. This keeps output bytes unchanged; benchmark medians were neutral, but the hot path is simpler and avoids unnecessary context construction.
+- Inlined the remaining hot candidate helpers after profiling showed `match_candidate` and `repeat_offset_can_match_at` as visible call targets. This keeps output bytes unchanged and reduces decodecorpus CPU slightly.
 
 ## Verification So Far
 
@@ -94,11 +95,11 @@ Script: `/tmp/zstd_bench_current_branch.py`
 
 This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, hot helper inlining, the repeat-aware no-match probe step, and fixed repeat-candidate loops:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, and candidate-helper inlining:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,160,673 | 5,385,951 | 0.13s | 0.26s | 0.05s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,160,673 | 5,385,951 | 0.14s | 0.25s | 0.04s |
 | `json_logs_32m.jsonl` | 3,392,237 | 849,901 | 1,138,701 | 0.17s | 0.18s | 0.05s |
 | `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.11s | 0.02s | 0.02s |
 | `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.60s | 0.03s | 0.05s |
@@ -106,7 +107,8 @@ Last run after the larger window, match-length fix, RLE sequence modes, incompre
 Interpretation:
 
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; repeated text and JSON remain smaller than C zstd on these fixtures.
-- The repeat-offset search early exit, sparse long-match indexing, and no-match probe step trade about 50 KiB of decodecorpus compression and 2 bytes of repeated-text compression for a large CPU improvement, while JSON is now materially smaller than before the CPU parser shortcuts. The repeat/hash prechecks, hot helper inlining, and fixed repeat-candidate loops keep output sizes unchanged and improve CPU further. The measured current aggregate CPU is now about 0.48s versus about 0.90s before these CPU-focused parser shortcuts.
+- The repeat-offset search early exit, sparse long-match indexing, and no-match probe step trade about 50 KiB of decodecorpus compression and 2 bytes of repeated-text compression for a large CPU improvement, while JSON is now materially smaller than before the CPU parser shortcuts. The repeat/hash prechecks, hot helper inlining, fixed repeat-candidate loops, and candidate-helper inlining keep output sizes unchanged and improve CPU further. The measured current aggregate CPU is now about 0.47s versus about 0.90s before these CPU-focused parser shortcuts.
+- Candidate-helper inlining improved decodecorpus CPU from about 0.26s to 0.25s with no size change on the fixture set.
 - Fixed repeat-candidate loops improved decodecorpus CPU from about 0.27s to 0.26s and JSON CPU from about 0.19s to 0.18s with no size change on the fixture set.
 - The repeat-aware no-match probe step improved decodecorpus CPU from about 0.31s to 0.27s, improved JSON size from 950,143 bytes to 849,901 bytes, and kept all fixture sizes smaller than C zstd.
 - The hash-candidate precheck improved decodecorpus CPU from about 0.33s to 0.31s with no size change on the fixture set.

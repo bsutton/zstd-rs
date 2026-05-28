@@ -468,6 +468,7 @@ impl MatchGenerator {
         }
     }
 
+    #[inline(always)]
     fn match_candidate(
         &self,
         match_entry: &WindowEntry,
@@ -505,6 +506,7 @@ impl MatchGenerator {
         })
     }
 
+    #[inline(always)]
     fn repeat_offset_can_match_at(&self, suffix_idx: usize) -> bool {
         let literal_len = Self::bounded_u32(suffix_idx - self.last_idx_in_sequence);
         for offset in self.repeat_offset_candidates(literal_len) {
