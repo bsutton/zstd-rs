@@ -164,6 +164,7 @@ Interpretation:
 - Newest-first cross-window lookup preserved exact fixture byte counts. The initial newest-first change was neutral-to-positive; additionally skipping the impossible current-block check for negative relative lookups improved decodecorpus to 0.24s across two runs, while JSON drifted to 0.18s. The aggregate CPU stayed slightly better, so the C-shaped lookup order was kept with focused coverage for most-recent previous-window matches.
 - Tested replacing the no-match skip guard's small range iterator with explicit branches for probe steps 2 and 3. Output bytes were unchanged, but decodecorpus drifted to 0.26s and JSON to 0.18s on the table run, so the original iterator-shaped guard was kept.
 - Tested replacing FSE `SymbolStates::get()`'s iterator search with an explicit indexed loop and cold panic path. Output bytes were unchanged, but decodecorpus drifted to 0.26s and JSON to 0.18s on the table run, so the original iterator/`unwrap` form was kept for this hot lookup.
+- Tested splitting the common literal-length and match-length code ranges into explicit early-return branches before the larger range matches. Output bytes were unchanged, but decodecorpus drifted to 0.26s and JSON to 0.18s on the table run, so the original single-match form was kept.
 
 ## Next Steps
 
