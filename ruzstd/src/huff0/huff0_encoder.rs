@@ -188,6 +188,49 @@ impl HuffmanTable {
         Self::build_from_weights(&weights)
     }
 
+    pub(crate) fn build_smallest_from_counts(
+        counts: &[usize],
+        data: &[u8],
+        four_streams: bool,
+    ) -> Self {
+        let mut best = Self::build_from_counts(counts);
+        let mut best_len = best.encoded_len(data, true, four_streams);
+
+        if is_flat_distribution(counts) {
+            return best;
+        }
+
+        let min_bits = counts
+            .iter()
+            .filter(|count| **count > 0)
+            .count()
+            .next_power_of_two()
+            .ilog2() as usize;
+
+        for max_bits in min_bits.max(1)..MAX_HUFFMAN_BITS {
+            let Some(candidate) = Self::build_from_counts_with_max_bits(counts, max_bits) else {
+                continue;
+            };
+            let candidate_len = candidate.encoded_len(data, true, four_streams);
+            if candidate_len < best_len {
+                best = candidate;
+                best_len = candidate_len;
+            }
+        }
+
+        best
+    }
+
+    fn build_from_counts_with_max_bits(counts: &[usize], max_bits: usize) -> Option<Self> {
+        assert!(counts.len() <= 256);
+        if max_bits == 0 || max_bits > MAX_HUFFMAN_BITS || is_flat_distribution(counts) {
+            return None;
+        }
+
+        length_limited_code_lengths(counts, max_bits)
+            .map(|lengths| Self::build_from_weights(&code_lengths_to_weights(&lengths, max_bits)))
+    }
+
     pub fn build_from_weights(weights: &[usize]) -> Self {
         let mut sorted = Vec::with_capacity(weights.len());
         struct SortEntry {
@@ -725,6 +768,29 @@ fn build_from_counts_produces_bounded_prefix_free_codes() {
         }
         assert_prefix_free(&table.codes);
     }
+}
+
+#[test]
+fn build_smallest_from_counts_reduces_small_repeated_text_literals() {
+    let data = b"the quick brown fox jumps over the lazy dog\n\
+zstd-rs fastest encoder repeated text fixture\n\
+0123456789 abcdefghijklmnopqrstuvwxyz\n\
+the quick brown fox";
+    let mut counts = [0usize; 256];
+    let mut max_symbol = 0usize;
+    for symbol in data {
+        let symbol = *symbol as usize;
+        counts[symbol] += 1;
+        max_symbol = max_symbol.max(symbol);
+    }
+    let counts = &counts[..=max_symbol];
+
+    let baseline = HuffmanTable::build_from_counts(counts);
+    let smallest = HuffmanTable::build_smallest_from_counts(counts, data, false);
+
+    assert!(smallest.encoded_len(data, true, false) < baseline.encoded_len(data, true, false));
+    assert!(smallest.max_num_bits <= MAX_HUFFMAN_BITS as u8);
+    assert_prefix_free(&smallest.codes);
 }
 
 #[test]

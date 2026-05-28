@@ -15,6 +15,8 @@ const COMPRESS_LITERALS_SIZE_MIN: usize = 63;
 const REPEAT_LITERALS_SIZE_MIN: usize = 6;
 const HUFFMAN_4_STREAMS_MIN: usize = 256;
 const REPEAT_SINGLE_STREAM_LITERALS_MAX: usize = 1024;
+const SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS: usize = 256;
+const SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES: usize = 2;
 const FAST_LITERAL_MIN_GAIN_LOG: u32 = 6;
 const LITERAL_LENGTH_SMALL_CODES: [(u8, u32, usize); 64] = small_literal_length_codes();
 const MATCH_LENGTH_SMALL_CODES: [(u8, u32, usize); 128] = small_match_length_codes();
@@ -51,9 +53,15 @@ pub fn compress_block<M: Matcher>(
 
     let mut writer = BitWriter::from(output);
     if should_compress_literals(literals_vec.len(), state.last_huff_table.is_some()) {
-        if let Some(table) =
-            compress_literals(&literals_vec, state.last_huff_table.as_ref(), &mut writer)
-        {
+        let search_smallest_huffman_table = sequences.is_empty()
+            || (sequences.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES
+                && literals_vec.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS);
+        if let Some(table) = compress_literals(
+            &literals_vec,
+            state.last_huff_table.as_ref(),
+            search_smallest_huffman_table,
+            &mut writer,
+        ) {
             new_huffman_table = Some(table);
         }
     } else {
@@ -531,6 +539,7 @@ fn rle_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>) {
 fn compress_literals(
     literals: &[u8],
     last_table: Option<&huff0_encoder::HuffmanTable>,
+    search_smallest_table: bool,
     writer: &mut BitWriter<&mut Vec<u8>>,
 ) -> Option<huff0_encoder::HuffmanTable> {
     let reset_idx = writer.index();
@@ -548,9 +557,18 @@ fn compress_literals(
     }
 
     let (size_format, size_bits) = compressed_literals_size_format(literals.len());
+    let four_streams = size_format != 0;
     let header_len = compressed_literals_header_len(size_format);
-    let new_encoder_table = huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts());
-    let new_len = new_encoder_table.encoded_len(literals, true, size_format != 0);
+    let new_encoder_table = if search_smallest_table {
+        huff0_encoder::HuffmanTable::build_smallest_from_counts(
+            literal_stats.counts(),
+            literals,
+            four_streams,
+        )
+    } else {
+        huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts())
+    };
+    let new_len = new_encoder_table.encoded_len(literals, true, four_streams);
     let new_choice = LiteralEncodingChoice {
         encoder_table: &new_encoder_table,
         new_table: true,
@@ -1488,7 +1506,7 @@ mod tests {
     }
 
     #[test]
-    fn literal_min_gain_boundary_uses_raw_literals_and_round_trips() {
+    fn literal_min_gain_boundary_uses_exact_table_search_and_round_trips() {
         let len = 128usize;
         let period = 86u32;
         let mut state = (len as u32).wrapping_mul(1_664_525).wrapping_add(period);
@@ -1501,6 +1519,12 @@ mod tests {
         let literal_stats = LiteralStats::from_literals(&literals);
         let table = huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts());
         let estimated_len = table.encoded_len(&literals, true, false);
+        let exact_table = huff0_encoder::HuffmanTable::build_smallest_from_counts(
+            literal_stats.counts(),
+            &literals,
+            false,
+        );
+        let exact_estimated_len = exact_table.encoded_len(&literals, true, false);
         let header_len = compressed_literals_header_len(0);
 
         assert_eq!(literal_min_gain(literals.len()), 4);
@@ -1515,13 +1539,17 @@ mod tests {
                     .saturating_sub(literal_min_gain(literals.len())),
             "C-style min-gain threshold should reject this narrow literal gain"
         );
+        assert!(
+            literal_estimate_has_enough_gain(exact_estimated_len, header_len, literals.len()),
+            "exact table search should find enough gain for small all-literal payloads"
+        );
 
         let (block_payload, frame, expected) = compressed_frame_with_literal_payload(literals);
 
         assert_eq!(
             block_payload[0] & 0b11,
-            0,
-            "narrow literal gains should fall back to raw literals"
+            2,
+            "small all-literal payloads should use the exact Huffman table when it has enough gain"
         );
 
         let mut rust_decoded = Vec::with_capacity(expected.len());

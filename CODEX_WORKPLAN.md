@@ -15,6 +15,8 @@ Quality constraints:
 
 - Keep the Rust implementation high quality, well structured, and idiomatic.
 - Avoid `unsafe` code. Treat safe Rust as a goal constraint, not just a preference.
+- Keep fastest-level work conservative on CPU. If an experiment gives materially better compression but costs too much CPU for level 1, record it as a candidate for a future higher compression level instead of discarding the knowledge.
+- Treat future compression levels as first-class design space: level 1 should stay comparable to C zstd's fast level tradeoffs, while higher levels can spend more CPU for better parsing, larger searches, stronger entropy choices, or more exact cost modeling.
 - Prefer clear state machines and small helpers over clever code that is harder to verify.
 - Prefer explicit typed state over manual bit packing when the measured cost is acceptable. For matcher suffix candidates, the chosen direction is a small struct with two `Option<NonZeroU32>` values rather than packing two indexes into one `NonZeroU64`.
 - Keep `usize` for Rust slice/window positions while searching, because slice indexing and lengths are naturally `usize`. Convert to `u32`/`NonZeroU32` only at bounded storage or bitstream boundaries, with checked conversions and cold invariant panics where the bound is guaranteed by the compressor window.
@@ -138,6 +140,8 @@ Test coverage bar:
 - Removed the redundant previous-Huffman-table compatibility scan against the newly generated Huffman table. The literal-count compatibility check already proves the previous table can encode every symbol in the payload, so the repeat-table decision now avoids a second equivalent symbol scan while preserving exact fixture bytes.
 - Added an all-RLE sequence encoding fast path. When literal-length, match-length, and offset sequence modes are all already RLE, the encoder now writes only the per-sequence additional bits and final padding instead of passing through the generic optional FSE-state update path. This does not change table selection or emitted bytes. Added decoder round-trip coverage with varying additional bits under identical RLE symbols.
 - Added a conservative compressed-block output reservation in the fastest path before writing directly into the frame output buffer. This preserves exact emitted bytes and reduces output-buffer growth churn after the temporary compressed-block buffer was removed.
+- Added exact Huffman table-depth selection for small literal sections with at most two sequences. This recovers C-style small-boundary compression wins without applying the expensive search to every level-1 Huffman literal section. Focused tests cover the selected table's real gain and Rust/C decoder round trips.
+- Added `tools/generate_zstd_fixtures.py` for deterministic expanded local benchmark fixtures and ignored Python bytecode cache files.
 
 ## Verification So Far
 
@@ -226,6 +230,8 @@ Interpretation:
 
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; the current branch remains smaller than C zstd on all three compressible fixtures and four bytes smaller on xorshift.
 - Conservative compressed-block output reservation preserved exact fixture byte counts. The refreshed table measured decodecorpus at 0.16s, JSON at 0.11s, repeated text at 0.00s, and xorshift at 0.02s, with current RSS still well below C zstd on every fixture.
+- Narrow exact Huffman table-depth selection for small literal sections preserved exact PR fixture byte counts and kept CPU in the retained band on `/tmp/zstd-rs-benchmark-huff-smallest-small-seq.md`: decodecorpus 0.16s, JSON 0.11s, repeated text 0.00s, and xorshift 0.02s. The expanded-suite report `/tmp/zstd-rs-expanded-huff-smallest-small-seq.md` improved the repeated boundary cases from 130/136/137/137 bytes to 122/128/129/129 bytes, making all four smaller than C zstd's 125/132/133/135 byte outputs. `repeated_text_001m.txt` improved from 216 bytes to 208 bytes. `json_logs_001m.jsonl` remains larger than C zstd at 61,359 bytes versus 59,118 bytes.
+- Broad exact Huffman table-depth selection for every new Huffman literal table improved PR fixture sizes by 67 bytes on decodecorpus and 4 bytes on JSON, but repeatedly moved decodecorpus CPU to 0.18-0.19s. Do not use it for level 1; keep it recorded as a higher-level compression candidate.
 - The all-RLE sequence encoding fast path preserved exact fixture byte counts. The refreshed table measured JSON at 0.10s, decodecorpus at 0.17s, repeated text at 0.00s, and xorshift at 0.02s. Keep it as a covered sequence-side simplification for blocks whose sequence table modes are already RLE, not as a table-selection heuristic.
 - C-style single-stream repeat-Huffman literals below 1 KiB, gated by exact estimated size versus a newly generated table, preserved decodecorpus/repeated/xorshift byte counts and improved JSON by 7 bytes. The same table run measured JSON CPU in the retained 0.11s band and decodecorpus at 0.17s; treat the decodecorpus CPU as noise risk rather than a proven regression because byte counts are unchanged and the change is literal-path only. A broader blind-prefer-previous-table variant was rejected after it regressed JSON by 7,340 bytes and decodecorpus by 522 bytes despite improving JSON CPU to 0.10s.
 - Removing the redundant previous-Huffman compatibility scan preserved exact fixture byte counts. The refreshed table measured CPU in the retained band: decodecorpus 0.17s, JSON 0.11s, repeated 0.00s, xorshift 0.01s.
@@ -356,11 +362,20 @@ Interpretation:
 1. Finish committing and pushing retained progress on the Huffman branch, including the `.gitignore`/benchmark hygiene state where relevant.
 2. Use `tools/generate_zstd_fixtures.py` to keep a deterministic expanded local fixture suite under `/tmp`; this avoids committing large binaries while preserving reproducibility.
 3. Investigate the expanded-suite gaps versus C zstd, starting with small repeated boundary files and `json_logs_001m.jsonl`, where the current branch is still larger than C.
-4. Profile matcher search and extension paths again on `decodecorpus_pack.bin` and `json_logs_32m.jsonl`; current samples still show matcher search as the dominant cost and sequence encoding as the secondary JSON target.
-5. Investigate further safe early-exit or candidate-pruning heuristics in match selection; keep compression-ratio guardrails in tests and benchmarks and compare every retained idea against C zstd's fast parser shape.
-6. Continue C-guided Huffman work only where it improves compression, CPU, or correctness clarity. Candidate areas are table-log/depth selection, literal mode selection, repeat-table reuse, and cost estimation, but previously rejected C heuristics should not be retried without new evidence.
-7. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change; excellent coverage is a hard acceptance criterion for retained work.
-8. SIMD remains a matcher byte-comparison topic, but current stable safe-Rust options have not beaten the retained chunked comparison; avoid unsafe/nightly SIMD unless the project explicitly accepts that tradeoff.
+4. Review C zstd's compression-level strategy and map likely Rust levels onto the same tradeoff space: fast levels should avoid expensive cost searches, while higher levels may use broader parsing and entropy optimization.
+5. Profile matcher search and extension paths again on `decodecorpus_pack.bin` and `json_logs_32m.jsonl`; current samples still show matcher search as the dominant cost and sequence encoding as the secondary JSON target.
+6. Investigate further safe early-exit or candidate-pruning heuristics in match selection; keep compression-ratio guardrails in tests and benchmarks and compare every retained idea against C zstd's fast parser shape.
+7. Continue C-guided Huffman work only where it improves compression, CPU, or correctness clarity. Candidate areas are table-log/depth selection, literal mode selection, repeat-table reuse, and cost estimation, but previously rejected C heuristics should not be retried without new evidence.
+8. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change; excellent coverage is a hard acceptance criterion for retained work.
+9. SIMD remains a matcher byte-comparison topic, but current stable safe-Rust options have not beaten the retained chunked comparison; avoid unsafe/nightly SIMD unless the project explicitly accepts that tradeoff.
+
+## Higher Compression Level Candidates
+
+These ideas are too expensive or too broad for the current fastest-level acceptance bar, but should be reconsidered when adding higher compression levels:
+
+- Broad exact Huffman table-depth selection: applying `build_smallest_from_counts()` to every new Huffman literal table improved PR fixture sizes by 67 bytes on `decodecorpus_pack.bin` and 4 bytes on `json_logs_32m.jsonl`, and improved several expanded repeated-text boundary cases, but moved decodecorpus CPU from the retained ~0.16s band to ~0.18-0.19s. This is a plausible higher-level entropy optimization.
+- Broader parser searches that were rejected for level 1 due to CPU cost or small fast-level regressions may be useful above level 1 if guarded by a clear level policy and benchmarked against C zstd's corresponding levels.
+- Future level design should record both compression and CPU/RSS deltas against C zstd at matching levels, not only against C zstd `-1`.
 
 ## Design Rules From PR Review
 
