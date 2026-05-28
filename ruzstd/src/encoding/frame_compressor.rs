@@ -331,8 +331,14 @@ impl<R: Read, W: Write, M: Matcher> FrameCompressor<R, W, M> {
                 CompressionLevel::Fastest => {
                     compress_fastest(&mut self.state, last_block, uncompressed_data, output)
                 }
-                _ => {
-                    unimplemented!();
+                CompressionLevel::Default | CompressionLevel::Better | CompressionLevel::Best => {
+                    compress_at_level(
+                        &mut self.state,
+                        self.compression_level,
+                        last_block,
+                        uncompressed_data,
+                        output,
+                    )
                 }
             }
             drain.write_all(output).unwrap();

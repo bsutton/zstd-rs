@@ -4,7 +4,7 @@ use core::convert::TryFrom;
 use crate::{
     bit_io::BitWriter,
     encoding::frame_compressor::CompressState,
-    encoding::{Matcher, Sequence},
+    encoding::{CompressionLevel, Matcher, Sequence},
     fse::fse_encoder::{build_table_from_data, FSETable, State},
     huff0::huff0_encoder,
 };
@@ -21,10 +21,36 @@ const FAST_LITERAL_MIN_GAIN_LOG: u32 = 6;
 const LITERAL_LENGTH_SMALL_CODES: [(u8, u32, usize); 64] = small_literal_length_codes();
 const MATCH_LENGTH_SMALL_CODES: [(u8, u32, usize); 128] = small_match_length_codes();
 
-/// A block of [`crate::common::BlockType::Compressed`]
-pub fn compress_block<M: Matcher>(
+#[derive(Clone, Copy)]
+pub(crate) struct BlockCompressionConfig {
+    huffman_table_search: HuffmanTableSearch,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum HuffmanTableSearch {
+    SmallLiteralSections,
+    AllNewTables,
+}
+
+impl BlockCompressionConfig {
+    pub(crate) fn for_level(level: CompressionLevel) -> Self {
+        let huffman_table_search = match level {
+            CompressionLevel::Best => HuffmanTableSearch::AllNewTables,
+            CompressionLevel::Uncompressed
+            | CompressionLevel::Fastest
+            | CompressionLevel::Default
+            | CompressionLevel::Better => HuffmanTableSearch::SmallLiteralSections,
+        };
+        Self {
+            huffman_table_search,
+        }
+    }
+}
+
+pub(crate) fn compress_block_with_config<M: Matcher>(
     state: &mut CompressState<M>,
     output: &mut Vec<u8>,
+    config: BlockCompressionConfig,
 ) -> Option<huff0_encoder::HuffmanTable> {
     let mut literals_vec = Vec::with_capacity(INITIAL_LITERALS_CAPACITY);
     let mut sequences = Vec::with_capacity(INITIAL_SEQUENCES_CAPACITY);
@@ -53,9 +79,14 @@ pub fn compress_block<M: Matcher>(
 
     let mut writer = BitWriter::from(output);
     if should_compress_literals(literals_vec.len(), state.last_huff_table.is_some()) {
-        let search_smallest_huffman_table = sequences.is_empty()
-            || (sequences.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES
-                && literals_vec.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS);
+        let search_smallest_huffman_table = match config.huffman_table_search {
+            HuffmanTableSearch::SmallLiteralSections => {
+                sequences.is_empty()
+                    || (sequences.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES
+                        && literals_vec.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS)
+            }
+            HuffmanTableSearch::AllNewTables => true,
+        };
         if let Some(table) = compress_literals(
             &literals_vec,
             state.last_huff_table.as_ref(),
@@ -818,6 +849,18 @@ mod tests {
         literals: Vec<u8>,
         last_huff_table: Option<huff0_encoder::HuffmanTable>,
     ) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        compressed_frame_with_literal_payload_and_config(
+            literals,
+            last_huff_table,
+            BlockCompressionConfig::for_level(CompressionLevel::Fastest),
+        )
+    }
+
+    fn compressed_frame_with_literal_payload_and_config(
+        literals: Vec<u8>,
+        last_huff_table: Option<huff0_encoder::HuffmanTable>,
+        config: BlockCompressionConfig,
+    ) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
         assert!(!literals.is_empty());
 
         let mut state = CompressState {
@@ -831,7 +874,7 @@ mod tests {
         };
         let mut block_payload = Vec::new();
 
-        compress_block(&mut state, &mut block_payload);
+        compress_block_with_config(&mut state, &mut block_payload, config);
 
         let mut frame = Vec::new();
         crate::encoding::frame_header::FrameHeader {
@@ -1417,14 +1460,22 @@ mod tests {
             offset_history: OffsetHistory::new(),
         };
         let mut first_payload = Vec::new();
-        state.last_huff_table = compress_block(&mut state, &mut first_payload);
+        state.last_huff_table = compress_block_with_config(
+            &mut state,
+            &mut first_payload,
+            BlockCompressionConfig::for_level(CompressionLevel::Fastest),
+        );
 
         state.matcher = LiteralPayloadMatcher {
             literals: second_literals.clone(),
             emitted: false,
         };
         let mut second_payload = Vec::new();
-        compress_block(&mut state, &mut second_payload);
+        compress_block_with_config(
+            &mut state,
+            &mut second_payload,
+            BlockCompressionConfig::for_level(CompressionLevel::Fastest),
+        );
 
         assert_eq!(
             second_payload[0] & 0b11,
@@ -1561,6 +1612,60 @@ mod tests {
 
         let mut c_decoded = Vec::new();
         zstd::stream::copy_decode(frame.as_slice(), &mut c_decoded).unwrap();
+        assert_eq!(c_decoded, expected);
+    }
+
+    #[test]
+    fn best_level_searches_exact_huffman_tables_beyond_small_literal_sections() {
+        let len = SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS + 256;
+        let period = 86u32;
+        let mut state = (len as u32).wrapping_mul(1_664_525).wrapping_add(period);
+        let mut literals = Vec::with_capacity(len);
+        for _ in 0..len {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            literals.push((state % period) as u8);
+        }
+
+        let literal_stats = LiteralStats::from_literals(&literals);
+        let baseline_table = huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts());
+        let exact_table = huff0_encoder::HuffmanTable::build_smallest_from_counts(
+            literal_stats.counts(),
+            &literals,
+            true,
+        );
+        assert!(
+            exact_table.encoded_len(&literals, true, true)
+                <= baseline_table.encoded_len(&literals, true, true),
+            "exact table search should not be worse on this higher-level fixture"
+        );
+
+        let (fast_block, _, _) = compressed_frame_with_literal_payload_and_config(
+            literals.clone(),
+            None,
+            BlockCompressionConfig::for_level(CompressionLevel::Fastest),
+        );
+        let (best_block, best_frame, expected) = compressed_frame_with_literal_payload_and_config(
+            literals,
+            None,
+            BlockCompressionConfig::for_level(CompressionLevel::Best),
+        );
+
+        assert!(
+            best_block.len() <= fast_block.len(),
+            "best-level exact Huffman search should not emit a larger block: {} > {}",
+            best_block.len(),
+            fast_block.len()
+        );
+
+        let mut rust_decoded = Vec::with_capacity(expected.len());
+        let mut decoder = crate::decoding::FrameDecoder::new();
+        decoder
+            .decode_all_to_vec(&best_frame, &mut rust_decoded)
+            .unwrap();
+        assert_eq!(rust_decoded, expected);
+
+        let mut c_decoded = Vec::new();
+        zstd::stream::copy_decode(best_frame.as_slice(), &mut c_decoded).unwrap();
         assert_eq!(c_decoded, expected);
     }
 

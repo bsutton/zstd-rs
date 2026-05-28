@@ -1,7 +1,10 @@
 use crate::{
     common::MAX_BLOCK_SIZE,
     encoding::{
-        block_header::BlockHeader, blocks::compress_block, frame_compressor::CompressState, Matcher,
+        block_header::BlockHeader,
+        blocks::{compress_block_with_config, BlockCompressionConfig},
+        frame_compressor::CompressState,
+        CompressionLevel, Matcher,
     },
 };
 use alloc::vec::Vec;
@@ -19,6 +22,23 @@ use alloc::vec::Vec;
 #[inline]
 pub fn compress_fastest<M: Matcher>(
     state: &mut CompressState<M>,
+    last_block: bool,
+    uncompressed_data: Vec<u8>,
+    output: &mut Vec<u8>,
+) {
+    compress_at_level(
+        state,
+        CompressionLevel::Fastest,
+        last_block,
+        uncompressed_data,
+        output,
+    );
+}
+
+#[inline]
+pub fn compress_at_level<M: Matcher>(
+    state: &mut CompressState<M>,
+    level: CompressionLevel,
     last_block: bool,
     uncompressed_data: Vec<u8>,
     output: &mut Vec<u8>,
@@ -62,7 +82,8 @@ pub fn compress_fastest<M: Matcher>(
         output.extend_from_slice(&[0; 3]);
         output.reserve(compressed_block_reserve(block_size));
         let compressed_start = output.len();
-        let new_huffman_table = compress_block(state, output);
+        let new_huffman_table =
+            compress_block_with_config(state, output, BlockCompressionConfig::for_level(level));
         let compressed_size = output.len() - compressed_start;
         // If compression does not shrink the block, store it raw instead.
         // Also preserve the format guard that compressed blocks must not

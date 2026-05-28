@@ -151,6 +151,47 @@ fn fastest_reuses_repetitive_history_after_incompressible_block() {
 }
 
 #[test]
+fn implemented_compression_levels_round_trip_with_rust_and_c_decoders() {
+    let mut data = Vec::new();
+    extend_repeated_to_len(
+        &mut data,
+        b"tenant=alpha path=/v1/archive status=200 bytes=4812\n",
+        64 * 1024,
+    );
+    data.extend_from_slice(&xorshift(64 * 1024));
+    extend_repeated_to_len(
+        &mut data,
+        b"zstd-rs higher level round trip fixture\n",
+        64 * 1024,
+    );
+
+    for level in [
+        CompressionLevel::Fastest,
+        CompressionLevel::Default,
+        CompressionLevel::Better,
+        CompressionLevel::Best,
+    ] {
+        let compressed = compress_to_vec(data.as_slice(), level);
+
+        let mut decoded = Vec::with_capacity(data.len());
+        FrameDecoder::new()
+            .decode_all_to_vec(compressed.as_slice(), &mut decoded)
+            .unwrap();
+        assert_eq!(
+            decoded, data,
+            "{level:?} should round-trip with Rust decoder"
+        );
+
+        let mut decoded_by_c = Vec::new();
+        zstd::stream::copy_decode(compressed.as_slice(), &mut decoded_by_c).unwrap();
+        assert_eq!(
+            decoded_by_c, data,
+            "{level:?} should round-trip with C zstd decoder"
+        );
+    }
+}
+
+#[test]
 fn raw_fallback_restores_matcher_repeat_offsets() {
     let previous_offsets = OffsetHistory::from_offsets(7, 11, 13);
     let mut state = CompressState {
