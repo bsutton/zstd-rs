@@ -218,6 +218,7 @@ Interpretation:
 - Direct repeat-offset encoding branches preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.20s both times and JSON at 0.11s both times; a follow-up JSON profile no longer showed `OffsetHistory::encode_offset_value` as a separate symbol, so keep the smaller direct branch shape.
 - Tested a small cached offset-code table, mirroring the retained literal/match length code caches. Output bytes were unchanged and focused spec-range tests passed, but decodecorpus regressed to 0.21s then 0.22s, so the direct `ilog2` offset-code calculation remains better.
 - Inlining boundary offset conversions preserved exact fixture byte counts. Two table runs measured decodecorpus at 0.20s then 0.21s and JSON at 0.11s both times; a follow-up JSON profile no longer showed `offset_to_u32` or matcher `bounded_u32` as separate symbols, so keep this as a small neutral cleanup.
+- Tested increasing the per-block literals vector initial capacity from 1024 to 2048 after profiles showed occasional allocation growth in compressed block assembly. Output bytes were unchanged, but decodecorpus regressed to 0.22s then 0.21s and JSON regressed to 0.12s both runs, so the existing conservative literal capacity remains better.
 
 ## Next Steps
 
