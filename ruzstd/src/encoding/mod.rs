@@ -94,6 +94,10 @@ pub trait Matcher {
     fn start_matching(&mut self, handle_sequence: impl for<'a> FnMut(Sequence<'a>));
     /// Reset this matcher so it can be used for the next new frame
     fn reset(&mut self, level: CompressionLevel);
+    /// Synchronize the matcher with the encoder's current repeat-offset history.
+    ///
+    /// Matchers that do not use repeat-offset history can ignore this hook.
+    fn set_repeat_offsets(&mut self, _newest: u32, _second: u32, _third: u32) {}
     /// Mark the last committed space as processed without indexing it for future matches.
     ///
     /// This is intended for data that has already been classified as very unlikely to

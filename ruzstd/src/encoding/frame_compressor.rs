@@ -94,6 +94,70 @@ impl OffsetHistory {
             third: 8,
         }
     }
+
+    pub(crate) const fn from_offsets(newest: u32, second: u32, third: u32) -> Self {
+        Self {
+            newest,
+            second,
+            third,
+        }
+    }
+
+    pub(crate) fn as_offsets(self) -> (u32, u32, u32) {
+        (self.newest, self.second, self.third)
+    }
+
+    pub(crate) fn repeat_offset_candidates(self, lit_len: u32) -> [Option<u32>; 3] {
+        if lit_len > 0 {
+            [Some(self.newest), Some(self.second), Some(self.third)]
+        } else {
+            [
+                Some(self.second),
+                Some(self.third),
+                self.newest.checked_sub(1),
+            ]
+        }
+    }
+
+    pub(crate) fn encode_offset_value(&mut self, offset: u32, lit_len: u32) -> u32 {
+        let repeat_offsets = self.repeat_offset_candidates(lit_len);
+        let offset_value = repeat_offsets
+            .iter()
+            .position(|candidate| *candidate == Some(offset))
+            .map_or(offset + 3, |index| index as u32 + 1);
+
+        self.update_from_offset_value(offset_value, lit_len, offset);
+        offset_value
+    }
+
+    fn update_from_offset_value(&mut self, offset_value: u32, lit_len: u32, actual_offset: u32) {
+        if lit_len > 0 {
+            match offset_value {
+                1 => {}
+                2 => {
+                    self.second = self.newest;
+                    self.newest = actual_offset;
+                }
+                _ => {
+                    self.third = self.second;
+                    self.second = self.newest;
+                    self.newest = actual_offset;
+                }
+            }
+        } else {
+            match offset_value {
+                1 => {
+                    self.second = self.newest;
+                    self.newest = actual_offset;
+                }
+                _ => {
+                    self.third = self.second;
+                    self.second = self.newest;
+                    self.newest = actual_offset;
+                }
+            }
+        }
+    }
 }
 
 impl<R: Read, W: Write> FrameCompressor<R, W, MatchGeneratorDriver> {
@@ -160,6 +224,8 @@ impl<R: Read, W: Write, M: Matcher> FrameCompressor<R, W, M> {
         self.state.last_huff_table = None;
         self.state.fse_tables.reset();
         self.state.offset_history = OffsetHistory::new();
+        let (newest, second, third) = self.state.offset_history.as_offsets();
+        self.state.matcher.set_repeat_offsets(newest, second, third);
         #[cfg(feature = "hash")]
         {
             self.hasher = XxHash64::with_seed(0);

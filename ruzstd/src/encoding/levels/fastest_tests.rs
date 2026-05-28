@@ -1,7 +1,8 @@
 use alloc::vec::Vec;
 
 use crate::decoding::FrameDecoder;
-use crate::encoding::{compress_to_vec, CompressionLevel};
+use crate::encoding::frame_compressor::{CompressState, FseTables, OffsetHistory};
+use crate::encoding::{compress_to_vec, CompressionLevel, MatchGeneratorDriver};
 
 #[test]
 fn fastest_does_not_expand_incompressible_blocks_past_raw_size() {
@@ -52,6 +53,26 @@ fn incompressible_gate_distinguishes_random_from_repetitive_data() {
     }
     repetitive.truncate(128 * 1024);
     assert!(!super::fastest::likely_incompressible(&repetitive));
+}
+
+#[test]
+fn raw_fallback_restores_matcher_repeat_offsets() {
+    let previous_offsets = OffsetHistory::from_offsets(7, 11, 13);
+    let mut state = CompressState {
+        matcher: MatchGeneratorDriver::new(128 * 1024, 4),
+        last_huff_table: None,
+        fse_tables: FseTables::new(),
+        offset_history: previous_offsets,
+    };
+
+    let mut output = Vec::new();
+    super::fastest::compress_fastest(&mut state, true, b"abcdeabcde".to_vec(), &mut output);
+
+    assert_eq!(state.offset_history, previous_offsets);
+    assert_eq!(
+        state.matcher.repeat_offsets(),
+        previous_offsets.as_offsets()
+    );
 }
 
 fn assert_fastest_does_not_exceed_raw(len: usize) {

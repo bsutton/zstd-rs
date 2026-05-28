@@ -64,6 +64,8 @@ pub fn compress_fastest<M: Matcher>(
             state.fse_tables.ml_previous = previous_ml;
             state.fse_tables.of_previous = previous_of;
             state.offset_history = previous_offsets;
+            let (newest, second, third) = previous_offsets.as_offsets();
+            state.matcher.set_repeat_offsets(newest, second, third);
 
             write_raw_block(
                 last_block,

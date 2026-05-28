@@ -3,7 +3,7 @@ use core::convert::TryFrom;
 
 use crate::{
     bit_io::BitWriter,
-    encoding::frame_compressor::{CompressState, OffsetHistory},
+    encoding::frame_compressor::CompressState,
     encoding::{Matcher, Sequence},
     fse::fse_encoder::{build_table_from_data, FSETable, State},
     huff0::huff0_encoder,
@@ -18,6 +18,8 @@ pub fn compress_block<M: Matcher>(
     let mut sequences = Vec::new();
     let mut new_huffman_table = None;
     let offset_history = &mut state.offset_history;
+    let (newest, second, third) = offset_history.as_offsets();
+    state.matcher.set_repeat_offsets(newest, second, third);
     state.matcher.start_matching(|seq| match seq {
         Sequence::Literals { literals } => literals_vec.extend_from_slice(literals),
         Sequence::Triple {
@@ -113,72 +115,6 @@ fn offset_to_u32(offset: usize) -> u32 {
     match u32::try_from(offset) {
         Ok(offset) => offset,
         Err(_) => unreachable!("match offsets are bounded by the compressor window"),
-    }
-}
-
-trait OffsetHistoryExt {
-    fn encode_offset_value(&mut self, offset: u32, lit_len: u32) -> u32;
-}
-
-impl OffsetHistoryExt for OffsetHistory {
-    fn encode_offset_value(&mut self, offset: u32, lit_len: u32) -> u32 {
-        let offset_value = if lit_len > 0 {
-            if self.newest == offset {
-                1
-            } else if self.second == offset {
-                2
-            } else if self.third == offset {
-                3
-            } else {
-                offset + 3
-            }
-        } else if self.second == offset {
-            1
-        } else if self.third == offset {
-            2
-        } else if self.newest > 1 && self.newest - 1 == offset {
-            3
-        } else {
-            offset + 3
-        };
-
-        self.update_from_offset_value(offset_value, lit_len, offset);
-        offset_value
-    }
-}
-
-trait OffsetHistoryUpdate {
-    fn update_from_offset_value(&mut self, offset_value: u32, lit_len: u32, actual_offset: u32);
-}
-
-impl OffsetHistoryUpdate for OffsetHistory {
-    fn update_from_offset_value(&mut self, offset_value: u32, lit_len: u32, actual_offset: u32) {
-        if lit_len > 0 {
-            match offset_value {
-                1 => {}
-                2 => {
-                    self.second = self.newest;
-                    self.newest = actual_offset;
-                }
-                _ => {
-                    self.third = self.second;
-                    self.second = self.newest;
-                    self.newest = actual_offset;
-                }
-            }
-        } else {
-            match offset_value {
-                1 => {
-                    self.second = self.newest;
-                    self.newest = actual_offset;
-                }
-                _ => {
-                    self.third = self.second;
-                    self.second = self.newest;
-                    self.newest = actual_offset;
-                }
-            }
-        }
     }
 }
 
@@ -582,6 +518,7 @@ impl LiteralStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::encoding::frame_compressor::OffsetHistory;
     use crate::fse::fse_encoder::{default_ll_table, default_of_table};
 
     fn offset_history(newest: u32, second: u32, third: u32) -> OffsetHistory {
