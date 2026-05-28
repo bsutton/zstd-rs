@@ -162,8 +162,22 @@ impl SuffixStore {
 
     #[inline(always)]
     fn stored_index(idx: usize) -> NonZeroU32 {
-        let idx = u32::try_from(idx + 1).expect("suffix index must fit in u32");
-        NonZeroU32::new(idx).expect("suffix index is stored one-based")
+        let Some(idx) = idx.checked_add(1) else {
+            Self::invalid_stored_index()
+        };
+        let Ok(idx) = u32::try_from(idx) else {
+            Self::invalid_stored_index()
+        };
+        let Some(idx) = NonZeroU32::new(idx) else {
+            Self::invalid_stored_index()
+        };
+        idx
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn invalid_stored_index() -> ! {
+        panic!("suffix index must fit in non-zero u32")
     }
 
     #[inline(always)]
@@ -291,24 +305,32 @@ impl MatchGenerator {
 
     #[inline(always)]
     fn last_entry(&self) -> &WindowEntry {
-        self.window
-            .last()
-            .expect("match generator requires a committed window entry")
+        match self.window.last() {
+            Some(entry) => entry,
+            None => Self::missing_window_entry(),
+        }
     }
 
     #[inline(always)]
     fn last_entry_mut(&mut self) -> &mut WindowEntry {
-        self.window
-            .last_mut()
-            .expect("match generator requires a committed window entry")
+        match self.window.last_mut() {
+            Some(entry) => entry,
+            None => Self::missing_window_entry(),
+        }
     }
 
     #[inline(always)]
     fn last_entry_index(&self) -> usize {
-        self.window
-            .len()
-            .checked_sub(1)
-            .expect("match generator requires a committed window entry")
+        match self.window.len().checked_sub(1) {
+            Some(idx) => idx,
+            None => Self::missing_window_entry(),
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn missing_window_entry() -> ! {
+        panic!("match generator requires a committed window entry")
     }
 
     /// Processes bytes in the current window until either a match is found or no more matches can be found
