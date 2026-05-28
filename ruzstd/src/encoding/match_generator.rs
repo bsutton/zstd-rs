@@ -564,6 +564,7 @@ impl MatchGenerator {
         (start_idx, match_len)
     }
 
+    #[inline(always)]
     fn match_len_at_offset(&self, offset: usize, context: &MatchCandidateContext<'_>) -> usize {
         if offset == 0 {
             return 0;
@@ -586,6 +587,7 @@ impl MatchGenerator {
         len
     }
 
+    #[inline(always)]
     fn has_min_match_at_offset(&self, offset: usize, context: &MatchCandidateContext<'_>) -> bool {
         if offset == 0 {
             return false;
@@ -603,6 +605,7 @@ impl MatchGenerator {
         source[..MIN_MATCH_LEN] == context.data_slice[..MIN_MATCH_LEN]
     }
 
+    #[inline(always)]
     fn slice_at_relative(&self, relative_to_current: isize) -> Option<&[u8]> {
         if relative_to_current >= 0 {
             return self.last_entry().data.get(relative_to_current as usize..);
