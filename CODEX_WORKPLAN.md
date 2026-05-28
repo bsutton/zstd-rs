@@ -132,6 +132,10 @@ Latest successful commands:
 - `perf report --stdio -i /tmp/ruzstd-json-direct-repeat-update.perf.data --sort=symbol --no-children`
 - `perf record -m 64 -F 999 -g -o /tmp/ruzstd-decodecorpus-heap-huff.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/decodecorpus_pack.bin /tmp/ruzstd-decodecorpus-profile.zst -l 1`
 - `perf report --stdio -i /tmp/ruzstd-decodecorpus-heap-huff.perf.data --sort=symbol --no-children`
+- `perf record -m 64 -F 999 -g -o /tmp/ruzstd-decodecorpus-after-bitwriter.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/decodecorpus_pack.bin /tmp/ruzstd-decodecorpus-profile.zst -l 1`
+- `perf report --stdio -i /tmp/ruzstd-decodecorpus-after-bitwriter.perf.data --sort=symbol --no-children`
+- `perf record -m 64 -F 999 -g -o /tmp/ruzstd-json-after-bitwriter.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/json_logs_32m.jsonl /tmp/ruzstd-json-profile.zst -l 1`
+- `perf report --stdio -i /tmp/ruzstd-json-after-bitwriter.perf.data --sort=symbol --no-children`
 
 ## Latest Benchmark Snapshot
 
@@ -162,6 +166,7 @@ Interpretation:
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; the current branch remains smaller than C zstd on all three compressible fixtures and four bytes smaller on xorshift.
 - Exact-block EOF lookahead removed the extra empty final raw block for exact block-multiple inputs. This improved `repeated_text_32m.txt` and `xorshift_32m.bin` by 3 bytes each, with decodecorpus and JSON byte-identical and CPU in the existing noise band across two runs.
 - BitWriter exact-fill flushing preserved exact fixture byte counts. Two table runs kept decodecorpus at 0.21s, JSON at 0.11s, and repeated/xorshift in their existing bands; retain it because it removes a cold helper call from a common bitstream boundary and has focused bit-level coverage.
+- Refreshed profiles after the BitWriter exact-fill change still show matcher search as the dominant CPU cost: about 70% of decodecorpus samples and 76% of JSON samples. The former `write_bits_64_cold` hotspot dropped to about 0.5% of decodecorpus samples, so further CPU work should stay focused on matcher search/counting unless future profiles shift.
 - Lowering the literal-compression threshold to C zstd's 63-byte heuristic improved JSON size by 80,942 bytes and decodecorpus by 1,164 bytes versus the previous retained snapshot. Two runs kept JSON CPU at 0.11s, repeated/xorshift unchanged, and decodecorpus at 0.22s then 0.20s; keep it as a clear compression win with covered bitstream behavior.
 - The repeat-offset search early exit, sparse long-match indexing, no-match probe step, and text-only wider probing trade about 50 KiB of decodecorpus compression and 2 bytes of repeated-text compression for a large CPU improvement, while JSON is now materially smaller than before the CPU parser shortcuts. The repeat/hash prechecks, hot helper inlining, fixed repeat-candidate loops, candidate-helper inlining, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, and matcher block-length hoisting keep output sizes unchanged and improve or simplify CPU hot paths further. The measured current aggregate CPU is now about 0.34s versus about 0.90s before these CPU-focused parser shortcuts.
 - Text-only wider no-match probing improved JSON size from 849,901 bytes to 826,471 bytes with only a 370-byte decodecorpus size cost, avoiding the much larger global step-3 decodecorpus regression.
@@ -246,6 +251,8 @@ Interpretation:
 - Tested preallocating the temporary buffer used to estimate Huffman table-description length after the small-literal threshold made literal compression more visible in profiles. Fixture bytes were unchanged, but two table runs were CPU-neutral and JSON drifted from 0.11s to 0.12s on the repeat, so the original minimal `Vec::new()` remains better.
 - Tested C zstd's cheap `HUF_optimalTableLog()` depth reduction for Huffman table construction after the small-literal threshold made more blocks eligible for Huffman compression. Focused helper tests passed, but fixture sizes regressed: decodecorpus grew by 311 bytes and JSON by 342 bytes, with decodecorpus CPU also drifting to 0.22s, so the retained encoder keeps the 11-bit Huffman cap.
 - Tested replacing exact-EOF one-byte lookahead with a full pending-block lookahead to avoid tiny reads on full-block streams. Output bytes were unchanged, but decodecorpus repeatedly regressed to 0.22s and RSS rose slightly, so the simpler one-byte lookahead remains better.
+- Tested replacing hot five-byte minimum-match slice comparisons with an explicit safe byte-by-byte helper, as a safe approximation of C zstd's fixed-width `MEM_read32` prechecks. Output bytes stayed unchanged and focused matcher tests passed, but decodecorpus regressed to 0.24s then 0.23s and JSON to 0.12s across two table runs, so the compiler's original slice-comparison shape remains better.
+- Tested reducing the matcher text-classifier sample count from 256 to 128 to lower per-block classifier work while preserving the text/binary parser split. Output bytes stayed unchanged and matcher classifier tests passed, but the measured CPU band was indistinguishable from the 256-sample A/B run, so the original more conservative 256-sample classifier remains.
 
 ## Next Steps
 
