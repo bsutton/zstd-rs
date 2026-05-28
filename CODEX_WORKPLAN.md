@@ -273,6 +273,7 @@ Interpretation:
 - Tested reducing the fastest incompressibility gate sample count from 256 to 128 after fresh profiles showed the gate as a small JSON cost. Focused gate tests passed and xorshift stayed raw, but decodecorpus grew from 5,159,814 bytes to 5,223,327 bytes, so 128 samples are too weak for mixed binary/text inputs and the 256-sample gate remains.
 - Tested a less aggressive 192-sample incompressibility gate as a compromise after the 128-sample version regressed decodecorpus size. Output bytes stayed unchanged, but JSON stayed at 0.12s across both table runs and decodecorpus only improved on the first run before returning to 0.21s, so the 256-sample gate remains the best measured point.
 - Tested hoisting the current-block byte slice out of the backward-extension loop. Output bytes stayed unchanged and focused matcher tests passed, but decodecorpus regressed to 0.23s on the first table run and only recovered to the normal band on repeat, so the original loop shape remains.
+- Tested deferring the current suffix key-value computation until after repeat-offset probing, so repeat matches that skip hash-table search would avoid one five-byte key load. Output bytes stayed unchanged, but two table runs measured decodecorpus at 0.21s with no JSON CPU improvement, so the existing eager key computation remains.
 
 ## Next Steps
 
