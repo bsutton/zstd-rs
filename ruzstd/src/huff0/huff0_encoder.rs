@@ -6,6 +6,8 @@ use crate::{
     fse::fse_encoder::{self, FSEEncoder},
 };
 
+const MAX_HUFFMAN_BITS: usize = 11;
+
 pub(crate) struct HuffmanEncoder<'output, 'table, V: AsMut<Vec<u8>>> {
     table: &'table HuffmanTable,
     writer: &'output mut BitWriter<V>,
@@ -159,6 +161,7 @@ pub struct HuffmanTable {
 }
 
 impl HuffmanTable {
+    #[cfg(any(test, feature = "fuzz_exports"))]
     pub fn build_from_data(data: &[u8]) -> Self {
         let mut counts = [0; 256];
         let mut max = 0;
@@ -172,25 +175,14 @@ impl HuffmanTable {
 
     pub fn build_from_counts(counts: &[usize]) -> Self {
         assert!(counts.len() <= 256);
-        let zeros = counts.iter().filter(|x| **x == 0).count();
-        let mut weights = distribute_weights(counts.len() - zeros);
-        let limit = weights.len().ilog2() as usize + 2;
-        redistribute_weights(&mut weights, limit);
-
-        weights.reverse();
-        let mut counts_sorted = counts.iter().enumerate().collect::<Vec<_>>();
-        counts_sorted.sort_by_key(|(_, c1)| *c1);
-
-        let mut weights_distributed = alloc::vec![0; counts.len()];
-        for (idx, count) in counts_sorted {
-            if *count == 0 {
-                weights_distributed[idx] = 0;
-            } else {
-                weights_distributed[idx] = weights.pop().unwrap();
-            }
-        }
-
-        Self::build_from_weights(&weights_distributed)
+        let weights = if is_flat_distribution(counts) {
+            rank_limited_weights(counts)
+        } else if let Some(lengths) = length_limited_code_lengths(counts, MAX_HUFFMAN_BITS) {
+            code_lengths_to_weights(&lengths, MAX_HUFFMAN_BITS)
+        } else {
+            rank_limited_weights(counts)
+        };
+        Self::build_from_weights(&weights)
     }
 
     pub fn build_from_weights(weights: &[usize]) -> Self {
@@ -265,6 +257,172 @@ impl HuffmanTable {
         }
         Some(sum)
     }
+}
+
+fn is_flat_distribution(counts: &[usize]) -> bool {
+    let mut nonzero = 0usize;
+    let mut min = usize::MAX;
+    let mut max = 0usize;
+    for count in counts.iter().copied().filter(|count| *count > 0) {
+        nonzero += 1;
+        min = min.min(count);
+        max = max.max(count);
+    }
+
+    nonzero > 128 && max <= min.saturating_mul(2)
+}
+
+fn length_limited_code_lengths(counts: &[usize], max_bits: usize) -> Option<Vec<usize>> {
+    let mut nodes = counts
+        .iter()
+        .copied()
+        .enumerate()
+        .filter_map(|(symbol, count)| {
+            (count > 0).then_some(HuffmanNode {
+                count,
+                symbol: Some(symbol),
+                parent: None,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if nodes.len() <= 1 {
+        return None;
+    }
+
+    let mut active = (0..nodes.len()).collect::<Vec<_>>();
+    while active.len() > 1 {
+        active.sort_by(|left, right| {
+            nodes[*right]
+                .count
+                .cmp(&nodes[*left].count)
+                .then_with(|| nodes[*right].symbol.cmp(&nodes[*left].symbol))
+        });
+        let left = active.pop().unwrap();
+        let right = active.pop().unwrap();
+        let parent = nodes.len();
+        nodes[left].parent = Some(parent);
+        nodes[right].parent = Some(parent);
+        nodes.push(HuffmanNode {
+            count: nodes[left].count + nodes[right].count,
+            symbol: None,
+            parent: None,
+        });
+        active.push(parent);
+    }
+
+    let mut lengths = alloc::vec![0; counts.len()];
+    for idx in 0..counts.len() {
+        if counts[idx] == 0 {
+            continue;
+        }
+        let mut node_idx = nodes
+            .iter()
+            .position(|node| node.symbol == Some(idx))
+            .unwrap();
+        let mut len = 0;
+        while let Some(parent) = nodes[node_idx].parent {
+            len += 1;
+            node_idx = parent;
+        }
+        lengths[idx] = len;
+    }
+
+    limit_code_lengths(&mut lengths, counts, max_bits).then_some(lengths)
+}
+
+struct HuffmanNode {
+    count: usize,
+    symbol: Option<usize>,
+    parent: Option<usize>,
+}
+
+fn limit_code_lengths(lengths: &mut [usize], counts: &[usize], max_bits: usize) -> bool {
+    let mut bl_count = alloc::vec![0usize; max_bits + 1];
+    let mut overflow = 0usize;
+    for len in lengths.iter_mut().filter(|len| **len > 0) {
+        if *len > max_bits {
+            *len = max_bits;
+            overflow += 1;
+        }
+        bl_count[*len] += 1;
+    }
+
+    if !overflow.is_multiple_of(2) {
+        return false;
+    }
+
+    while overflow > 0 {
+        let mut bits = max_bits - 1;
+        while bl_count[bits] == 0 {
+            if bits == 0 {
+                return false;
+            }
+            bits -= 1;
+        }
+        bl_count[bits] -= 1;
+        bl_count[bits + 1] += 2;
+        bl_count[max_bits] -= 1;
+        overflow -= 2;
+    }
+
+    let mut symbols = counts
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, count)| *count > 0)
+        .collect::<Vec<_>>();
+    symbols.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(&left.0)));
+
+    lengths.fill(0);
+    let mut symbol_idx = 0;
+    for bits in (1..=max_bits).rev() {
+        for _ in 0..bl_count[bits] {
+            lengths[symbols[symbol_idx].0] = bits;
+            symbol_idx += 1;
+        }
+    }
+
+    symbol_idx == symbols.len() && length_units(lengths, max_bits) == 1usize << max_bits
+}
+
+fn length_units(lengths: &[usize], max_bits: usize) -> usize {
+    lengths
+        .iter()
+        .copied()
+        .filter(|len| *len > 0)
+        .map(|len| 1usize << (max_bits - len))
+        .sum()
+}
+
+fn code_lengths_to_weights(lengths: &[usize], max_bits: usize) -> Vec<usize> {
+    lengths
+        .iter()
+        .copied()
+        .map(|len| if len == 0 { 0 } else { max_bits - len + 1 })
+        .collect()
+}
+
+fn rank_limited_weights(counts: &[usize]) -> Vec<usize> {
+    let zeros = counts.iter().filter(|x| **x == 0).count();
+    let mut weights = distribute_weights(counts.len() - zeros);
+    let limit = weights.len().ilog2() as usize + 2;
+    redistribute_weights(&mut weights, limit);
+
+    weights.reverse();
+    let mut counts_sorted = counts.iter().enumerate().collect::<Vec<_>>();
+    counts_sorted.sort_by_key(|(_, c1)| *c1);
+
+    let mut weights_distributed = alloc::vec![0; counts.len()];
+    for (idx, count) in counts_sorted {
+        if *count == 0 {
+            weights_distributed[idx] = 0;
+        } else {
+            weights_distributed[idx] = weights.pop().unwrap();
+        }
+    }
+
+    weights_distributed
 }
 
 /// Assert that the provided value is greater than zero, and returns index of the first set bit
@@ -473,11 +631,12 @@ fn counts() {
 
 #[test]
 fn from_data() {
-    let counts = &[3, 0, 4, 1, 5];
-    let table = HuffmanTable::build_from_counts(counts).codes;
-
     let data = &[0, 2, 4, 4, 0, 3, 2, 2, 0, 2];
-    let table2 = HuffmanTable::build_from_data(data).codes;
+    let table = HuffmanTable::build_from_data(data).codes;
 
-    assert_eq!(table, table2);
+    assert_eq!(table[1].1, 0);
+    for symbol in [0, 2, 3, 4] {
+        assert!(table[symbol].1 > 0);
+        assert!(table[symbol].1 <= MAX_HUFFMAN_BITS as u8);
+    }
 }

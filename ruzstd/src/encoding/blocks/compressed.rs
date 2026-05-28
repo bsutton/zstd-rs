@@ -318,7 +318,15 @@ fn compress_literals(
 ) -> Option<huff0_encoder::HuffmanTable> {
     let reset_idx = writer.index();
 
-    let new_encoder_table = huff0_encoder::HuffmanTable::build_from_data(literals);
+    let literal_stats = LiteralStats::from_literals(literals);
+    if literal_stats.largest == literals.len()
+        || literal_stats.likely_incompressible(literals.len())
+    {
+        raw_literals(literals, writer);
+        return None;
+    }
+
+    let new_encoder_table = huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts());
 
     let (encoder_table, new_table) = if let Some(_table) = last_table {
         if let Some(diff) = _table.can_encode(&new_encoder_table) {
@@ -373,5 +381,37 @@ fn compress_literals(
         Some(new_encoder_table)
     } else {
         None
+    }
+}
+
+struct LiteralStats {
+    counts: [usize; 256],
+    max_symbol: usize,
+    largest: usize,
+}
+
+impl LiteralStats {
+    fn from_literals(literals: &[u8]) -> Self {
+        let mut counts = [0; 256];
+        let mut max_symbol = 0usize;
+        for literal in literals {
+            let symbol = *literal as usize;
+            counts[symbol] += 1;
+            max_symbol = max_symbol.max(symbol);
+        }
+        let largest = counts.iter().copied().max().unwrap_or(0);
+        Self {
+            counts,
+            max_symbol,
+            largest,
+        }
+    }
+
+    fn counts(&self) -> &[usize] {
+        &self.counts[..=self.max_symbol]
+    }
+
+    fn likely_incompressible(&self, len: usize) -> bool {
+        self.largest <= (len >> 7) + 4
     }
 }
