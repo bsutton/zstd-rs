@@ -289,6 +289,7 @@ Interpretation:
 - Tested C-style precomputed sequence code byte arrays for literal length, match length, and offset code selection/encoding. Focused compressed-block, fastest-frame, and clippy checks passed and output bytes stayed unchanged, but the first table run regressed JSON CPU to 0.12s and the repeat showed no stable improvement while adding three side vectors, so the simpler recompute-on-use path remains.
 - Tested carrying the current block slice in `MatchCandidateContext` so hot match helpers could avoid reacquiring the last window entry. Focused matcher and fastest-frame tests plus clippy passed and output bytes stayed unchanged, but two table runs held decodecorpus at 0.22s and JSON drifted to 0.12s on the repeat, so the current narrower context remains better.
 - Tested replacing BitWriter cold-path per-byte pushes with a single slice copy for full spilled bytes after a 64-bit flush. Focused BitWriter, compressed-block, fastest-frame, and clippy checks passed and output bytes stayed unchanged, but the repeat table run regressed decodecorpus to 0.22s with no stable JSON win, so the original compact byte loop remains.
+- Tested replacing the incompressibility gate's sampled-key linear duplicate search with a fixed 512-slot open-addressed set. Output bytes stayed unchanged and focused fastest tests plus clippy passed, but two table runs showed no stable CPU win: decodecorpus measured 0.20s then 0.21s, JSON stayed at 0.11s, and xorshift stayed at 0.02s. The simpler linear scan remains.
 
 ## Next Steps
 
