@@ -746,7 +746,7 @@ impl MatchGenerator {
             return self.last_entry().data.get(relative_to_current as usize..);
         }
 
-        for entry in &self.window {
+        for entry in self.window.iter().rev() {
             let start = -(entry.base_offset as isize);
             let end = start + entry.data.len() as isize;
             if (start..end).contains(&relative_to_current) {
@@ -1041,6 +1041,42 @@ fn match_len_reads_from_previous_window_entry() {
     };
 
     assert_eq!(matcher.match_len_at_offset(b"MATCHTAIL".len(), &context), 9);
+}
+
+#[test]
+fn match_len_reads_from_most_recent_previous_window_entry() {
+    let mut matcher = MatchGenerator::new(100);
+    matcher.add_data(
+        b"older_MATCH".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+    matcher.skip_matching();
+    matcher.add_data(
+        b"recent_MATCH".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+    matcher.skip_matching();
+    matcher.add_data(
+        b"MATCH!".to_vec(),
+        SuffixStore::with_capacity(100),
+        |_, _| {},
+    );
+
+    let last_entry = matcher.last_entry();
+    let context = MatchCandidateContext {
+        suffix_idx: 0,
+        anchor_idx: 0,
+        min_non_repeat_match_len: MIN_MATCH_LEN,
+        data_slice: &last_entry.data,
+        #[cfg(debug_assertions)]
+        last_entry_len: last_entry.data.len(),
+        #[cfg(debug_assertions)]
+        concat_window: &matcher.concat_window,
+    };
+
+    assert_eq!(matcher.match_len_at_offset(b"MATCH".len(), &context), 5);
 }
 
 #[test]
