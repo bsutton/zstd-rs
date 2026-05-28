@@ -455,9 +455,22 @@ fn encode_offset(len: u32) -> (u8, u32, usize) {
 }
 
 fn raw_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>) {
-    writer.write_bits(0u8, 2);
-    writer.write_bits(0b11u8, 2);
-    writer.write_bits(literals.len() as u32, 20);
+    writer.write_bits(0u8, 2); // Raw_Literals_Block
+    match literals.len() {
+        0..=31 => {
+            writer.write_bits(0u8, 1);
+            writer.write_bits(literals.len() as u32, 5);
+        }
+        32..=4095 => {
+            writer.write_bits(0b01u8, 2);
+            writer.write_bits(literals.len() as u32, 12);
+        }
+        4096..=1_048_575 => {
+            writer.write_bits(0b11u8, 2);
+            writer.write_bits(literals.len() as u32, 20);
+        }
+        _ => unimplemented!("too many literals"),
+    }
     writer.append_bytes(literals);
 }
 
@@ -719,6 +732,30 @@ mod tests {
         assert_eq!(encode_match_len(65539), (52, 0, 16));
         assert_eq!(encode_match_len(98264), (52, 32725, 16));
         assert_eq!(encode_match_len(131074), (52, 65535, 16));
+    }
+
+    #[test]
+    fn raw_literals_use_shortest_header_form() {
+        let mut one_byte_header = Vec::new();
+        let mut writer = BitWriter::from(&mut one_byte_header);
+        raw_literals(&[7; 31], &mut writer);
+        writer.flush();
+        assert_eq!(one_byte_header[0], 31 << 3);
+        assert_eq!(&one_byte_header[1..], &[7; 31]);
+
+        let mut two_byte_header = Vec::new();
+        let mut writer = BitWriter::from(&mut two_byte_header);
+        raw_literals(&[9; 44], &mut writer);
+        writer.flush();
+        assert_eq!(&two_byte_header[..2], &[0xC4, 0x02]);
+        assert_eq!(&two_byte_header[2..], &[9; 44]);
+
+        let mut three_byte_header = Vec::new();
+        let mut writer = BitWriter::from(&mut three_byte_header);
+        raw_literals(&[11; 4096], &mut writer);
+        writer.flush();
+        assert_eq!(&three_byte_header[..3], &[0x0C, 0x00, 0x01]);
+        assert_eq!(&three_byte_header[3..], &[11; 4096]);
     }
 
     #[test]
