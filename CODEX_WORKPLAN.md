@@ -16,7 +16,7 @@ Quality constraints:
 - Keep the Rust implementation high quality, well structured, and idiomatic.
 - Avoid `unsafe` code. Treat safe Rust as a goal constraint, not just a preference.
 - Prefer clear state machines and small helpers over clever code that is harder to verify.
-- Maintain excellent test coverage for each compression feature.
+- Maintain excellent test coverage for each compression feature; retained changes should have tests that make the behavior hard to regress.
 - Cover private invariants with focused unit tests, especially compact matcher state such as suffix candidates and repeat-offset history.
 - Cover emitted bitstreams with end-to-end tests through the Rust decoder and the C zstd decoder; helper-level tests alone are not enough.
 - Every new compression heuristic should get either a regression test for the intended behavior or an explicit workplan note explaining why benchmark-only coverage is appropriate.
@@ -109,9 +109,9 @@ Last run after the larger window, match-length fix, RLE sequence modes, incompre
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `decodecorpus_pack.bin` | 5,976,095 | 5,161,043 | 5,385,951 | 0.14s | 0.26s | 0.05s |
-| `json_logs_32m.jsonl` | 3,392,237 | 826,471 | 1,138,701 | 0.18s | 0.18s | 0.05s |
-| `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.11s | 0.02s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.58s | 0.02s | 0.06s |
+| `json_logs_32m.jsonl` | 3,392,237 | 826,471 | 1,138,701 | 0.18s | 0.19s | 0.05s |
+| `repeated_text_32m.txt` | 31,757 | 2,877 | 3,116 | 0.12s | 0.02s | 0.02s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,213 | 33,555,214 | 0.60s | 0.03s | 0.06s |
 
 Interpretation:
 
@@ -147,10 +147,11 @@ Interpretation:
 - Caching the Huffman max code length preserved exact fixture byte counts and benchmarked neutral-to-slightly-positive within noise: decodecorpus measured 0.26s then 0.27s in clean runs, JSON measured 0.19s then 0.18s.
 - Direct compressed-block output preserved exact fixture byte counts and removed one allocation/copy from accepted compressed blocks. Clean benchmark passes measured decodecorpus at 0.26s and JSON at 0.18s.
 - Conservative literals/sequences preallocation preserved exact fixture byte counts and improved decodecorpus CPU to 0.25s across two clean runs while keeping JSON at 0.18s. RSS stayed within the existing measurement band.
+- Tested moving per-block literal and sequence scratch buffers into `CompressState` for reuse across compressed blocks. Output bytes stayed unchanged and RSS was slightly lower, but decodecorpus CPU repeatedly measured about 0.27s instead of the 0.25s seen with simple per-block preallocation, so the added state complexity was not kept.
 
 ## Next Steps
 
 1. Profile matcher search and extension paths again after the repeat-offset precheck; `match_len_at_offset` should still be a main target, but sequence encoding now shows up more clearly on JSON.
 2. Investigate further safe early-exit or candidate-pruning heuristics in match selection; keep compression-ratio guardrails in tests and benchmarks.
-3. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change.
+3. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change; excellent coverage is a hard acceptance criterion for retained work.
 4. Do not start SIMD work in the repeat-offset or FSE selection paths; the useful SIMD target is matcher byte comparison/match extension.
