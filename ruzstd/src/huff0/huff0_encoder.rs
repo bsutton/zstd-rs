@@ -263,6 +263,18 @@ impl HuffmanTable {
         Some(sum)
     }
 
+    pub(crate) fn can_encode_counts(&self, counts: &[usize]) -> bool {
+        if counts.len() > self.codes.len() {
+            return false;
+        }
+
+        counts
+            .iter()
+            .copied()
+            .zip(self.codes.iter().copied())
+            .all(|(count, (_, num_bits))| count == 0 || num_bits != 0)
+    }
+
     pub(crate) fn encoded_len(&self, data: &[u8], with_table: bool, four_streams: bool) -> usize {
         let table_len = if with_table {
             self.table_description_len()
@@ -727,6 +739,15 @@ fn build_from_counts_produces_bounded_prefix_free_codes() {
         }
         assert_prefix_free(&table.codes);
     }
+}
+
+#[test]
+fn can_encode_counts_checks_symbols_without_building_table() {
+    let table = HuffmanTable::build_from_counts(&[4, 3, 0, 1]);
+
+    assert!(table.can_encode_counts(&[1, 2, 0, 1]));
+    assert!(!table.can_encode_counts(&[1, 2, 1, 1]));
+    assert!(!table.can_encode_counts(&[1, 2, 0, 1, 1]));
 }
 
 #[test]

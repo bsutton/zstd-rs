@@ -14,6 +14,7 @@ const INITIAL_SEQUENCES_CAPACITY: usize = 256;
 const COMPRESS_LITERALS_SIZE_MIN: usize = 63;
 const REPEAT_LITERALS_SIZE_MIN: usize = 6;
 const HUFFMAN_4_STREAMS_MIN: usize = 256;
+const REPEAT_SINGLE_STREAM_LITERALS_MAX: usize = 1024;
 const FAST_LITERAL_MIN_GAIN_LOG: u32 = 6;
 const LITERAL_LENGTH_SMALL_CODES: [(u8, u32, usize); 64] = small_literal_length_codes();
 const MATCH_LENGTH_SMALL_CODES: [(u8, u32, usize); 128] = small_match_length_codes();
@@ -508,43 +509,154 @@ fn compress_literals(
         return None;
     }
 
-    let (size_format, size_bits) = match literals.len() {
+    let (size_format, size_bits) = compressed_literals_size_format(literals.len());
+    let header_len = compressed_literals_header_len(size_format);
+    let new_encoder_table = huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts());
+    let new_len = new_encoder_table.encoded_len(literals, true, size_format != 0);
+    let new_choice = LiteralEncodingChoice {
+        encoder_table: &new_encoder_table,
+        new_table: true,
+        estimated_len: new_len,
+        size_format,
+        size_bits,
+        header_len,
+    };
+    let choice = last_table
+        .and_then(|previous_table| {
+            repeat_huffman_choice(
+                previous_table,
+                &new_encoder_table,
+                &literal_stats,
+                literals,
+                new_choice,
+            )
+        })
+        .unwrap_or(new_choice);
+
+    if !literal_estimate_has_enough_gain(choice.estimated_len, choice.header_len, literals.len()) {
+        raw_literals(literals, writer);
+        return None;
+    }
+
+    write_compressed_literals(
+        literals,
+        choice.encoder_table,
+        choice.new_table,
+        choice.size_format,
+        choice.size_bits,
+        writer,
+    );
+    let total_len = (writer.index() - reset_idx) / 8;
+
+    // If encoded len is bigger than the raw literals we are better off just writing the raw literals here
+    if total_len >= literals.len() {
+        writer.reset_to(reset_idx);
+        raw_literals(literals, writer);
+        None
+    } else if choice.new_table {
+        Some(new_encoder_table)
+    } else {
+        None
+    }
+}
+
+#[derive(Clone, Copy)]
+struct LiteralEncodingChoice<'table> {
+    encoder_table: &'table huff0_encoder::HuffmanTable,
+    new_table: bool,
+    estimated_len: usize,
+    size_format: u8,
+    size_bits: usize,
+    header_len: usize,
+}
+
+impl LiteralEncodingChoice<'_> {
+    fn total_estimated_len(self) -> usize {
+        self.estimated_len + self.header_len
+    }
+}
+
+fn repeat_huffman_choice<'table>(
+    previous_table: &'table huff0_encoder::HuffmanTable,
+    new_encoder_table: &huff0_encoder::HuffmanTable,
+    literal_stats: &LiteralStats,
+    literals: &[u8],
+    new_choice: LiteralEncodingChoice<'_>,
+) -> Option<LiteralEncodingChoice<'table>> {
+    if !previous_table.can_encode_counts(literal_stats.counts())
+        || previous_table.can_encode(new_encoder_table).is_none()
+    {
+        return None;
+    }
+
+    let (size_format, size_bits) = compressed_literals_repeat_size_format(literals.len());
+    let header_len = compressed_literals_header_len(size_format);
+    let four_streams = size_format != 0;
+    let estimated_len = previous_table.encoded_len(literals, false, four_streams);
+    if estimated_len < literals.len()
+        && estimated_len + header_len <= new_choice.total_estimated_len()
+    {
+        Some(LiteralEncodingChoice {
+            encoder_table: previous_table,
+            new_table: false,
+            estimated_len,
+            size_format,
+            size_bits,
+            header_len,
+        })
+    } else {
+        None
+    }
+}
+
+fn compressed_literals_size_format(len: usize) -> (u8, usize) {
+    match len {
         0..HUFFMAN_4_STREAMS_MIN => (0b00u8, 10),
         HUFFMAN_4_STREAMS_MIN..1024 => (0b01, 10),
         1024..16384 => (0b10, 14),
         16384..262144 => (0b11, 18),
         _ => unimplemented!("too many literals"),
-    };
+    }
+}
 
-    let header_len = compressed_literals_header_len(size_format);
-    let new_encoder_table = huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts());
-    let new_len = new_encoder_table.encoded_len(literals, true, size_format != 0);
-    let (encoder_table, new_table, estimated_len) = if let Some(previous_table) = last_table {
-        if previous_table.can_encode(&new_encoder_table).is_some() {
-            let four_streams = size_format != 0;
-            let previous_len = previous_table.encoded_len(literals, false, four_streams);
-            if previous_len < literals.len() && previous_len <= new_len {
-                (previous_table, false, previous_len)
-            } else {
-                (&new_encoder_table, true, new_len)
-            }
-        } else {
-            (&new_encoder_table, true, new_len)
-        }
-    } else {
-        (&new_encoder_table, true, new_len)
-    };
-
-    if estimated_len
-        >= literals
-            .len()
-            .saturating_sub(literal_min_gain(literals.len()))
-        || estimated_len + header_len >= literals.len()
-    {
-        raw_literals(literals, writer);
-        return None;
+fn compressed_literals_repeat_size_format(len: usize) -> (u8, usize) {
+    if len < REPEAT_SINGLE_STREAM_LITERALS_MAX {
+        return (0b00, 10);
     }
 
+    compressed_literals_size_format(len)
+}
+
+fn compressed_literals_header_len(size_format: u8) -> usize {
+    match size_format {
+        0b00 | 0b01 => 3,
+        0b10 => 4,
+        0b11 => 5,
+        _ => unreachable!(),
+    }
+}
+
+fn literal_min_gain(len: usize) -> usize {
+    (len >> FAST_LITERAL_MIN_GAIN_LOG) + 2
+}
+
+fn literal_estimate_has_enough_gain(
+    estimated_len: usize,
+    header_len: usize,
+    literal_len: usize,
+) -> bool {
+    estimated_len < literal_len.saturating_sub(literal_min_gain(literal_len))
+        && estimated_len + header_len < literal_len
+}
+
+fn write_compressed_literals(
+    literals: &[u8],
+    encoder_table: &huff0_encoder::HuffmanTable,
+    new_table: bool,
+    size_format: u8,
+    size_bits: usize,
+    writer: &mut BitWriter<&mut Vec<u8>>,
+) {
     if new_table {
         writer.write_bits(2u8, 2); // compressed literals type
     } else {
@@ -564,31 +676,6 @@ fn compress_literals(
     };
     let encoded_len = (writer.index() - index_before) / 8;
     writer.change_bits(size_index, encoded_len as u64, size_bits);
-    let total_len = (writer.index() - reset_idx) / 8;
-
-    // If encoded len is bigger than the raw literals we are better off just writing the raw literals here
-    if total_len >= literals.len() {
-        writer.reset_to(reset_idx);
-        raw_literals(literals, writer);
-        None
-    } else if new_table {
-        Some(new_encoder_table)
-    } else {
-        None
-    }
-}
-
-fn compressed_literals_header_len(size_format: u8) -> usize {
-    match size_format {
-        0b00 | 0b01 => 3,
-        0b10 => 4,
-        0b11 => 5,
-        _ => unreachable!(),
-    }
-}
-
-fn literal_min_gain(len: usize) -> usize {
-    (len >> FAST_LITERAL_MIN_GAIN_LOG) + 2
 }
 
 struct LiteralStats {
@@ -1198,6 +1285,85 @@ mod tests {
             0,
             "small Huffman literal payloads should use the single-stream header"
         );
+
+        let mut rust_decoded = Vec::with_capacity(expected.len());
+        let mut decoder = crate::decoding::FrameDecoder::new();
+        decoder
+            .decode_all_to_vec(&frame, &mut rust_decoded)
+            .unwrap();
+        assert_eq!(rust_decoded, expected);
+
+        let mut c_decoded = Vec::new();
+        zstd::stream::copy_decode(frame.as_slice(), &mut c_decoded).unwrap();
+        assert_eq!(c_decoded, expected);
+    }
+
+    #[test]
+    fn small_literals_prefer_previous_huffman_table_and_single_stream() {
+        let mut first_literals = alloc::vec![0; 512];
+        for idx in (15..first_literals.len()).step_by(16) {
+            first_literals[idx] = 1;
+        }
+        let second_literals = first_literals.clone();
+
+        let mut state = CompressState {
+            matcher: LiteralPayloadMatcher {
+                literals: first_literals.clone(),
+                emitted: false,
+            },
+            last_huff_table: None,
+            fse_tables: FseTables::new(),
+            offset_history: OffsetHistory::new(),
+        };
+        let mut first_payload = Vec::new();
+        state.last_huff_table = compress_block(&mut state, &mut first_payload);
+
+        state.matcher = LiteralPayloadMatcher {
+            literals: second_literals.clone(),
+            emitted: false,
+        };
+        let mut second_payload = Vec::new();
+        compress_block(&mut state, &mut second_payload);
+
+        assert_eq!(
+            second_payload[0] & 0b11,
+            3,
+            "small literals encodable by previous table should use treeless Huffman"
+        );
+        assert_eq!(
+            (second_payload[0] >> 2) & 0b11,
+            0,
+            "small repeated-table Huffman literals should use the single-stream header"
+        );
+
+        let mut frame = Vec::new();
+        crate::encoding::frame_header::FrameHeader {
+            frame_content_size: None,
+            single_segment: false,
+            content_checksum: false,
+            dictionary_id: None,
+            window_size: Some(128 * 1024),
+        }
+        .serialize(&mut frame);
+        crate::encoding::block_header::BlockHeader {
+            last_block: false,
+            block_type: crate::blocks::block::BlockType::Compressed,
+            block_size: first_payload.len() as u32,
+        }
+        .serialize(&mut frame);
+        frame.extend_from_slice(&first_payload);
+        crate::encoding::block_header::BlockHeader {
+            last_block: true,
+            block_type: crate::blocks::block::BlockType::Compressed,
+            block_size: second_payload.len() as u32,
+        }
+        .serialize(&mut frame);
+        frame.extend_from_slice(&second_payload);
+
+        let mut expected = first_literals.clone();
+        expected.extend_from_slice(&[1; 16]);
+        expected.extend_from_slice(&second_literals);
+        expected.extend_from_slice(&[1; 16]);
 
         let mut rust_decoded = Vec::with_capacity(expected.len());
         let mut decoder = crate::decoding::FrameDecoder::new();

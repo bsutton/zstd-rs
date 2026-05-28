@@ -134,6 +134,7 @@ Test coverage bar:
 - Switched Huffman-compressed literal payloads below 256 bytes to single-stream encoding, matching C zstd's `singleStream = srcSize < 256` selection while keeping 4-stream encoding for larger payloads. Added an emitted-bitstream test that verifies the single-stream literal header and round-trips the frame through both the Rust and C zstd decoders.
 - Added C-style minimum-gain rejection for Huffman literal sections. Fast-level literals now require a compressed payload gain of `(srcSize >> 6) + 2` before emitting Huffman, preserving all PR fixtures smaller than C zstd while avoiding narrow literal wins that cost CPU. Added focused coverage for the exact boundary plus Rust/C decoder round-trip coverage for the emitted raw fallback.
 - Disabled CLI progress-bar updates for non-terminal stderr. This keeps interactive progress behavior but removes `indicatif` update/tick overhead from redirected benchmark runs, making the CLI comparison with quiet C zstd cleaner. Added focused CLI coverage that the hidden progress monitor still reads through all input bytes.
+- Added C-style single-stream literal encoding when reusing a previous Huffman table for sub-1 KiB literal payloads, but only when the exact estimated size is no larger than a newly generated table. This preserves decodecorpus size, improves JSON by 7 bytes on the PR fixture table, and avoids blindly preferring a worse previous table. Added Huffman-table symbol coverage plus a two-block emitted-bitstream test that round-trips the treeless single-stream repeat-table path through both the Rust and C zstd decoders.
 
 ## Verification So Far
 
@@ -145,10 +146,12 @@ Latest successful commands:
 - `cargo test -q -p ruzstd encoding::blocks::compressed`
 - `cargo test -q -p ruzstd encoding::blocks::compressed::tests::literal_min_gain_boundary_uses_raw_literals_and_round_trips`
 - `cargo test -q -p ruzstd encoding::blocks::compressed::tests::small_huffman_literals_use_single_stream_and_round_trip`
+- `cargo test -q -p ruzstd encoding::blocks::compressed::tests::small_literals_prefer_previous_huffman_table_and_single_stream`
 - `cargo test -q -p ruzstd encoding::match_generator`
 - `cargo test -q -p ruzstd encoding::frame_compressor::tests::fastest_reused_compressor_handles_tiny_then_compressible_frame`
 - `cargo test -q -p ruzstd encoding::levels::fastest_tests`
 - `cargo test -q -p ruzstd fastest_reuses_history_across_blocks`
+- `cargo test -q -p ruzstd can_encode_counts_checks_symbols_without_building_table`
 - `cargo test -q -p ruzstd huff0::huff0_encoder::encoded_len`
 - `cargo clippy -q -p ruzstd --lib -- -D warnings`
 - `cargo test -q -p ruzstd`
@@ -158,6 +161,7 @@ Latest successful commands:
 - `cargo clippy -q -p ruzstd-cli -- -D warnings`
 - `python3 /tmp/zstd_bench_current_branch.py`
 - `python3 tools/benchmark_zstd.py --csv-output /tmp/zstd-rs-benchmark-no-progress.csv --md-output /tmp/zstd-rs-benchmark-no-progress.md`
+- `python3 tools/benchmark_zstd.py --csv-output /tmp/zstd-rs-benchmark-repeat-huff-single-when-smaller.csv --md-output /tmp/zstd-rs-benchmark-repeat-huff-single-when-smaller.md`
 - `perf record -F 999 -g -o /tmp/ruzstd-decodecorpus-after-usize-rep.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/decodecorpus_pack.bin /tmp/ruzstd-decodecorpus-profile.zst -l 1`
 - `perf report --stdio -i /tmp/ruzstd-decodecorpus-after-usize-rep.perf.data --sort=symbol --no-children`
 - `perf record -F 999 -g -o /tmp/ruzstd-json-touched-u32-clear.perf.data -- /tmp/ruzstd-cli-huffman-maxheight compress /tmp/zstd-bench/fixtures/json_logs_32m.jsonl /tmp/ruzstd-json-profile.zst -l 1`
@@ -191,16 +195,16 @@ Latest successful commands:
 
 Script: `tools/benchmark_zstd.py`
 
-This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full. The verifier decodes each compressed output with C zstd and compares the decoded bytes against the original fixture bytes; benchmark rows therefore prove both decode success and byte-for-byte identity. The latest saved byte-verified outputs are `/tmp/zstd-rs-benchmark-no-progress.csv` and `/tmp/zstd-rs-benchmark-no-progress.md`.
+This script benchmarks fixtures from `/tmp/zstd-bench/fixtures` one output at a time because `/tmp` is nearly full. The verifier decodes each compressed output with C zstd and compares the decoded bytes against the original fixture bytes; benchmark rows therefore prove both decode success and byte-for-byte identity. The latest saved byte-verified outputs are `/tmp/zstd-rs-benchmark-repeat-huff-single-when-smaller.csv` and `/tmp/zstd-rs-benchmark-repeat-huff-single-when-smaller.md`.
 
-Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, C-style small literal-compression threshold, exact-block EOF lookahead, BitWriter exact-fill fast path, precomputed suffix key values, countdown sequence encoding, inlined literal/match length-code helpers, sparse RLE history indexing, hardened suffix-store sizing, repeat-offset availability pruning, C-sized suffix hash tables, newest-first block-end hash search, C-style single-stream Huffman literals below 256 bytes, and C-style minimum-gain rejection for Huffman literal sections:
+Last run after the larger window, match-length fix, RLE sequence modes, incompressibility gate, raw-block no-index fast path, compact raw literals headers, overlapping match extension, chunked slice comparison, matcher-side repeat-offset probing, hash-match backward extension, exact Huffman table reuse estimates, text-aware non-repeat match threshold, small-block predefined FSE tables, repeat-offset-biased match selection, the 10-byte repeat-offset search early exit, sparse suffix indexing for matches longer than 128 bytes, repeat-offset and hash-candidate minimum-match prechecks, verified-prefix match-length scans, hot helper inlining, the repeat-aware no-match probe step, fixed repeat-candidate loops, candidate-helper inlining, deterministic unstable entropy sorts, text-only wider no-match probing, `usize` repeat-candidate selection, touched-slot suffix-store clearing, direct matcher repeat-history updates, previous-entry-only newest-first cross-window lookup, cached encoder FSE `acc_log`, C-style end-2 sparse match indexing, heap-based Huffman tree construction, cached sequence FSE table references, cached common sequence length-code tables, suffix-hash modulo removal, same-block forward match-length fast path, modest touched-slot preallocation, explicit suffix-candidate checks, direct repeat-offset encoding branches, inlined offset boundary conversions, matcher block-length hoisting, C-style small literal-compression threshold, exact-block EOF lookahead, BitWriter exact-fill fast path, precomputed suffix key values, countdown sequence encoding, inlined literal/match length-code helpers, sparse RLE history indexing, hardened suffix-store sizing, repeat-offset availability pruning, C-sized suffix hash tables, newest-first block-end hash search, C-style single-stream Huffman literals below 256 bytes, C-style minimum-gain rejection for Huffman literal sections, and C-style single-stream repeat-Huffman literals below 1 KiB when estimated no larger than a new table:
 
 | Fixture | Upstream bytes | Current bytes | C zstd -1 bytes | Upstream CPU | Current CPU | C zstd -1 CPU |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `decodecorpus_pack.bin` | 5,976,095 | 5,371,424 | 5,385,951 | 0.14s | 0.16s | 0.05s |
-| `json_logs_32m.jsonl` | 3,392,237 | 742,727 | 1,138,701 | 0.18s | 0.11s | 0.05s |
-| `repeated_text_32m.txt` | 31,757 | 2,874 | 3,116 | 0.11s | 0.00s | 0.02s |
-| `xorshift_32m.bin` | 33,555,213 | 33,555,210 | 33,555,214 | 0.60s | 0.02s | 0.05s |
+| `decodecorpus_pack.bin` | 5,976,095 | 5,371,424 | 5,385,951 | 0.14s | 0.17s | 0.04s |
+| `json_logs_32m.jsonl` | 3,392,237 | 742,720 | 1,138,701 | 0.18s | 0.11s | 0.04s |
+| `repeated_text_32m.txt` | 31,757 | 2,874 | 3,116 | 0.12s | 0.00s | 0.03s |
+| `xorshift_32m.bin` | 33,555,213 | 33,555,210 | 33,555,214 | 0.61s | 0.02s | 0.05s |
 
 Peak RSS from the same run:
 
@@ -214,6 +218,7 @@ Peak RSS from the same run:
 Interpretation:
 
 - Size improved materially on `decodecorpus_pack.bin`, `json_logs_32m.jsonl`, and `repeated_text_32m.txt`; the current branch remains smaller than C zstd on all three compressible fixtures and four bytes smaller on xorshift.
+- C-style single-stream repeat-Huffman literals below 1 KiB, gated by exact estimated size versus a newly generated table, preserved decodecorpus/repeated/xorshift byte counts and improved JSON by 7 bytes. The same table run measured JSON CPU in the retained 0.11s band and decodecorpus at 0.17s; treat the decodecorpus CPU as noise risk rather than a proven regression because byte counts are unchanged and the change is literal-path only. A broader blind-prefer-previous-table variant was rejected after it regressed JSON by 7,340 bytes and decodecorpus by 522 bytes despite improving JSON CPU to 0.10s.
 - Disabling CLI progress updates for non-terminal benchmark runs preserved exact fixture byte counts and kept CPU medians in the existing band. A follow-up JSON perf sample no longer showed `indicatif` progress symbols near the top; matcher search remained dominant at about 69% and sequence encoding remained secondary at about 9%.
 - C-style minimum-gain rejection for Huffman literal sections regressed `decodecorpus_pack.bin` by 2,901 bytes versus the previous retained snapshot, but still keeps it 14,527 bytes smaller than C zstd. Two runs measured decodecorpus CPU at 0.16s instead of the previous 0.17s band, with the other fixture byte counts unchanged. Keep it because it matches C zstd's fast literal acceptance guardrail and has focused emitted-bitstream Rust/C coverage.
 - Single-stream Huffman literals below 256 bytes improved `decodecorpus_pack.bin` by 23 bytes, preserved the other PR fixture byte counts, and kept CPU in the existing noise band. Keep it because it matches C zstd's literal-stream selection and has full Rust/C emitted-bitstream coverage.
@@ -413,6 +418,7 @@ Benchmark acceptance rule:
 - Current branch has emitted-bitstream coverage that the previous-Huffman-table literal threshold allows a small repeated literal payload to use an RLE literal section and round-trip through both the Rust decoder and the C zstd decoder.
 - Current branch has emitted-bitstream coverage that a high-alphabet literal payload with no estimated Huffman gain uses raw literals and round-trips through both the Rust decoder and the C zstd decoder.
 - Current branch has emitted-bitstream coverage that Huffman-compressed literal payloads below 256 bytes use the single-stream header and round-trip through both the Rust decoder and the C zstd decoder.
+- Current branch has Huffman-table helper coverage that previous-table symbol checks can be done from counts, plus emitted-bitstream coverage that a sub-1 KiB treeless repeat-Huffman literal section uses the single-stream header after an earlier block establishes the table and round-trips through both the Rust decoder and the C zstd decoder.
 - Current branch has frame-header coverage for 8-byte frame content sizes so large known-size frames serialize a valid descriptor.
 - Current branch has frame-level coverage that exact full-block inputs do not emit an extra empty final block and that one-byte EOF lookahead preserves the first byte of the following block.
 - Current branch has focused fastest-block coverage that empty direct block inputs emit a valid raw block without indexing byte 0.
