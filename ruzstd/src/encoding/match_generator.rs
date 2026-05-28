@@ -7,7 +7,7 @@
 
 use alloc::vec::Vec;
 use core::convert::TryFrom;
-use core::num::NonZeroU64;
+use core::num::NonZeroU32;
 
 use super::CompressionLevel;
 use super::Matcher;
@@ -55,23 +55,26 @@ impl Matcher for MatchGeneratorDriver {
     }
 
     fn get_next_space(&mut self) -> Vec<u8> {
-        self.vec_pool.pop().unwrap_or_else(|| {
-            let mut space = alloc::vec![0; self.slice_size];
-            space.resize(space.capacity(), 0);
-            space
-        })
+        match self.vec_pool.pop() {
+            Some(space) => space,
+            None => {
+                let mut space = alloc::vec![0; self.slice_size];
+                space.resize(space.capacity(), 0);
+                space
+            }
+        }
     }
 
     fn get_last_space(&mut self) -> &[u8] {
-        self.match_generator.window.last().unwrap().data.as_slice()
+        self.match_generator.last_entry().data.as_slice()
     }
 
     fn commit_space(&mut self, space: Vec<u8>) {
         let vec_pool = &mut self.vec_pool;
-        let suffixes = self
-            .suffix_pool
-            .pop()
-            .unwrap_or_else(|| SuffixStore::with_capacity(space.len()));
+        let suffixes = match self.suffix_pool.pop() {
+            Some(suffixes) => suffixes,
+            None => SuffixStore::with_capacity(space.len()),
+        };
         let suffix_pool = &mut self.suffix_pool;
         self.match_generator
             .add_data(space, suffixes, |mut data, mut suffixes| {
@@ -94,12 +97,21 @@ impl Matcher for MatchGeneratorDriver {
 /// This stores the index of a suffix of a string by hashing the first few bytes of that suffix
 /// This means that collisions just overwrite and that you need to check validity after a get
 struct SuffixStore {
-    // Packed oldest/newest indexes (32bits) into one 64bit word 
-    // We need 17 bits per index to store the maximum window size of 128kb.
-    // We store indexes using one-based so Option can
-    // use NonZeroU64's niche.
-    slots: Vec<Option<NonZeroU64>>,
+    slots: Vec<Option<Candidates>>,
     len_log: u32,
+}
+
+#[derive(Copy, Clone)]
+struct Candidates {
+    // We need 17 bits per index to store the maximum window size of 128kb.
+    // We store indexes using one-based so Option can use a NonZeroU32 niche.
+    oldest: NonZeroU32,
+    newest: NonZeroU32,
+}
+
+struct CandidateIndexes {
+    oldest: usize,
+    newest: Option<usize>,
 }
 
 impl SuffixStore {
@@ -113,45 +125,34 @@ impl SuffixStore {
     #[inline(always)]
     fn insert(&mut self, suffix: &[u8], idx: usize) {
         let key = self.key(suffix);
-        let idx = Self::store_index(idx);
+        let idx = Self::stored_index(idx);
         if let Some(slot) = self.slots[key] {
-            let (oldest, _) = Self::unpack(slot);
-            self.slots[key] = Some(Self::pack(oldest, idx));
+            self.slots[key] = Some(Candidates {
+                oldest: slot.oldest,
+                newest: idx,
+            });
         } else {
-            self.slots[key] = Some(Self::pack(idx, idx));
+            self.slots[key] = Some(Candidates {
+                oldest: idx,
+                newest: idx,
+            });
         }
     }
 
     #[inline(always)]
-    fn candidates(&self, suffix: &[u8]) -> [Option<usize>; 2] {
+    fn stored_index(idx: usize) -> NonZeroU32 {
+        let idx = u32::try_from(idx + 1).expect("suffix index must fit in u32");
+        NonZeroU32::new(idx).expect("suffix index is stored one-based")
+    }
+
+    #[inline(always)]
+    fn candidates(&self, suffix: &[u8]) -> Option<CandidateIndexes> {
         let key = self.key(suffix);
-        let Some(slot) = self.slots[key] else {
-            return [None, None];
-        };
-        let (oldest, newest) = Self::unpack(slot);
-        let oldest = oldest as usize - 1;
-        let newest = newest as usize - 1;
-        if oldest == newest {
-            [Some(oldest), None]
-        } else {
-            [Some(oldest), Some(newest)]
-        }
-    }
-
-    #[inline(always)]
-    fn store_index(idx: usize) -> u32 {
-        u32::try_from(idx + 1).unwrap()
-    }
-
-    #[inline(always)]
-    fn pack(oldest: u32, newest: u32) -> NonZeroU64 {
-        NonZeroU64::new(u64::from(oldest) << 32 | u64::from(newest)).unwrap()
-    }
-
-    #[inline(always)]
-    fn unpack(slot: NonZeroU64) -> (u32, u32) {
-        let packed = slot.get();
-        ((packed >> 32) as u32, packed as u32)
+        let slot = self.slots[key]?;
+        let oldest = slot.oldest.get() as usize - 1;
+        let newest = slot.newest.get() as usize - 1;
+        let newest = if oldest == newest { None } else { Some(newest) };
+        Some(CandidateIndexes { oldest, newest })
     }
 
     #[inline(always)]
@@ -175,6 +176,16 @@ struct WindowEntry {
     suffixes: SuffixStore,
     /// Makes offset calculations efficient
     base_offset: usize,
+}
+
+struct MatchCandidateContext<'data> {
+    suffix_idx: usize,
+    data_slice: &'data [u8],
+    key: &'data [u8],
+    #[cfg(debug_assertions)]
+    last_entry_len: usize,
+    #[cfg(debug_assertions)]
+    concat_window: &'data [u8],
 }
 
 pub(crate) struct MatchGenerator {
@@ -216,13 +227,36 @@ impl MatchGenerator {
         });
     }
 
+    #[inline(always)]
+    fn last_entry(&self) -> &WindowEntry {
+        self.window
+            .last()
+            .expect("match generator requires a committed window entry")
+    }
+
+    #[inline(always)]
+    fn last_entry_mut(&mut self) -> &mut WindowEntry {
+        self.window
+            .last_mut()
+            .expect("match generator requires a committed window entry")
+    }
+
+    #[inline(always)]
+    fn last_entry_index(&self) -> usize {
+        self.window
+            .len()
+            .checked_sub(1)
+            .expect("match generator requires a committed window entry")
+    }
+
     /// Processes bytes in the current window until either a match is found or no more matches can be found
     /// * If a match is found handle_sequence is called with the Triple variant
     /// * If no more matches can be found but there are bytes still left handle_sequence is called with the Literals variant
     /// * If no more matches can be found and no more bytes are left this returns false
     fn next_sequence(&mut self, mut handle_sequence: impl for<'a> FnMut(Sequence<'a>)) -> bool {
         loop {
-            let last_entry = self.window.last().unwrap();
+            let last_entry_idx = self.last_entry_index();
+            let last_entry = &self.window[last_entry_idx];
             let data_slice = &last_entry.data;
 
             // We already reached the end of the window, check if we need to return a Literals{}
@@ -254,38 +288,29 @@ impl MatchGenerator {
 
             // Look in each window entry
             let mut candidate = None;
+            let match_context = MatchCandidateContext {
+                suffix_idx: self.suffix_idx,
+                data_slice,
+                key,
+                #[cfg(debug_assertions)]
+                last_entry_len: last_entry.data.len(),
+                #[cfg(debug_assertions)]
+                concat_window: &self.concat_window,
+            };
             for (match_entry_idx, match_entry) in self.window.iter().enumerate() {
-                let is_last = match_entry_idx == self.window.len() - 1;
-                for match_index in match_entry
-                    .suffixes
-                    .candidates(key)
-                    .iter()
-                    .flatten()
-                    .copied()
-                {
-                    let match_slice = if is_last {
-                        &match_entry.data[match_index..self.suffix_idx]
-                    } else {
-                        &match_entry.data[match_index..]
-                    };
+                let is_last = match_entry_idx == last_entry_idx;
+                if let Some(candidates) = match_entry.suffixes.candidates(key) {
+                    for match_index in candidates.newest.into_iter().chain([candidates.oldest]) {
+                        let Some(found) = Self::match_candidate(
+                            match_entry,
+                            match_index,
+                            is_last,
+                            &match_context,
+                        ) else {
+                            continue;
+                        };
 
-                    // Check how long the common prefix actually is
-                    let match_len = Self::common_prefix_len(match_slice, data_slice);
-
-                    // Collisions in the suffix store might make this check fail
-                    if match_len >= MIN_MATCH_LEN {
-                        let offset = match_entry.base_offset + self.suffix_idx - match_index;
-
-                        // If we are in debug/tests make sure the match we found is actually at the offset we calculated
-                        #[cfg(debug_assertions)]
-                        {
-                            let unprocessed = last_entry.data.len() - self.suffix_idx;
-                            let start = self.concat_window.len() - unprocessed - offset;
-                            let end = start + match_len;
-                            let check_slice = &self.concat_window[start..end];
-                            debug_assert_eq!(check_slice, &match_slice[..match_len]);
-                        }
-
+                        let (offset, match_len) = found;
                         if let Some((old_offset, old_match_len)) = candidate {
                             if match_len > old_match_len
                                 || (match_len == old_match_len && offset < old_offset)
@@ -305,7 +330,8 @@ impl MatchGenerator {
                 self.add_suffixes_till(self.suffix_idx + match_len);
 
                 // All literals that were not included between this match and the last are now included here
-                let last_entry = self.window.last().unwrap();
+                let last_entry_idx = self.last_entry_index();
+                let last_entry = &self.window[last_entry_idx];
                 let literals = &last_entry.data[self.last_idx_in_sequence..self.suffix_idx];
 
                 // Update the indexes, all indexes upto and including the current index have been included in a sequence now
@@ -320,9 +346,10 @@ impl MatchGenerator {
                 return true;
             }
 
-            let last_entry = self.window.last_mut().unwrap();
-            let key = &last_entry.data[self.suffix_idx..self.suffix_idx + MIN_MATCH_LEN];
-            last_entry.suffixes.insert(key, self.suffix_idx);
+            let suffix_idx = self.suffix_idx;
+            let last_entry = self.last_entry_mut();
+            let key = &last_entry.data[suffix_idx..suffix_idx + MIN_MATCH_LEN];
+            last_entry.suffixes.insert(key, suffix_idx);
             self.suffix_idx += 1;
         }
     }
@@ -331,6 +358,42 @@ impl MatchGenerator {
     #[inline(always)]
     fn common_prefix_len(a: &[u8], b: &[u8]) -> usize {
         Self::mismatch_chunks::<8>(a, b)
+    }
+
+    #[inline(always)]
+    fn match_candidate(
+        match_entry: &WindowEntry,
+        match_index: usize,
+        is_last: bool,
+        context: &MatchCandidateContext<'_>,
+    ) -> Option<(usize, usize)> {
+        let match_slice = if is_last {
+            &match_entry.data[match_index..context.suffix_idx]
+        } else {
+            &match_entry.data[match_index..]
+        };
+
+        if match_slice.len() < MIN_MATCH_LEN || &match_slice[..MIN_MATCH_LEN] != context.key {
+            return None;
+        }
+
+        let match_len = MIN_MATCH_LEN
+            + Self::common_prefix_len(
+                &match_slice[MIN_MATCH_LEN..],
+                &context.data_slice[MIN_MATCH_LEN..],
+            );
+        let offset = match_entry.base_offset + context.suffix_idx - match_index;
+
+        #[cfg(debug_assertions)]
+        {
+            let unprocessed = context.last_entry_len - context.suffix_idx;
+            let start = context.concat_window.len() - unprocessed - offset;
+            let end = start + match_len;
+            let check_slice = &context.concat_window[start..end];
+            debug_assert_eq!(check_slice, &match_slice[..match_len]);
+        }
+
+        Some((offset, match_len))
     }
 
     /// Find the common prefix length between two byte slices with a configurable chunk length
@@ -348,19 +411,20 @@ impl MatchGenerator {
     /// Process bytes and add the suffixes to the suffix store up to a specific index
     #[inline(always)]
     fn add_suffixes_till(&mut self, idx: usize) {
-        let last_entry = self.window.last_mut().unwrap();
+        let suffix_idx = self.suffix_idx;
+        let last_entry = self.last_entry_mut();
         if last_entry.data.len() < MIN_MATCH_LEN {
             return;
         }
-        let slice = &last_entry.data[self.suffix_idx..idx];
-        for (key_index, key) in slice.windows(MIN_MATCH_LEN).enumerate().step_by(2) {
-            last_entry.suffixes.insert(key, self.suffix_idx + key_index);
+        let slice = &last_entry.data[suffix_idx..idx];
+        for (key_index, key) in slice.windows(MIN_MATCH_LEN).enumerate() {
+            last_entry.suffixes.insert(key, suffix_idx + key_index);
         }
     }
 
     /// Skip matching for the whole current window entry
     fn skip_matching(&mut self) {
-        let len = self.window.last().unwrap().data.len();
+        let len = self.last_entry().data.len();
         self.add_suffixes_till(len);
         self.suffix_idx = len;
         self.last_idx_in_sequence = len;
@@ -374,9 +438,8 @@ impl MatchGenerator {
         suffixes: SuffixStore,
         reuse_space: impl FnMut(Vec<u8>, SuffixStore),
     ) {
-        assert!(
-            self.window.is_empty() || self.suffix_idx == self.window.last().unwrap().data.len()
-        );
+        assert!(self.window.is_empty() || self.suffix_idx == self.last_entry().data.len());
+        assert!(data.len() <= u32::MAX as usize);
         self.reserve(data.len(), reuse_space);
         #[cfg(debug_assertions)]
         self.concat_window.extend_from_slice(&data);
@@ -437,6 +500,11 @@ fn matches() {
             reconstructed.extend_from_within(start..end);
         }
     };
+    let assert_seq_equal =
+        |seq: Sequence<'_>, expected: Sequence<'_>, reconstructed: &mut Vec<u8>| {
+            assert_eq!(seq, expected);
+            reconstruct(seq, reconstructed);
+        };
 
     matcher.add_data(
         alloc::vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -469,13 +537,37 @@ fn matches() {
     ]);
 
     matcher.next_sequence(|seq| {
-        reconstruct(seq, &mut reconstructed);
+        assert_seq_equal(
+            seq,
+            Sequence::Triple {
+                literals: &[1, 2, 3, 4, 5, 6],
+                offset: 6,
+                match_len: 6,
+            },
+            &mut reconstructed,
+        );
     });
     matcher.next_sequence(|seq| {
-        reconstruct(seq, &mut reconstructed);
+        assert_seq_equal(
+            seq,
+            Sequence::Triple {
+                literals: &[],
+                offset: 6,
+                match_len: 6,
+            },
+            &mut reconstructed,
+        );
     });
     matcher.next_sequence(|seq| {
-        reconstruct(seq, &mut reconstructed);
+        assert_seq_equal(
+            seq,
+            Sequence::Triple {
+                literals: &[],
+                offset: 23,
+                match_len: 5,
+            },
+            &mut reconstructed,
+        );
     });
     assert!(!matcher.next_sequence(|_| {}));
 
@@ -487,10 +579,26 @@ fn matches() {
     original_data.extend_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 0, 0, 0, 0]);
 
     matcher.next_sequence(|seq| {
-        reconstruct(seq, &mut reconstructed);
+        assert_seq_equal(
+            seq,
+            Sequence::Triple {
+                literals: &[],
+                offset: 11,
+                match_len: 6,
+            },
+            &mut reconstructed,
+        );
     });
     matcher.next_sequence(|seq| {
-        reconstruct(seq, &mut reconstructed);
+        assert_seq_equal(
+            seq,
+            Sequence::Triple {
+                literals: &[7, 8, 9, 10, 11],
+                offset: 16,
+                match_len: 5,
+            },
+            &mut reconstructed,
+        );
     });
     assert!(!matcher.next_sequence(|_| {}));
 
@@ -502,7 +610,15 @@ fn matches() {
     original_data.extend_from_slice(&[0, 0, 0, 0, 0]);
 
     matcher.next_sequence(|seq| {
-        reconstruct(seq, &mut reconstructed);
+        assert_seq_equal(
+            seq,
+            Sequence::Triple {
+                literals: &[],
+                offset: 5,
+                match_len: 5,
+            },
+            &mut reconstructed,
+        );
     });
     assert!(!matcher.next_sequence(|_| {}));
 
@@ -514,7 +630,15 @@ fn matches() {
     original_data.extend_from_slice(&[7, 8, 9, 10, 11]);
 
     matcher.next_sequence(|seq| {
-        reconstruct(seq, &mut reconstructed);
+        assert_seq_equal(
+            seq,
+            Sequence::Triple {
+                literals: &[],
+                offset: 15,
+                match_len: 5,
+            },
+            &mut reconstructed,
+        );
     });
     assert!(!matcher.next_sequence(|_| {}));
 
@@ -536,7 +660,15 @@ fn matches() {
     original_data.extend_from_slice(&[1, 3, 5, 7, 9]);
 
     matcher.next_sequence(|seq| {
-        reconstruct(seq, &mut reconstructed);
+        assert_seq_equal(
+            seq,
+            Sequence::Triple {
+                literals: &[],
+                offset: 5,
+                match_len: 5,
+            },
+            &mut reconstructed,
+        );
     });
     assert!(!matcher.next_sequence(|_| {}));
 
@@ -548,10 +680,24 @@ fn matches() {
     original_data.extend_from_slice(&[0, 0, 11, 13, 15, 17, 20, 11, 13, 15, 17, 20, 21, 23]);
 
     matcher.next_sequence(|seq| {
-        reconstruct(seq, &mut reconstructed);
+        assert_seq_equal(
+            seq,
+            Sequence::Triple {
+                literals: &[0, 0, 11, 13, 15, 17, 20],
+                offset: 5,
+                match_len: 5,
+            },
+            &mut reconstructed,
+        );
     });
     matcher.next_sequence(|seq| {
-        reconstruct(seq, &mut reconstructed);
+        assert_seq_equal(
+            seq,
+            Sequence::Literals {
+                literals: &[21, 23],
+            },
+            &mut reconstructed,
+        );
     });
     assert!(!matcher.next_sequence(|_| {}));
 
