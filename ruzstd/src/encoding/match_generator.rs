@@ -301,7 +301,7 @@ impl MatchGenerator {
                 #[cfg(debug_assertions)]
                 concat_window: &self.concat_window,
             };
-            for (match_entry_idx, match_entry) in self.window.iter().enumerate() {
+            'window_search: for (match_entry_idx, match_entry) in self.window.iter().enumerate() {
                 let is_last = match_entry_idx == last_entry_idx;
                 if let Some(candidates) = match_entry.suffixes.candidates(key) {
                     for match_index in candidates.newest.into_iter().chain([candidates.oldest]) {
@@ -323,6 +323,10 @@ impl MatchGenerator {
                             }
                         } else {
                             candidate = Some((offset, match_len));
+                        }
+
+                        if match_len == data_slice.len() && offset == 1 {
+                            break 'window_search;
                         }
                     }
                 }
