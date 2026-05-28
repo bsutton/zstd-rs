@@ -94,8 +94,10 @@ impl Matcher for MatchGeneratorDriver {
 /// This stores the index of a suffix of a string by hashing the first few bytes of that suffix
 /// This means that collisions just overwrite and that you need to check validity after a get
 struct SuffixStore {
-    // Packed oldest/newest indexes. Stored indexes are one-based so Option can
-    // use NonZeroU64's niche and keep each hash slot one word wide.
+    // Packed oldest/newest indexes (32bits) into one 64bit word 
+    // We need 17 bits per index to store the maximum window size of 128kb.
+    // We store indexes using one-based so Option can
+    // use NonZeroU64's niche.
     slots: Vec<Option<NonZeroU64>>,
     len_log: u32,
 }
