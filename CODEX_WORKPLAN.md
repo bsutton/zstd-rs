@@ -354,11 +354,13 @@ Interpretation:
 ## Next Steps
 
 1. Finish committing and pushing retained progress on the Huffman branch, including the `.gitignore`/benchmark hygiene state where relevant.
-2. Profile matcher search and extension paths again on `decodecorpus_pack.bin` and `json_logs_32m.jsonl`; current samples still show matcher search as the dominant cost and sequence encoding as the secondary JSON target.
-3. Investigate further safe early-exit or candidate-pruning heuristics in match selection; keep compression-ratio guardrails in tests and benchmarks and compare every retained idea against C zstd's fast parser shape.
-4. Continue C-guided Huffman work only where it improves compression, CPU, or correctness clarity. Candidate areas are table-log/depth selection, literal mode selection, repeat-table reuse, and cost estimation, but previously rejected C heuristics should not be retried without new evidence.
-5. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change; excellent coverage is a hard acceptance criterion for retained work.
-6. SIMD remains a matcher byte-comparison topic, but current stable safe-Rust options have not beaten the retained chunked comparison; avoid unsafe/nightly SIMD unless the project explicitly accepts that tradeoff.
+2. Use `tools/generate_zstd_fixtures.py` to keep a deterministic expanded local fixture suite under `/tmp`; this avoids committing large binaries while preserving reproducibility.
+3. Investigate the expanded-suite gaps versus C zstd, starting with small repeated boundary files and `json_logs_001m.jsonl`, where the current branch is still larger than C.
+4. Profile matcher search and extension paths again on `decodecorpus_pack.bin` and `json_logs_32m.jsonl`; current samples still show matcher search as the dominant cost and sequence encoding as the secondary JSON target.
+5. Investigate further safe early-exit or candidate-pruning heuristics in match selection; keep compression-ratio guardrails in tests and benchmarks and compare every retained idea against C zstd's fast parser shape.
+6. Continue C-guided Huffman work only where it improves compression, CPU, or correctness clarity. Candidate areas are table-log/depth selection, literal mode selection, repeat-table reuse, and cost estimation, but previously rejected C heuristics should not be retried without new evidence.
+7. Keep adding focused helper-level tests plus emitted-bitstream/Rust-decoder/C-decoder interoperability tests for each compression change; excellent coverage is a hard acceptance criterion for retained work.
+8. SIMD remains a matcher byte-comparison topic, but current stable safe-Rust options have not beaten the retained chunked comparison; avoid unsafe/nightly SIMD unless the project explicitly accepts that tradeoff.
 
 ## Design Rules From PR Review
 
@@ -390,6 +392,19 @@ Interpretation:
 ## Fixture Expansion Plan
 
 The current four PR fixtures are useful for a stable review table, but they are not broad enough to prove best-quality compressor behavior. Keep them for the PR comparison and add a broader byte-verified local validation suite without committing large binary fixtures.
+
+Committed fixture support:
+
+- `tools/generate_zstd_fixtures.py` writes deterministic small and medium fixtures to `/tmp/zstd-bench/expanded-fixtures` by default.
+- The initial generated suite covers empty/tiny boundaries, 128/256/4096/128 KiB repeated-text boundaries, 1 MiB RLE, repeated text, JSON logs, cross-block repetition, and xorshift data.
+- The first byte-verified expanded-suite report was saved to `/tmp/zstd-rs-expanded-benchmark.md` and `/tmp/zstd-rs-expanded-benchmark.csv`.
+
+Initial expanded-suite findings:
+
+- Current branch matches upstream and C exactly on 0, 1, 6, and 63 byte boundary fixtures.
+- Current branch is still larger than C on repeated boundary cases: 128 bytes is 130 versus C's 125, 256 bytes is 136 versus C's 132, 4 KiB is 137 versus C's 133, and 128 KiB is 137 versus C's 135.
+- Current branch is still larger than C on `json_logs_001m.jsonl`: 61,359 bytes versus C's 59,118 bytes.
+- Current branch is smaller than C on `cross_block_001m.bin`, `repeated_text_001m.txt`, `rle_001m.bin`, and `xorshift_001m.bin`.
 
 Planned fixture coverage:
 
