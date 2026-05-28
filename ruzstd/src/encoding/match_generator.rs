@@ -18,6 +18,7 @@ const MIN_MATCH_LEN: usize = 5;
 const TEXT_MIN_NON_REPEAT_MATCH_LEN: usize = 10;
 const REPEAT_MATCH_LEN_MARGIN: usize = 2;
 const REPEAT_SEARCH_EARLY_EXIT_LEN: usize = 10;
+const DENSE_MATCH_INDEX_LIMIT: usize = 128;
 
 /// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
 pub struct MatchGeneratorDriver {
@@ -427,7 +428,7 @@ impl MatchGenerator {
                 } = candidate;
                 // For each index in the match we found we do not need to look for another match
                 // But we still want them registered in the suffix store
-                self.add_suffixes_till(start_idx + match_len);
+                self.add_suffixes_for_match(start_idx + match_len);
 
                 // All literals that were not included between this match and the last are now included here
                 let last_entry_idx = self.last_entry_index();
@@ -628,6 +629,28 @@ impl MatchGenerator {
         for (key_index, key) in slice.windows(MIN_MATCH_LEN).enumerate() {
             last_entry.suffixes.insert(key, suffix_idx + key_index);
         }
+    }
+
+    #[inline(always)]
+    fn add_suffixes_for_match(&mut self, idx: usize) {
+        if idx - self.suffix_idx <= DENSE_MATCH_INDEX_LIMIT {
+            self.add_suffixes_till(idx);
+            return;
+        }
+
+        let suffix_idx = self.suffix_idx;
+        self.add_suffix_at(suffix_idx);
+        self.add_suffix_at(suffix_idx + 2);
+        self.add_suffix_at(idx.saturating_sub(MIN_MATCH_LEN));
+    }
+
+    #[inline(always)]
+    fn add_suffix_at(&mut self, idx: usize) {
+        let last_entry = self.last_entry_mut();
+        let Some(key) = last_entry.data.get(idx..idx + MIN_MATCH_LEN) else {
+            return;
+        };
+        last_entry.suffixes.insert(key, idx);
     }
 
     /// Skip matching for the whole current window entry
@@ -945,6 +968,50 @@ fn repeat_offset_candidate_skips_window_search_at_block_end() {
     };
 
     assert!(repeat.can_skip_window_search(10 + MIN_MATCH_LEN));
+}
+
+#[test]
+fn short_match_ranges_are_indexed_densely() {
+    let mut matcher = MatchGenerator::new(1024);
+    matcher.add_data(xorshift(512), SuffixStore::with_capacity(1024), |_, _| {});
+    matcher.suffix_idx = 10;
+
+    matcher.add_suffixes_for_match(10 + DENSE_MATCH_INDEX_LIMIT);
+
+    let indexed = matcher
+        .last_entry()
+        .suffixes
+        .slots
+        .iter()
+        .filter(|slot| slot.is_some())
+        .count();
+    assert!(
+        indexed > 16,
+        "short match should index densely: {}",
+        indexed
+    );
+}
+
+#[test]
+fn long_match_ranges_are_indexed_sparsely() {
+    let mut matcher = MatchGenerator::new(1024);
+    matcher.add_data(xorshift(512), SuffixStore::with_capacity(1024), |_, _| {});
+    matcher.suffix_idx = 10;
+
+    matcher.add_suffixes_for_match(10 + DENSE_MATCH_INDEX_LIMIT + 1);
+
+    let indexed = matcher
+        .last_entry()
+        .suffixes
+        .slots
+        .iter()
+        .filter(|slot| slot.is_some())
+        .count();
+    assert!(
+        indexed <= 3,
+        "long match should index sparsely: {}",
+        indexed
+    );
 }
 
 #[test]
