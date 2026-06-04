@@ -1,0 +1,8 @@
+
+running 1 test
+FRAME path=/home/bsutton/git/zstd-rs/benchmarks/archive/tmp/archive-inspect/c/repo_.gitignore.c.l1.zst compressed_bytes=164 window_size=228 content_size=228 checksum=true single_segment=true
+BLOCK idx=0 type=compressed compressed_bytes=151 decompressed_bytes=228 literals_type=compressed literals_regen=180 literals_payload=129 literals_streams=1 sequence_count=6 sequence_payload=17 ll_mode=predefined of_mode=predefined ml_mode=predefined match_bytes=48 max_offset=194 ll_extra_bits=10 ml_extra_bits=0 of_extra_bits=29
+TOTAL blocks=1 compressed_blocks=1 raw_blocks=0 rle_blocks=0 compressed_block_bytes=151 raw_block_input_bytes=0 rle_block_output_bytes=0 decompressed_block_bytes=228 literal_section_bytes=129 sequence_payload_bytes=17 decoded_literals=180 sequences=6 match_bytes=48
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 232 filtered out; finished in 0.00s
+

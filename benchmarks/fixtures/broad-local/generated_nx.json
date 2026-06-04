@@ -1,0 +1,4576 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noUncheckedIndexedAccess": true,
+    "paths": {
+      "@feature/0000/*": [
+        "./src/feature_0000/*"
+      ],
+      "@feature/0001/*": [
+        "./src/feature_0001/*"
+      ],
+      "@feature/0002/*": [
+        "./src/feature_0002/*"
+      ],
+      "@feature/0003/*": [
+        "./src/feature_0003/*"
+      ],
+      "@feature/0004/*": [
+        "./src/feature_0004/*"
+      ],
+      "@feature/0005/*": [
+        "./src/feature_0005/*"
+      ],
+      "@feature/0006/*": [
+        "./src/feature_0006/*"
+      ],
+      "@feature/0007/*": [
+        "./src/feature_0007/*"
+      ],
+      "@feature/0008/*": [
+        "./src/feature_0008/*"
+      ],
+      "@feature/0009/*": [
+        "./src/feature_0009/*"
+      ],
+      "@feature/0010/*": [
+        "./src/feature_0010/*"
+      ],
+      "@feature/0011/*": [
+        "./src/feature_0011/*"
+      ],
+      "@feature/0012/*": [
+        "./src/feature_0012/*"
+      ],
+      "@feature/0013/*": [
+        "./src/feature_0013/*"
+      ],
+      "@feature/0014/*": [
+        "./src/feature_0014/*"
+      ],
+      "@feature/0015/*": [
+        "./src/feature_0015/*"
+      ],
+      "@feature/0016/*": [
+        "./src/feature_0016/*"
+      ],
+      "@feature/0017/*": [
+        "./src/feature_0017/*"
+      ],
+      "@feature/0018/*": [
+        "./src/feature_0018/*"
+      ],
+      "@feature/0019/*": [
+        "./src/feature_0019/*"
+      ],
+      "@feature/0020/*": [
+        "./src/feature_0020/*"
+      ],
+      "@feature/0021/*": [
+        "./src/feature_0021/*"
+      ],
+      "@feature/0022/*": [
+        "./src/feature_0022/*"
+      ],
+      "@feature/0023/*": [
+        "./src/feature_0023/*"
+      ],
+      "@feature/0024/*": [
+        "./src/feature_0024/*"
+      ],
+      "@feature/0025/*": [
+        "./src/feature_0025/*"
+      ],
+      "@feature/0026/*": [
+        "./src/feature_0026/*"
+      ],
+      "@feature/0027/*": [
+        "./src/feature_0027/*"
+      ],
+      "@feature/0028/*": [
+        "./src/feature_0028/*"
+      ],
+      "@feature/0029/*": [
+        "./src/feature_0029/*"
+      ],
+      "@feature/0030/*": [
+        "./src/feature_0030/*"
+      ],
+      "@feature/0031/*": [
+        "./src/feature_0031/*"
+      ],
+      "@feature/0032/*": [
+        "./src/feature_0032/*"
+      ],
+      "@feature/0033/*": [
+        "./src/feature_0033/*"
+      ],
+      "@feature/0034/*": [
+        "./src/feature_0034/*"
+      ],
+      "@feature/0035/*": [
+        "./src/feature_0035/*"
+      ],
+      "@feature/0036/*": [
+        "./src/feature_0036/*"
+      ],
+      "@feature/0037/*": [
+        "./src/feature_0037/*"
+      ],
+      "@feature/0038/*": [
+        "./src/feature_0038/*"
+      ],
+      "@feature/0039/*": [
+        "./src/feature_0039/*"
+      ],
+      "@feature/0040/*": [
+        "./src/feature_0040/*"
+      ],
+      "@feature/0041/*": [
+        "./src/feature_0041/*"
+      ],
+      "@feature/0042/*": [
+        "./src/feature_0042/*"
+      ],
+      "@feature/0043/*": [
+        "./src/feature_0043/*"
+      ],
+      "@feature/0044/*": [
+        "./src/feature_0044/*"
+      ],
+      "@feature/0045/*": [
+        "./src/feature_0045/*"
+      ],
+      "@feature/0046/*": [
+        "./src/feature_0046/*"
+      ],
+      "@feature/0047/*": [
+        "./src/feature_0047/*"
+      ],
+      "@feature/0048/*": [
+        "./src/feature_0048/*"
+      ],
+      "@feature/0049/*": [
+        "./src/feature_0049/*"
+      ],
+      "@feature/0050/*": [
+        "./src/feature_0050/*"
+      ],
+      "@feature/0051/*": [
+        "./src/feature_0051/*"
+      ],
+      "@feature/0052/*": [
+        "./src/feature_0052/*"
+      ],
+      "@feature/0053/*": [
+        "./src/feature_0053/*"
+      ],
+      "@feature/0054/*": [
+        "./src/feature_0054/*"
+      ],
+      "@feature/0055/*": [
+        "./src/feature_0055/*"
+      ],
+      "@feature/0056/*": [
+        "./src/feature_0056/*"
+      ],
+      "@feature/0057/*": [
+        "./src/feature_0057/*"
+      ],
+      "@feature/0058/*": [
+        "./src/feature_0058/*"
+      ],
+      "@feature/0059/*": [
+        "./src/feature_0059/*"
+      ],
+      "@feature/0060/*": [
+        "./src/feature_0060/*"
+      ],
+      "@feature/0061/*": [
+        "./src/feature_0061/*"
+      ],
+      "@feature/0062/*": [
+        "./src/feature_0062/*"
+      ],
+      "@feature/0063/*": [
+        "./src/feature_0063/*"
+      ],
+      "@feature/0064/*": [
+        "./src/feature_0064/*"
+      ],
+      "@feature/0065/*": [
+        "./src/feature_0065/*"
+      ],
+      "@feature/0066/*": [
+        "./src/feature_0066/*"
+      ],
+      "@feature/0067/*": [
+        "./src/feature_0067/*"
+      ],
+      "@feature/0068/*": [
+        "./src/feature_0068/*"
+      ],
+      "@feature/0069/*": [
+        "./src/feature_0069/*"
+      ],
+      "@feature/0070/*": [
+        "./src/feature_0070/*"
+      ],
+      "@feature/0071/*": [
+        "./src/feature_0071/*"
+      ],
+      "@feature/0072/*": [
+        "./src/feature_0072/*"
+      ],
+      "@feature/0073/*": [
+        "./src/feature_0073/*"
+      ],
+      "@feature/0074/*": [
+        "./src/feature_0074/*"
+      ],
+      "@feature/0075/*": [
+        "./src/feature_0075/*"
+      ],
+      "@feature/0076/*": [
+        "./src/feature_0076/*"
+      ],
+      "@feature/0077/*": [
+        "./src/feature_0077/*"
+      ],
+      "@feature/0078/*": [
+        "./src/feature_0078/*"
+      ],
+      "@feature/0079/*": [
+        "./src/feature_0079/*"
+      ],
+      "@feature/0080/*": [
+        "./src/feature_0080/*"
+      ],
+      "@feature/0081/*": [
+        "./src/feature_0081/*"
+      ],
+      "@feature/0082/*": [
+        "./src/feature_0082/*"
+      ],
+      "@feature/0083/*": [
+        "./src/feature_0083/*"
+      ],
+      "@feature/0084/*": [
+        "./src/feature_0084/*"
+      ],
+      "@feature/0085/*": [
+        "./src/feature_0085/*"
+      ],
+      "@feature/0086/*": [
+        "./src/feature_0086/*"
+      ],
+      "@feature/0087/*": [
+        "./src/feature_0087/*"
+      ],
+      "@feature/0088/*": [
+        "./src/feature_0088/*"
+      ],
+      "@feature/0089/*": [
+        "./src/feature_0089/*"
+      ],
+      "@feature/0090/*": [
+        "./src/feature_0090/*"
+      ],
+      "@feature/0091/*": [
+        "./src/feature_0091/*"
+      ],
+      "@feature/0092/*": [
+        "./src/feature_0092/*"
+      ],
+      "@feature/0093/*": [
+        "./src/feature_0093/*"
+      ],
+      "@feature/0094/*": [
+        "./src/feature_0094/*"
+      ],
+      "@feature/0095/*": [
+        "./src/feature_0095/*"
+      ],
+      "@feature/0096/*": [
+        "./src/feature_0096/*"
+      ],
+      "@feature/0097/*": [
+        "./src/feature_0097/*"
+      ],
+      "@feature/0098/*": [
+        "./src/feature_0098/*"
+      ],
+      "@feature/0099/*": [
+        "./src/feature_0099/*"
+      ],
+      "@feature/0100/*": [
+        "./src/feature_0100/*"
+      ],
+      "@feature/0101/*": [
+        "./src/feature_0101/*"
+      ],
+      "@feature/0102/*": [
+        "./src/feature_0102/*"
+      ],
+      "@feature/0103/*": [
+        "./src/feature_0103/*"
+      ],
+      "@feature/0104/*": [
+        "./src/feature_0104/*"
+      ],
+      "@feature/0105/*": [
+        "./src/feature_0105/*"
+      ],
+      "@feature/0106/*": [
+        "./src/feature_0106/*"
+      ],
+      "@feature/0107/*": [
+        "./src/feature_0107/*"
+      ],
+      "@feature/0108/*": [
+        "./src/feature_0108/*"
+      ],
+      "@feature/0109/*": [
+        "./src/feature_0109/*"
+      ],
+      "@feature/0110/*": [
+        "./src/feature_0110/*"
+      ],
+      "@feature/0111/*": [
+        "./src/feature_0111/*"
+      ],
+      "@feature/0112/*": [
+        "./src/feature_0112/*"
+      ],
+      "@feature/0113/*": [
+        "./src/feature_0113/*"
+      ],
+      "@feature/0114/*": [
+        "./src/feature_0114/*"
+      ],
+      "@feature/0115/*": [
+        "./src/feature_0115/*"
+      ],
+      "@feature/0116/*": [
+        "./src/feature_0116/*"
+      ],
+      "@feature/0117/*": [
+        "./src/feature_0117/*"
+      ],
+      "@feature/0118/*": [
+        "./src/feature_0118/*"
+      ],
+      "@feature/0119/*": [
+        "./src/feature_0119/*"
+      ],
+      "@feature/0120/*": [
+        "./src/feature_0120/*"
+      ],
+      "@feature/0121/*": [
+        "./src/feature_0121/*"
+      ],
+      "@feature/0122/*": [
+        "./src/feature_0122/*"
+      ],
+      "@feature/0123/*": [
+        "./src/feature_0123/*"
+      ],
+      "@feature/0124/*": [
+        "./src/feature_0124/*"
+      ],
+      "@feature/0125/*": [
+        "./src/feature_0125/*"
+      ],
+      "@feature/0126/*": [
+        "./src/feature_0126/*"
+      ],
+      "@feature/0127/*": [
+        "./src/feature_0127/*"
+      ],
+      "@feature/0128/*": [
+        "./src/feature_0128/*"
+      ],
+      "@feature/0129/*": [
+        "./src/feature_0129/*"
+      ],
+      "@feature/0130/*": [
+        "./src/feature_0130/*"
+      ],
+      "@feature/0131/*": [
+        "./src/feature_0131/*"
+      ],
+      "@feature/0132/*": [
+        "./src/feature_0132/*"
+      ],
+      "@feature/0133/*": [
+        "./src/feature_0133/*"
+      ],
+      "@feature/0134/*": [
+        "./src/feature_0134/*"
+      ],
+      "@feature/0135/*": [
+        "./src/feature_0135/*"
+      ],
+      "@feature/0136/*": [
+        "./src/feature_0136/*"
+      ],
+      "@feature/0137/*": [
+        "./src/feature_0137/*"
+      ],
+      "@feature/0138/*": [
+        "./src/feature_0138/*"
+      ],
+      "@feature/0139/*": [
+        "./src/feature_0139/*"
+      ],
+      "@feature/0140/*": [
+        "./src/feature_0140/*"
+      ],
+      "@feature/0141/*": [
+        "./src/feature_0141/*"
+      ],
+      "@feature/0142/*": [
+        "./src/feature_0142/*"
+      ],
+      "@feature/0143/*": [
+        "./src/feature_0143/*"
+      ],
+      "@feature/0144/*": [
+        "./src/feature_0144/*"
+      ],
+      "@feature/0145/*": [
+        "./src/feature_0145/*"
+      ],
+      "@feature/0146/*": [
+        "./src/feature_0146/*"
+      ],
+      "@feature/0147/*": [
+        "./src/feature_0147/*"
+      ],
+      "@feature/0148/*": [
+        "./src/feature_0148/*"
+      ],
+      "@feature/0149/*": [
+        "./src/feature_0149/*"
+      ],
+      "@feature/0150/*": [
+        "./src/feature_0150/*"
+      ],
+      "@feature/0151/*": [
+        "./src/feature_0151/*"
+      ],
+      "@feature/0152/*": [
+        "./src/feature_0152/*"
+      ],
+      "@feature/0153/*": [
+        "./src/feature_0153/*"
+      ],
+      "@feature/0154/*": [
+        "./src/feature_0154/*"
+      ],
+      "@feature/0155/*": [
+        "./src/feature_0155/*"
+      ],
+      "@feature/0156/*": [
+        "./src/feature_0156/*"
+      ],
+      "@feature/0157/*": [
+        "./src/feature_0157/*"
+      ],
+      "@feature/0158/*": [
+        "./src/feature_0158/*"
+      ],
+      "@feature/0159/*": [
+        "./src/feature_0159/*"
+      ],
+      "@feature/0160/*": [
+        "./src/feature_0160/*"
+      ],
+      "@feature/0161/*": [
+        "./src/feature_0161/*"
+      ],
+      "@feature/0162/*": [
+        "./src/feature_0162/*"
+      ],
+      "@feature/0163/*": [
+        "./src/feature_0163/*"
+      ],
+      "@feature/0164/*": [
+        "./src/feature_0164/*"
+      ],
+      "@feature/0165/*": [
+        "./src/feature_0165/*"
+      ],
+      "@feature/0166/*": [
+        "./src/feature_0166/*"
+      ],
+      "@feature/0167/*": [
+        "./src/feature_0167/*"
+      ],
+      "@feature/0168/*": [
+        "./src/feature_0168/*"
+      ],
+      "@feature/0169/*": [
+        "./src/feature_0169/*"
+      ],
+      "@feature/0170/*": [
+        "./src/feature_0170/*"
+      ],
+      "@feature/0171/*": [
+        "./src/feature_0171/*"
+      ],
+      "@feature/0172/*": [
+        "./src/feature_0172/*"
+      ],
+      "@feature/0173/*": [
+        "./src/feature_0173/*"
+      ],
+      "@feature/0174/*": [
+        "./src/feature_0174/*"
+      ],
+      "@feature/0175/*": [
+        "./src/feature_0175/*"
+      ],
+      "@feature/0176/*": [
+        "./src/feature_0176/*"
+      ],
+      "@feature/0177/*": [
+        "./src/feature_0177/*"
+      ],
+      "@feature/0178/*": [
+        "./src/feature_0178/*"
+      ],
+      "@feature/0179/*": [
+        "./src/feature_0179/*"
+      ],
+      "@feature/0180/*": [
+        "./src/feature_0180/*"
+      ],
+      "@feature/0181/*": [
+        "./src/feature_0181/*"
+      ],
+      "@feature/0182/*": [
+        "./src/feature_0182/*"
+      ],
+      "@feature/0183/*": [
+        "./src/feature_0183/*"
+      ],
+      "@feature/0184/*": [
+        "./src/feature_0184/*"
+      ],
+      "@feature/0185/*": [
+        "./src/feature_0185/*"
+      ],
+      "@feature/0186/*": [
+        "./src/feature_0186/*"
+      ],
+      "@feature/0187/*": [
+        "./src/feature_0187/*"
+      ],
+      "@feature/0188/*": [
+        "./src/feature_0188/*"
+      ],
+      "@feature/0189/*": [
+        "./src/feature_0189/*"
+      ],
+      "@feature/0190/*": [
+        "./src/feature_0190/*"
+      ],
+      "@feature/0191/*": [
+        "./src/feature_0191/*"
+      ],
+      "@feature/0192/*": [
+        "./src/feature_0192/*"
+      ],
+      "@feature/0193/*": [
+        "./src/feature_0193/*"
+      ],
+      "@feature/0194/*": [
+        "./src/feature_0194/*"
+      ],
+      "@feature/0195/*": [
+        "./src/feature_0195/*"
+      ],
+      "@feature/0196/*": [
+        "./src/feature_0196/*"
+      ],
+      "@feature/0197/*": [
+        "./src/feature_0197/*"
+      ],
+      "@feature/0198/*": [
+        "./src/feature_0198/*"
+      ],
+      "@feature/0199/*": [
+        "./src/feature_0199/*"
+      ],
+      "@feature/0200/*": [
+        "./src/feature_0200/*"
+      ],
+      "@feature/0201/*": [
+        "./src/feature_0201/*"
+      ],
+      "@feature/0202/*": [
+        "./src/feature_0202/*"
+      ],
+      "@feature/0203/*": [
+        "./src/feature_0203/*"
+      ],
+      "@feature/0204/*": [
+        "./src/feature_0204/*"
+      ],
+      "@feature/0205/*": [
+        "./src/feature_0205/*"
+      ],
+      "@feature/0206/*": [
+        "./src/feature_0206/*"
+      ],
+      "@feature/0207/*": [
+        "./src/feature_0207/*"
+      ],
+      "@feature/0208/*": [
+        "./src/feature_0208/*"
+      ],
+      "@feature/0209/*": [
+        "./src/feature_0209/*"
+      ],
+      "@feature/0210/*": [
+        "./src/feature_0210/*"
+      ],
+      "@feature/0211/*": [
+        "./src/feature_0211/*"
+      ],
+      "@feature/0212/*": [
+        "./src/feature_0212/*"
+      ],
+      "@feature/0213/*": [
+        "./src/feature_0213/*"
+      ],
+      "@feature/0214/*": [
+        "./src/feature_0214/*"
+      ],
+      "@feature/0215/*": [
+        "./src/feature_0215/*"
+      ],
+      "@feature/0216/*": [
+        "./src/feature_0216/*"
+      ],
+      "@feature/0217/*": [
+        "./src/feature_0217/*"
+      ],
+      "@feature/0218/*": [
+        "./src/feature_0218/*"
+      ],
+      "@feature/0219/*": [
+        "./src/feature_0219/*"
+      ],
+      "@feature/0220/*": [
+        "./src/feature_0220/*"
+      ],
+      "@feature/0221/*": [
+        "./src/feature_0221/*"
+      ],
+      "@feature/0222/*": [
+        "./src/feature_0222/*"
+      ],
+      "@feature/0223/*": [
+        "./src/feature_0223/*"
+      ],
+      "@feature/0224/*": [
+        "./src/feature_0224/*"
+      ],
+      "@feature/0225/*": [
+        "./src/feature_0225/*"
+      ],
+      "@feature/0226/*": [
+        "./src/feature_0226/*"
+      ],
+      "@feature/0227/*": [
+        "./src/feature_0227/*"
+      ],
+      "@feature/0228/*": [
+        "./src/feature_0228/*"
+      ],
+      "@feature/0229/*": [
+        "./src/feature_0229/*"
+      ],
+      "@feature/0230/*": [
+        "./src/feature_0230/*"
+      ],
+      "@feature/0231/*": [
+        "./src/feature_0231/*"
+      ],
+      "@feature/0232/*": [
+        "./src/feature_0232/*"
+      ],
+      "@feature/0233/*": [
+        "./src/feature_0233/*"
+      ],
+      "@feature/0234/*": [
+        "./src/feature_0234/*"
+      ],
+      "@feature/0235/*": [
+        "./src/feature_0235/*"
+      ],
+      "@feature/0236/*": [
+        "./src/feature_0236/*"
+      ],
+      "@feature/0237/*": [
+        "./src/feature_0237/*"
+      ],
+      "@feature/0238/*": [
+        "./src/feature_0238/*"
+      ],
+      "@feature/0239/*": [
+        "./src/feature_0239/*"
+      ],
+      "@feature/0240/*": [
+        "./src/feature_0240/*"
+      ],
+      "@feature/0241/*": [
+        "./src/feature_0241/*"
+      ],
+      "@feature/0242/*": [
+        "./src/feature_0242/*"
+      ],
+      "@feature/0243/*": [
+        "./src/feature_0243/*"
+      ],
+      "@feature/0244/*": [
+        "./src/feature_0244/*"
+      ],
+      "@feature/0245/*": [
+        "./src/feature_0245/*"
+      ],
+      "@feature/0246/*": [
+        "./src/feature_0246/*"
+      ],
+      "@feature/0247/*": [
+        "./src/feature_0247/*"
+      ],
+      "@feature/0248/*": [
+        "./src/feature_0248/*"
+      ],
+      "@feature/0249/*": [
+        "./src/feature_0249/*"
+      ],
+      "@feature/0250/*": [
+        "./src/feature_0250/*"
+      ],
+      "@feature/0251/*": [
+        "./src/feature_0251/*"
+      ],
+      "@feature/0252/*": [
+        "./src/feature_0252/*"
+      ],
+      "@feature/0253/*": [
+        "./src/feature_0253/*"
+      ],
+      "@feature/0254/*": [
+        "./src/feature_0254/*"
+      ],
+      "@feature/0255/*": [
+        "./src/feature_0255/*"
+      ],
+      "@feature/0256/*": [
+        "./src/feature_0256/*"
+      ],
+      "@feature/0257/*": [
+        "./src/feature_0257/*"
+      ],
+      "@feature/0258/*": [
+        "./src/feature_0258/*"
+      ],
+      "@feature/0259/*": [
+        "./src/feature_0259/*"
+      ],
+      "@feature/0260/*": [
+        "./src/feature_0260/*"
+      ],
+      "@feature/0261/*": [
+        "./src/feature_0261/*"
+      ],
+      "@feature/0262/*": [
+        "./src/feature_0262/*"
+      ],
+      "@feature/0263/*": [
+        "./src/feature_0263/*"
+      ],
+      "@feature/0264/*": [
+        "./src/feature_0264/*"
+      ],
+      "@feature/0265/*": [
+        "./src/feature_0265/*"
+      ],
+      "@feature/0266/*": [
+        "./src/feature_0266/*"
+      ],
+      "@feature/0267/*": [
+        "./src/feature_0267/*"
+      ],
+      "@feature/0268/*": [
+        "./src/feature_0268/*"
+      ],
+      "@feature/0269/*": [
+        "./src/feature_0269/*"
+      ],
+      "@feature/0270/*": [
+        "./src/feature_0270/*"
+      ],
+      "@feature/0271/*": [
+        "./src/feature_0271/*"
+      ],
+      "@feature/0272/*": [
+        "./src/feature_0272/*"
+      ],
+      "@feature/0273/*": [
+        "./src/feature_0273/*"
+      ],
+      "@feature/0274/*": [
+        "./src/feature_0274/*"
+      ],
+      "@feature/0275/*": [
+        "./src/feature_0275/*"
+      ],
+      "@feature/0276/*": [
+        "./src/feature_0276/*"
+      ],
+      "@feature/0277/*": [
+        "./src/feature_0277/*"
+      ],
+      "@feature/0278/*": [
+        "./src/feature_0278/*"
+      ],
+      "@feature/0279/*": [
+        "./src/feature_0279/*"
+      ],
+      "@feature/0280/*": [
+        "./src/feature_0280/*"
+      ],
+      "@feature/0281/*": [
+        "./src/feature_0281/*"
+      ],
+      "@feature/0282/*": [
+        "./src/feature_0282/*"
+      ],
+      "@feature/0283/*": [
+        "./src/feature_0283/*"
+      ],
+      "@feature/0284/*": [
+        "./src/feature_0284/*"
+      ],
+      "@feature/0285/*": [
+        "./src/feature_0285/*"
+      ],
+      "@feature/0286/*": [
+        "./src/feature_0286/*"
+      ],
+      "@feature/0287/*": [
+        "./src/feature_0287/*"
+      ],
+      "@feature/0288/*": [
+        "./src/feature_0288/*"
+      ],
+      "@feature/0289/*": [
+        "./src/feature_0289/*"
+      ],
+      "@feature/0290/*": [
+        "./src/feature_0290/*"
+      ],
+      "@feature/0291/*": [
+        "./src/feature_0291/*"
+      ],
+      "@feature/0292/*": [
+        "./src/feature_0292/*"
+      ],
+      "@feature/0293/*": [
+        "./src/feature_0293/*"
+      ],
+      "@feature/0294/*": [
+        "./src/feature_0294/*"
+      ],
+      "@feature/0295/*": [
+        "./src/feature_0295/*"
+      ],
+      "@feature/0296/*": [
+        "./src/feature_0296/*"
+      ],
+      "@feature/0297/*": [
+        "./src/feature_0297/*"
+      ],
+      "@feature/0298/*": [
+        "./src/feature_0298/*"
+      ],
+      "@feature/0299/*": [
+        "./src/feature_0299/*"
+      ],
+      "@feature/0300/*": [
+        "./src/feature_0300/*"
+      ],
+      "@feature/0301/*": [
+        "./src/feature_0301/*"
+      ],
+      "@feature/0302/*": [
+        "./src/feature_0302/*"
+      ],
+      "@feature/0303/*": [
+        "./src/feature_0303/*"
+      ],
+      "@feature/0304/*": [
+        "./src/feature_0304/*"
+      ],
+      "@feature/0305/*": [
+        "./src/feature_0305/*"
+      ],
+      "@feature/0306/*": [
+        "./src/feature_0306/*"
+      ],
+      "@feature/0307/*": [
+        "./src/feature_0307/*"
+      ],
+      "@feature/0308/*": [
+        "./src/feature_0308/*"
+      ],
+      "@feature/0309/*": [
+        "./src/feature_0309/*"
+      ],
+      "@feature/0310/*": [
+        "./src/feature_0310/*"
+      ],
+      "@feature/0311/*": [
+        "./src/feature_0311/*"
+      ],
+      "@feature/0312/*": [
+        "./src/feature_0312/*"
+      ],
+      "@feature/0313/*": [
+        "./src/feature_0313/*"
+      ],
+      "@feature/0314/*": [
+        "./src/feature_0314/*"
+      ],
+      "@feature/0315/*": [
+        "./src/feature_0315/*"
+      ],
+      "@feature/0316/*": [
+        "./src/feature_0316/*"
+      ],
+      "@feature/0317/*": [
+        "./src/feature_0317/*"
+      ],
+      "@feature/0318/*": [
+        "./src/feature_0318/*"
+      ],
+      "@feature/0319/*": [
+        "./src/feature_0319/*"
+      ],
+      "@feature/0320/*": [
+        "./src/feature_0320/*"
+      ],
+      "@feature/0321/*": [
+        "./src/feature_0321/*"
+      ],
+      "@feature/0322/*": [
+        "./src/feature_0322/*"
+      ],
+      "@feature/0323/*": [
+        "./src/feature_0323/*"
+      ],
+      "@feature/0324/*": [
+        "./src/feature_0324/*"
+      ],
+      "@feature/0325/*": [
+        "./src/feature_0325/*"
+      ],
+      "@feature/0326/*": [
+        "./src/feature_0326/*"
+      ],
+      "@feature/0327/*": [
+        "./src/feature_0327/*"
+      ],
+      "@feature/0328/*": [
+        "./src/feature_0328/*"
+      ],
+      "@feature/0329/*": [
+        "./src/feature_0329/*"
+      ],
+      "@feature/0330/*": [
+        "./src/feature_0330/*"
+      ],
+      "@feature/0331/*": [
+        "./src/feature_0331/*"
+      ],
+      "@feature/0332/*": [
+        "./src/feature_0332/*"
+      ],
+      "@feature/0333/*": [
+        "./src/feature_0333/*"
+      ],
+      "@feature/0334/*": [
+        "./src/feature_0334/*"
+      ],
+      "@feature/0335/*": [
+        "./src/feature_0335/*"
+      ],
+      "@feature/0336/*": [
+        "./src/feature_0336/*"
+      ],
+      "@feature/0337/*": [
+        "./src/feature_0337/*"
+      ],
+      "@feature/0338/*": [
+        "./src/feature_0338/*"
+      ],
+      "@feature/0339/*": [
+        "./src/feature_0339/*"
+      ],
+      "@feature/0340/*": [
+        "./src/feature_0340/*"
+      ],
+      "@feature/0341/*": [
+        "./src/feature_0341/*"
+      ],
+      "@feature/0342/*": [
+        "./src/feature_0342/*"
+      ],
+      "@feature/0343/*": [
+        "./src/feature_0343/*"
+      ],
+      "@feature/0344/*": [
+        "./src/feature_0344/*"
+      ],
+      "@feature/0345/*": [
+        "./src/feature_0345/*"
+      ],
+      "@feature/0346/*": [
+        "./src/feature_0346/*"
+      ],
+      "@feature/0347/*": [
+        "./src/feature_0347/*"
+      ],
+      "@feature/0348/*": [
+        "./src/feature_0348/*"
+      ],
+      "@feature/0349/*": [
+        "./src/feature_0349/*"
+      ],
+      "@feature/0350/*": [
+        "./src/feature_0350/*"
+      ],
+      "@feature/0351/*": [
+        "./src/feature_0351/*"
+      ],
+      "@feature/0352/*": [
+        "./src/feature_0352/*"
+      ],
+      "@feature/0353/*": [
+        "./src/feature_0353/*"
+      ],
+      "@feature/0354/*": [
+        "./src/feature_0354/*"
+      ],
+      "@feature/0355/*": [
+        "./src/feature_0355/*"
+      ],
+      "@feature/0356/*": [
+        "./src/feature_0356/*"
+      ],
+      "@feature/0357/*": [
+        "./src/feature_0357/*"
+      ],
+      "@feature/0358/*": [
+        "./src/feature_0358/*"
+      ],
+      "@feature/0359/*": [
+        "./src/feature_0359/*"
+      ],
+      "@feature/0360/*": [
+        "./src/feature_0360/*"
+      ],
+      "@feature/0361/*": [
+        "./src/feature_0361/*"
+      ],
+      "@feature/0362/*": [
+        "./src/feature_0362/*"
+      ],
+      "@feature/0363/*": [
+        "./src/feature_0363/*"
+      ],
+      "@feature/0364/*": [
+        "./src/feature_0364/*"
+      ],
+      "@feature/0365/*": [
+        "./src/feature_0365/*"
+      ],
+      "@feature/0366/*": [
+        "./src/feature_0366/*"
+      ],
+      "@feature/0367/*": [
+        "./src/feature_0367/*"
+      ],
+      "@feature/0368/*": [
+        "./src/feature_0368/*"
+      ],
+      "@feature/0369/*": [
+        "./src/feature_0369/*"
+      ],
+      "@feature/0370/*": [
+        "./src/feature_0370/*"
+      ],
+      "@feature/0371/*": [
+        "./src/feature_0371/*"
+      ],
+      "@feature/0372/*": [
+        "./src/feature_0372/*"
+      ],
+      "@feature/0373/*": [
+        "./src/feature_0373/*"
+      ],
+      "@feature/0374/*": [
+        "./src/feature_0374/*"
+      ],
+      "@feature/0375/*": [
+        "./src/feature_0375/*"
+      ],
+      "@feature/0376/*": [
+        "./src/feature_0376/*"
+      ],
+      "@feature/0377/*": [
+        "./src/feature_0377/*"
+      ],
+      "@feature/0378/*": [
+        "./src/feature_0378/*"
+      ],
+      "@feature/0379/*": [
+        "./src/feature_0379/*"
+      ],
+      "@feature/0380/*": [
+        "./src/feature_0380/*"
+      ],
+      "@feature/0381/*": [
+        "./src/feature_0381/*"
+      ],
+      "@feature/0382/*": [
+        "./src/feature_0382/*"
+      ],
+      "@feature/0383/*": [
+        "./src/feature_0383/*"
+      ],
+      "@feature/0384/*": [
+        "./src/feature_0384/*"
+      ],
+      "@feature/0385/*": [
+        "./src/feature_0385/*"
+      ],
+      "@feature/0386/*": [
+        "./src/feature_0386/*"
+      ],
+      "@feature/0387/*": [
+        "./src/feature_0387/*"
+      ],
+      "@feature/0388/*": [
+        "./src/feature_0388/*"
+      ],
+      "@feature/0389/*": [
+        "./src/feature_0389/*"
+      ],
+      "@feature/0390/*": [
+        "./src/feature_0390/*"
+      ],
+      "@feature/0391/*": [
+        "./src/feature_0391/*"
+      ],
+      "@feature/0392/*": [
+        "./src/feature_0392/*"
+      ],
+      "@feature/0393/*": [
+        "./src/feature_0393/*"
+      ],
+      "@feature/0394/*": [
+        "./src/feature_0394/*"
+      ],
+      "@feature/0395/*": [
+        "./src/feature_0395/*"
+      ],
+      "@feature/0396/*": [
+        "./src/feature_0396/*"
+      ],
+      "@feature/0397/*": [
+        "./src/feature_0397/*"
+      ],
+      "@feature/0398/*": [
+        "./src/feature_0398/*"
+      ],
+      "@feature/0399/*": [
+        "./src/feature_0399/*"
+      ],
+      "@feature/0400/*": [
+        "./src/feature_0400/*"
+      ],
+      "@feature/0401/*": [
+        "./src/feature_0401/*"
+      ],
+      "@feature/0402/*": [
+        "./src/feature_0402/*"
+      ],
+      "@feature/0403/*": [
+        "./src/feature_0403/*"
+      ],
+      "@feature/0404/*": [
+        "./src/feature_0404/*"
+      ],
+      "@feature/0405/*": [
+        "./src/feature_0405/*"
+      ],
+      "@feature/0406/*": [
+        "./src/feature_0406/*"
+      ],
+      "@feature/0407/*": [
+        "./src/feature_0407/*"
+      ],
+      "@feature/0408/*": [
+        "./src/feature_0408/*"
+      ],
+      "@feature/0409/*": [
+        "./src/feature_0409/*"
+      ],
+      "@feature/0410/*": [
+        "./src/feature_0410/*"
+      ],
+      "@feature/0411/*": [
+        "./src/feature_0411/*"
+      ],
+      "@feature/0412/*": [
+        "./src/feature_0412/*"
+      ],
+      "@feature/0413/*": [
+        "./src/feature_0413/*"
+      ],
+      "@feature/0414/*": [
+        "./src/feature_0414/*"
+      ],
+      "@feature/0415/*": [
+        "./src/feature_0415/*"
+      ],
+      "@feature/0416/*": [
+        "./src/feature_0416/*"
+      ],
+      "@feature/0417/*": [
+        "./src/feature_0417/*"
+      ],
+      "@feature/0418/*": [
+        "./src/feature_0418/*"
+      ],
+      "@feature/0419/*": [
+        "./src/feature_0419/*"
+      ],
+      "@feature/0420/*": [
+        "./src/feature_0420/*"
+      ],
+      "@feature/0421/*": [
+        "./src/feature_0421/*"
+      ],
+      "@feature/0422/*": [
+        "./src/feature_0422/*"
+      ],
+      "@feature/0423/*": [
+        "./src/feature_0423/*"
+      ],
+      "@feature/0424/*": [
+        "./src/feature_0424/*"
+      ],
+      "@feature/0425/*": [
+        "./src/feature_0425/*"
+      ],
+      "@feature/0426/*": [
+        "./src/feature_0426/*"
+      ],
+      "@feature/0427/*": [
+        "./src/feature_0427/*"
+      ],
+      "@feature/0428/*": [
+        "./src/feature_0428/*"
+      ],
+      "@feature/0429/*": [
+        "./src/feature_0429/*"
+      ],
+      "@feature/0430/*": [
+        "./src/feature_0430/*"
+      ],
+      "@feature/0431/*": [
+        "./src/feature_0431/*"
+      ],
+      "@feature/0432/*": [
+        "./src/feature_0432/*"
+      ],
+      "@feature/0433/*": [
+        "./src/feature_0433/*"
+      ],
+      "@feature/0434/*": [
+        "./src/feature_0434/*"
+      ],
+      "@feature/0435/*": [
+        "./src/feature_0435/*"
+      ],
+      "@feature/0436/*": [
+        "./src/feature_0436/*"
+      ],
+      "@feature/0437/*": [
+        "./src/feature_0437/*"
+      ],
+      "@feature/0438/*": [
+        "./src/feature_0438/*"
+      ],
+      "@feature/0439/*": [
+        "./src/feature_0439/*"
+      ],
+      "@feature/0440/*": [
+        "./src/feature_0440/*"
+      ],
+      "@feature/0441/*": [
+        "./src/feature_0441/*"
+      ],
+      "@feature/0442/*": [
+        "./src/feature_0442/*"
+      ],
+      "@feature/0443/*": [
+        "./src/feature_0443/*"
+      ],
+      "@feature/0444/*": [
+        "./src/feature_0444/*"
+      ],
+      "@feature/0445/*": [
+        "./src/feature_0445/*"
+      ],
+      "@feature/0446/*": [
+        "./src/feature_0446/*"
+      ],
+      "@feature/0447/*": [
+        "./src/feature_0447/*"
+      ],
+      "@feature/0448/*": [
+        "./src/feature_0448/*"
+      ],
+      "@feature/0449/*": [
+        "./src/feature_0449/*"
+      ],
+      "@feature/0450/*": [
+        "./src/feature_0450/*"
+      ],
+      "@feature/0451/*": [
+        "./src/feature_0451/*"
+      ],
+      "@feature/0452/*": [
+        "./src/feature_0452/*"
+      ],
+      "@feature/0453/*": [
+        "./src/feature_0453/*"
+      ],
+      "@feature/0454/*": [
+        "./src/feature_0454/*"
+      ],
+      "@feature/0455/*": [
+        "./src/feature_0455/*"
+      ],
+      "@feature/0456/*": [
+        "./src/feature_0456/*"
+      ],
+      "@feature/0457/*": [
+        "./src/feature_0457/*"
+      ],
+      "@feature/0458/*": [
+        "./src/feature_0458/*"
+      ],
+      "@feature/0459/*": [
+        "./src/feature_0459/*"
+      ],
+      "@feature/0460/*": [
+        "./src/feature_0460/*"
+      ],
+      "@feature/0461/*": [
+        "./src/feature_0461/*"
+      ],
+      "@feature/0462/*": [
+        "./src/feature_0462/*"
+      ],
+      "@feature/0463/*": [
+        "./src/feature_0463/*"
+      ],
+      "@feature/0464/*": [
+        "./src/feature_0464/*"
+      ],
+      "@feature/0465/*": [
+        "./src/feature_0465/*"
+      ],
+      "@feature/0466/*": [
+        "./src/feature_0466/*"
+      ],
+      "@feature/0467/*": [
+        "./src/feature_0467/*"
+      ],
+      "@feature/0468/*": [
+        "./src/feature_0468/*"
+      ],
+      "@feature/0469/*": [
+        "./src/feature_0469/*"
+      ],
+      "@feature/0470/*": [
+        "./src/feature_0470/*"
+      ],
+      "@feature/0471/*": [
+        "./src/feature_0471/*"
+      ],
+      "@feature/0472/*": [
+        "./src/feature_0472/*"
+      ],
+      "@feature/0473/*": [
+        "./src/feature_0473/*"
+      ],
+      "@feature/0474/*": [
+        "./src/feature_0474/*"
+      ],
+      "@feature/0475/*": [
+        "./src/feature_0475/*"
+      ],
+      "@feature/0476/*": [
+        "./src/feature_0476/*"
+      ],
+      "@feature/0477/*": [
+        "./src/feature_0477/*"
+      ],
+      "@feature/0478/*": [
+        "./src/feature_0478/*"
+      ],
+      "@feature/0479/*": [
+        "./src/feature_0479/*"
+      ],
+      "@feature/0480/*": [
+        "./src/feature_0480/*"
+      ],
+      "@feature/0481/*": [
+        "./src/feature_0481/*"
+      ],
+      "@feature/0482/*": [
+        "./src/feature_0482/*"
+      ],
+      "@feature/0483/*": [
+        "./src/feature_0483/*"
+      ],
+      "@feature/0484/*": [
+        "./src/feature_0484/*"
+      ],
+      "@feature/0485/*": [
+        "./src/feature_0485/*"
+      ],
+      "@feature/0486/*": [
+        "./src/feature_0486/*"
+      ],
+      "@feature/0487/*": [
+        "./src/feature_0487/*"
+      ],
+      "@feature/0488/*": [
+        "./src/feature_0488/*"
+      ],
+      "@feature/0489/*": [
+        "./src/feature_0489/*"
+      ],
+      "@feature/0490/*": [
+        "./src/feature_0490/*"
+      ],
+      "@feature/0491/*": [
+        "./src/feature_0491/*"
+      ],
+      "@feature/0492/*": [
+        "./src/feature_0492/*"
+      ],
+      "@feature/0493/*": [
+        "./src/feature_0493/*"
+      ],
+      "@feature/0494/*": [
+        "./src/feature_0494/*"
+      ],
+      "@feature/0495/*": [
+        "./src/feature_0495/*"
+      ],
+      "@feature/0496/*": [
+        "./src/feature_0496/*"
+      ],
+      "@feature/0497/*": [
+        "./src/feature_0497/*"
+      ],
+      "@feature/0498/*": [
+        "./src/feature_0498/*"
+      ],
+      "@feature/0499/*": [
+        "./src/feature_0499/*"
+      ],
+      "@feature/0500/*": [
+        "./src/feature_0500/*"
+      ],
+      "@feature/0501/*": [
+        "./src/feature_0501/*"
+      ],
+      "@feature/0502/*": [
+        "./src/feature_0502/*"
+      ],
+      "@feature/0503/*": [
+        "./src/feature_0503/*"
+      ],
+      "@feature/0504/*": [
+        "./src/feature_0504/*"
+      ],
+      "@feature/0505/*": [
+        "./src/feature_0505/*"
+      ],
+      "@feature/0506/*": [
+        "./src/feature_0506/*"
+      ],
+      "@feature/0507/*": [
+        "./src/feature_0507/*"
+      ],
+      "@feature/0508/*": [
+        "./src/feature_0508/*"
+      ],
+      "@feature/0509/*": [
+        "./src/feature_0509/*"
+      ],
+      "@feature/0510/*": [
+        "./src/feature_0510/*"
+      ],
+      "@feature/0511/*": [
+        "./src/feature_0511/*"
+      ],
+      "@feature/0512/*": [
+        "./src/feature_0512/*"
+      ],
+      "@feature/0513/*": [
+        "./src/feature_0513/*"
+      ],
+      "@feature/0514/*": [
+        "./src/feature_0514/*"
+      ],
+      "@feature/0515/*": [
+        "./src/feature_0515/*"
+      ],
+      "@feature/0516/*": [
+        "./src/feature_0516/*"
+      ],
+      "@feature/0517/*": [
+        "./src/feature_0517/*"
+      ],
+      "@feature/0518/*": [
+        "./src/feature_0518/*"
+      ],
+      "@feature/0519/*": [
+        "./src/feature_0519/*"
+      ],
+      "@feature/0520/*": [
+        "./src/feature_0520/*"
+      ],
+      "@feature/0521/*": [
+        "./src/feature_0521/*"
+      ],
+      "@feature/0522/*": [
+        "./src/feature_0522/*"
+      ],
+      "@feature/0523/*": [
+        "./src/feature_0523/*"
+      ],
+      "@feature/0524/*": [
+        "./src/feature_0524/*"
+      ],
+      "@feature/0525/*": [
+        "./src/feature_0525/*"
+      ],
+      "@feature/0526/*": [
+        "./src/feature_0526/*"
+      ],
+      "@feature/0527/*": [
+        "./src/feature_0527/*"
+      ],
+      "@feature/0528/*": [
+        "./src/feature_0528/*"
+      ],
+      "@feature/0529/*": [
+        "./src/feature_0529/*"
+      ],
+      "@feature/0530/*": [
+        "./src/feature_0530/*"
+      ],
+      "@feature/0531/*": [
+        "./src/feature_0531/*"
+      ],
+      "@feature/0532/*": [
+        "./src/feature_0532/*"
+      ],
+      "@feature/0533/*": [
+        "./src/feature_0533/*"
+      ],
+      "@feature/0534/*": [
+        "./src/feature_0534/*"
+      ],
+      "@feature/0535/*": [
+        "./src/feature_0535/*"
+      ],
+      "@feature/0536/*": [
+        "./src/feature_0536/*"
+      ],
+      "@feature/0537/*": [
+        "./src/feature_0537/*"
+      ],
+      "@feature/0538/*": [
+        "./src/feature_0538/*"
+      ],
+      "@feature/0539/*": [
+        "./src/feature_0539/*"
+      ],
+      "@feature/0540/*": [
+        "./src/feature_0540/*"
+      ],
+      "@feature/0541/*": [
+        "./src/feature_0541/*"
+      ],
+      "@feature/0542/*": [
+        "./src/feature_0542/*"
+      ],
+      "@feature/0543/*": [
+        "./src/feature_0543/*"
+      ],
+      "@feature/0544/*": [
+        "./src/feature_0544/*"
+      ],
+      "@feature/0545/*": [
+        "./src/feature_0545/*"
+      ],
+      "@feature/0546/*": [
+        "./src/feature_0546/*"
+      ],
+      "@feature/0547/*": [
+        "./src/feature_0547/*"
+      ],
+      "@feature/0548/*": [
+        "./src/feature_0548/*"
+      ],
+      "@feature/0549/*": [
+        "./src/feature_0549/*"
+      ],
+      "@feature/0550/*": [
+        "./src/feature_0550/*"
+      ],
+      "@feature/0551/*": [
+        "./src/feature_0551/*"
+      ],
+      "@feature/0552/*": [
+        "./src/feature_0552/*"
+      ],
+      "@feature/0553/*": [
+        "./src/feature_0553/*"
+      ],
+      "@feature/0554/*": [
+        "./src/feature_0554/*"
+      ],
+      "@feature/0555/*": [
+        "./src/feature_0555/*"
+      ],
+      "@feature/0556/*": [
+        "./src/feature_0556/*"
+      ],
+      "@feature/0557/*": [
+        "./src/feature_0557/*"
+      ],
+      "@feature/0558/*": [
+        "./src/feature_0558/*"
+      ],
+      "@feature/0559/*": [
+        "./src/feature_0559/*"
+      ],
+      "@feature/0560/*": [
+        "./src/feature_0560/*"
+      ],
+      "@feature/0561/*": [
+        "./src/feature_0561/*"
+      ],
+      "@feature/0562/*": [
+        "./src/feature_0562/*"
+      ],
+      "@feature/0563/*": [
+        "./src/feature_0563/*"
+      ],
+      "@feature/0564/*": [
+        "./src/feature_0564/*"
+      ],
+      "@feature/0565/*": [
+        "./src/feature_0565/*"
+      ],
+      "@feature/0566/*": [
+        "./src/feature_0566/*"
+      ],
+      "@feature/0567/*": [
+        "./src/feature_0567/*"
+      ],
+      "@feature/0568/*": [
+        "./src/feature_0568/*"
+      ],
+      "@feature/0569/*": [
+        "./src/feature_0569/*"
+      ],
+      "@feature/0570/*": [
+        "./src/feature_0570/*"
+      ],
+      "@feature/0571/*": [
+        "./src/feature_0571/*"
+      ],
+      "@feature/0572/*": [
+        "./src/feature_0572/*"
+      ],
+      "@feature/0573/*": [
+        "./src/feature_0573/*"
+      ],
+      "@feature/0574/*": [
+        "./src/feature_0574/*"
+      ],
+      "@feature/0575/*": [
+        "./src/feature_0575/*"
+      ],
+      "@feature/0576/*": [
+        "./src/feature_0576/*"
+      ],
+      "@feature/0577/*": [
+        "./src/feature_0577/*"
+      ],
+      "@feature/0578/*": [
+        "./src/feature_0578/*"
+      ],
+      "@feature/0579/*": [
+        "./src/feature_0579/*"
+      ],
+      "@feature/0580/*": [
+        "./src/feature_0580/*"
+      ],
+      "@feature/0581/*": [
+        "./src/feature_0581/*"
+      ],
+      "@feature/0582/*": [
+        "./src/feature_0582/*"
+      ],
+      "@feature/0583/*": [
+        "./src/feature_0583/*"
+      ],
+      "@feature/0584/*": [
+        "./src/feature_0584/*"
+      ],
+      "@feature/0585/*": [
+        "./src/feature_0585/*"
+      ],
+      "@feature/0586/*": [
+        "./src/feature_0586/*"
+      ],
+      "@feature/0587/*": [
+        "./src/feature_0587/*"
+      ],
+      "@feature/0588/*": [
+        "./src/feature_0588/*"
+      ],
+      "@feature/0589/*": [
+        "./src/feature_0589/*"
+      ],
+      "@feature/0590/*": [
+        "./src/feature_0590/*"
+      ],
+      "@feature/0591/*": [
+        "./src/feature_0591/*"
+      ],
+      "@feature/0592/*": [
+        "./src/feature_0592/*"
+      ],
+      "@feature/0593/*": [
+        "./src/feature_0593/*"
+      ],
+      "@feature/0594/*": [
+        "./src/feature_0594/*"
+      ],
+      "@feature/0595/*": [
+        "./src/feature_0595/*"
+      ],
+      "@feature/0596/*": [
+        "./src/feature_0596/*"
+      ],
+      "@feature/0597/*": [
+        "./src/feature_0597/*"
+      ],
+      "@feature/0598/*": [
+        "./src/feature_0598/*"
+      ],
+      "@feature/0599/*": [
+        "./src/feature_0599/*"
+      ],
+      "@feature/0600/*": [
+        "./src/feature_0600/*"
+      ],
+      "@feature/0601/*": [
+        "./src/feature_0601/*"
+      ],
+      "@feature/0602/*": [
+        "./src/feature_0602/*"
+      ],
+      "@feature/0603/*": [
+        "./src/feature_0603/*"
+      ],
+      "@feature/0604/*": [
+        "./src/feature_0604/*"
+      ],
+      "@feature/0605/*": [
+        "./src/feature_0605/*"
+      ],
+      "@feature/0606/*": [
+        "./src/feature_0606/*"
+      ],
+      "@feature/0607/*": [
+        "./src/feature_0607/*"
+      ],
+      "@feature/0608/*": [
+        "./src/feature_0608/*"
+      ],
+      "@feature/0609/*": [
+        "./src/feature_0609/*"
+      ],
+      "@feature/0610/*": [
+        "./src/feature_0610/*"
+      ],
+      "@feature/0611/*": [
+        "./src/feature_0611/*"
+      ],
+      "@feature/0612/*": [
+        "./src/feature_0612/*"
+      ],
+      "@feature/0613/*": [
+        "./src/feature_0613/*"
+      ],
+      "@feature/0614/*": [
+        "./src/feature_0614/*"
+      ],
+      "@feature/0615/*": [
+        "./src/feature_0615/*"
+      ],
+      "@feature/0616/*": [
+        "./src/feature_0616/*"
+      ],
+      "@feature/0617/*": [
+        "./src/feature_0617/*"
+      ],
+      "@feature/0618/*": [
+        "./src/feature_0618/*"
+      ],
+      "@feature/0619/*": [
+        "./src/feature_0619/*"
+      ],
+      "@feature/0620/*": [
+        "./src/feature_0620/*"
+      ],
+      "@feature/0621/*": [
+        "./src/feature_0621/*"
+      ],
+      "@feature/0622/*": [
+        "./src/feature_0622/*"
+      ],
+      "@feature/0623/*": [
+        "./src/feature_0623/*"
+      ],
+      "@feature/0624/*": [
+        "./src/feature_0624/*"
+      ],
+      "@feature/0625/*": [
+        "./src/feature_0625/*"
+      ],
+      "@feature/0626/*": [
+        "./src/feature_0626/*"
+      ],
+      "@feature/0627/*": [
+        "./src/feature_0627/*"
+      ],
+      "@feature/0628/*": [
+        "./src/feature_0628/*"
+      ],
+      "@feature/0629/*": [
+        "./src/feature_0629/*"
+      ],
+      "@feature/0630/*": [
+        "./src/feature_0630/*"
+      ],
+      "@feature/0631/*": [
+        "./src/feature_0631/*"
+      ],
+      "@feature/0632/*": [
+        "./src/feature_0632/*"
+      ],
+      "@feature/0633/*": [
+        "./src/feature_0633/*"
+      ],
+      "@feature/0634/*": [
+        "./src/feature_0634/*"
+      ],
+      "@feature/0635/*": [
+        "./src/feature_0635/*"
+      ],
+      "@feature/0636/*": [
+        "./src/feature_0636/*"
+      ],
+      "@feature/0637/*": [
+        "./src/feature_0637/*"
+      ],
+      "@feature/0638/*": [
+        "./src/feature_0638/*"
+      ],
+      "@feature/0639/*": [
+        "./src/feature_0639/*"
+      ],
+      "@feature/0640/*": [
+        "./src/feature_0640/*"
+      ],
+      "@feature/0641/*": [
+        "./src/feature_0641/*"
+      ],
+      "@feature/0642/*": [
+        "./src/feature_0642/*"
+      ],
+      "@feature/0643/*": [
+        "./src/feature_0643/*"
+      ],
+      "@feature/0644/*": [
+        "./src/feature_0644/*"
+      ],
+      "@feature/0645/*": [
+        "./src/feature_0645/*"
+      ],
+      "@feature/0646/*": [
+        "./src/feature_0646/*"
+      ],
+      "@feature/0647/*": [
+        "./src/feature_0647/*"
+      ],
+      "@feature/0648/*": [
+        "./src/feature_0648/*"
+      ],
+      "@feature/0649/*": [
+        "./src/feature_0649/*"
+      ],
+      "@feature/0650/*": [
+        "./src/feature_0650/*"
+      ],
+      "@feature/0651/*": [
+        "./src/feature_0651/*"
+      ],
+      "@feature/0652/*": [
+        "./src/feature_0652/*"
+      ],
+      "@feature/0653/*": [
+        "./src/feature_0653/*"
+      ],
+      "@feature/0654/*": [
+        "./src/feature_0654/*"
+      ],
+      "@feature/0655/*": [
+        "./src/feature_0655/*"
+      ],
+      "@feature/0656/*": [
+        "./src/feature_0656/*"
+      ],
+      "@feature/0657/*": [
+        "./src/feature_0657/*"
+      ],
+      "@feature/0658/*": [
+        "./src/feature_0658/*"
+      ],
+      "@feature/0659/*": [
+        "./src/feature_0659/*"
+      ],
+      "@feature/0660/*": [
+        "./src/feature_0660/*"
+      ],
+      "@feature/0661/*": [
+        "./src/feature_0661/*"
+      ],
+      "@feature/0662/*": [
+        "./src/feature_0662/*"
+      ],
+      "@feature/0663/*": [
+        "./src/feature_0663/*"
+      ],
+      "@feature/0664/*": [
+        "./src/feature_0664/*"
+      ],
+      "@feature/0665/*": [
+        "./src/feature_0665/*"
+      ],
+      "@feature/0666/*": [
+        "./src/feature_0666/*"
+      ],
+      "@feature/0667/*": [
+        "./src/feature_0667/*"
+      ],
+      "@feature/0668/*": [
+        "./src/feature_0668/*"
+      ],
+      "@feature/0669/*": [
+        "./src/feature_0669/*"
+      ],
+      "@feature/0670/*": [
+        "./src/feature_0670/*"
+      ],
+      "@feature/0671/*": [
+        "./src/feature_0671/*"
+      ],
+      "@feature/0672/*": [
+        "./src/feature_0672/*"
+      ],
+      "@feature/0673/*": [
+        "./src/feature_0673/*"
+      ],
+      "@feature/0674/*": [
+        "./src/feature_0674/*"
+      ],
+      "@feature/0675/*": [
+        "./src/feature_0675/*"
+      ],
+      "@feature/0676/*": [
+        "./src/feature_0676/*"
+      ],
+      "@feature/0677/*": [
+        "./src/feature_0677/*"
+      ],
+      "@feature/0678/*": [
+        "./src/feature_0678/*"
+      ],
+      "@feature/0679/*": [
+        "./src/feature_0679/*"
+      ],
+      "@feature/0680/*": [
+        "./src/feature_0680/*"
+      ],
+      "@feature/0681/*": [
+        "./src/feature_0681/*"
+      ],
+      "@feature/0682/*": [
+        "./src/feature_0682/*"
+      ],
+      "@feature/0683/*": [
+        "./src/feature_0683/*"
+      ],
+      "@feature/0684/*": [
+        "./src/feature_0684/*"
+      ],
+      "@feature/0685/*": [
+        "./src/feature_0685/*"
+      ],
+      "@feature/0686/*": [
+        "./src/feature_0686/*"
+      ],
+      "@feature/0687/*": [
+        "./src/feature_0687/*"
+      ],
+      "@feature/0688/*": [
+        "./src/feature_0688/*"
+      ],
+      "@feature/0689/*": [
+        "./src/feature_0689/*"
+      ],
+      "@feature/0690/*": [
+        "./src/feature_0690/*"
+      ],
+      "@feature/0691/*": [
+        "./src/feature_0691/*"
+      ],
+      "@feature/0692/*": [
+        "./src/feature_0692/*"
+      ],
+      "@feature/0693/*": [
+        "./src/feature_0693/*"
+      ],
+      "@feature/0694/*": [
+        "./src/feature_0694/*"
+      ],
+      "@feature/0695/*": [
+        "./src/feature_0695/*"
+      ],
+      "@feature/0696/*": [
+        "./src/feature_0696/*"
+      ],
+      "@feature/0697/*": [
+        "./src/feature_0697/*"
+      ],
+      "@feature/0698/*": [
+        "./src/feature_0698/*"
+      ],
+      "@feature/0699/*": [
+        "./src/feature_0699/*"
+      ],
+      "@feature/0700/*": [
+        "./src/feature_0700/*"
+      ],
+      "@feature/0701/*": [
+        "./src/feature_0701/*"
+      ],
+      "@feature/0702/*": [
+        "./src/feature_0702/*"
+      ],
+      "@feature/0703/*": [
+        "./src/feature_0703/*"
+      ],
+      "@feature/0704/*": [
+        "./src/feature_0704/*"
+      ],
+      "@feature/0705/*": [
+        "./src/feature_0705/*"
+      ],
+      "@feature/0706/*": [
+        "./src/feature_0706/*"
+      ],
+      "@feature/0707/*": [
+        "./src/feature_0707/*"
+      ],
+      "@feature/0708/*": [
+        "./src/feature_0708/*"
+      ],
+      "@feature/0709/*": [
+        "./src/feature_0709/*"
+      ],
+      "@feature/0710/*": [
+        "./src/feature_0710/*"
+      ],
+      "@feature/0711/*": [
+        "./src/feature_0711/*"
+      ],
+      "@feature/0712/*": [
+        "./src/feature_0712/*"
+      ],
+      "@feature/0713/*": [
+        "./src/feature_0713/*"
+      ],
+      "@feature/0714/*": [
+        "./src/feature_0714/*"
+      ],
+      "@feature/0715/*": [
+        "./src/feature_0715/*"
+      ],
+      "@feature/0716/*": [
+        "./src/feature_0716/*"
+      ],
+      "@feature/0717/*": [
+        "./src/feature_0717/*"
+      ],
+      "@feature/0718/*": [
+        "./src/feature_0718/*"
+      ],
+      "@feature/0719/*": [
+        "./src/feature_0719/*"
+      ],
+      "@feature/0720/*": [
+        "./src/feature_0720/*"
+      ],
+      "@feature/0721/*": [
+        "./src/feature_0721/*"
+      ],
+      "@feature/0722/*": [
+        "./src/feature_0722/*"
+      ],
+      "@feature/0723/*": [
+        "./src/feature_0723/*"
+      ],
+      "@feature/0724/*": [
+        "./src/feature_0724/*"
+      ],
+      "@feature/0725/*": [
+        "./src/feature_0725/*"
+      ],
+      "@feature/0726/*": [
+        "./src/feature_0726/*"
+      ],
+      "@feature/0727/*": [
+        "./src/feature_0727/*"
+      ],
+      "@feature/0728/*": [
+        "./src/feature_0728/*"
+      ],
+      "@feature/0729/*": [
+        "./src/feature_0729/*"
+      ],
+      "@feature/0730/*": [
+        "./src/feature_0730/*"
+      ],
+      "@feature/0731/*": [
+        "./src/feature_0731/*"
+      ],
+      "@feature/0732/*": [
+        "./src/feature_0732/*"
+      ],
+      "@feature/0733/*": [
+        "./src/feature_0733/*"
+      ],
+      "@feature/0734/*": [
+        "./src/feature_0734/*"
+      ],
+      "@feature/0735/*": [
+        "./src/feature_0735/*"
+      ],
+      "@feature/0736/*": [
+        "./src/feature_0736/*"
+      ],
+      "@feature/0737/*": [
+        "./src/feature_0737/*"
+      ],
+      "@feature/0738/*": [
+        "./src/feature_0738/*"
+      ],
+      "@feature/0739/*": [
+        "./src/feature_0739/*"
+      ],
+      "@feature/0740/*": [
+        "./src/feature_0740/*"
+      ],
+      "@feature/0741/*": [
+        "./src/feature_0741/*"
+      ],
+      "@feature/0742/*": [
+        "./src/feature_0742/*"
+      ],
+      "@feature/0743/*": [
+        "./src/feature_0743/*"
+      ],
+      "@feature/0744/*": [
+        "./src/feature_0744/*"
+      ],
+      "@feature/0745/*": [
+        "./src/feature_0745/*"
+      ],
+      "@feature/0746/*": [
+        "./src/feature_0746/*"
+      ],
+      "@feature/0747/*": [
+        "./src/feature_0747/*"
+      ],
+      "@feature/0748/*": [
+        "./src/feature_0748/*"
+      ],
+      "@feature/0749/*": [
+        "./src/feature_0749/*"
+      ],
+      "@feature/0750/*": [
+        "./src/feature_0750/*"
+      ],
+      "@feature/0751/*": [
+        "./src/feature_0751/*"
+      ],
+      "@feature/0752/*": [
+        "./src/feature_0752/*"
+      ],
+      "@feature/0753/*": [
+        "./src/feature_0753/*"
+      ],
+      "@feature/0754/*": [
+        "./src/feature_0754/*"
+      ],
+      "@feature/0755/*": [
+        "./src/feature_0755/*"
+      ],
+      "@feature/0756/*": [
+        "./src/feature_0756/*"
+      ],
+      "@feature/0757/*": [
+        "./src/feature_0757/*"
+      ],
+      "@feature/0758/*": [
+        "./src/feature_0758/*"
+      ],
+      "@feature/0759/*": [
+        "./src/feature_0759/*"
+      ],
+      "@feature/0760/*": [
+        "./src/feature_0760/*"
+      ],
+      "@feature/0761/*": [
+        "./src/feature_0761/*"
+      ],
+      "@feature/0762/*": [
+        "./src/feature_0762/*"
+      ],
+      "@feature/0763/*": [
+        "./src/feature_0763/*"
+      ],
+      "@feature/0764/*": [
+        "./src/feature_0764/*"
+      ],
+      "@feature/0765/*": [
+        "./src/feature_0765/*"
+      ],
+      "@feature/0766/*": [
+        "./src/feature_0766/*"
+      ],
+      "@feature/0767/*": [
+        "./src/feature_0767/*"
+      ],
+      "@feature/0768/*": [
+        "./src/feature_0768/*"
+      ],
+      "@feature/0769/*": [
+        "./src/feature_0769/*"
+      ],
+      "@feature/0770/*": [
+        "./src/feature_0770/*"
+      ],
+      "@feature/0771/*": [
+        "./src/feature_0771/*"
+      ],
+      "@feature/0772/*": [
+        "./src/feature_0772/*"
+      ],
+      "@feature/0773/*": [
+        "./src/feature_0773/*"
+      ],
+      "@feature/0774/*": [
+        "./src/feature_0774/*"
+      ],
+      "@feature/0775/*": [
+        "./src/feature_0775/*"
+      ],
+      "@feature/0776/*": [
+        "./src/feature_0776/*"
+      ],
+      "@feature/0777/*": [
+        "./src/feature_0777/*"
+      ],
+      "@feature/0778/*": [
+        "./src/feature_0778/*"
+      ],
+      "@feature/0779/*": [
+        "./src/feature_0779/*"
+      ],
+      "@feature/0780/*": [
+        "./src/feature_0780/*"
+      ],
+      "@feature/0781/*": [
+        "./src/feature_0781/*"
+      ],
+      "@feature/0782/*": [
+        "./src/feature_0782/*"
+      ],
+      "@feature/0783/*": [
+        "./src/feature_0783/*"
+      ],
+      "@feature/0784/*": [
+        "./src/feature_0784/*"
+      ],
+      "@feature/0785/*": [
+        "./src/feature_0785/*"
+      ],
+      "@feature/0786/*": [
+        "./src/feature_0786/*"
+      ],
+      "@feature/0787/*": [
+        "./src/feature_0787/*"
+      ],
+      "@feature/0788/*": [
+        "./src/feature_0788/*"
+      ],
+      "@feature/0789/*": [
+        "./src/feature_0789/*"
+      ],
+      "@feature/0790/*": [
+        "./src/feature_0790/*"
+      ],
+      "@feature/0791/*": [
+        "./src/feature_0791/*"
+      ],
+      "@feature/0792/*": [
+        "./src/feature_0792/*"
+      ],
+      "@feature/0793/*": [
+        "./src/feature_0793/*"
+      ],
+      "@feature/0794/*": [
+        "./src/feature_0794/*"
+      ],
+      "@feature/0795/*": [
+        "./src/feature_0795/*"
+      ],
+      "@feature/0796/*": [
+        "./src/feature_0796/*"
+      ],
+      "@feature/0797/*": [
+        "./src/feature_0797/*"
+      ],
+      "@feature/0798/*": [
+        "./src/feature_0798/*"
+      ],
+      "@feature/0799/*": [
+        "./src/feature_0799/*"
+      ],
+      "@feature/0800/*": [
+        "./src/feature_0800/*"
+      ],
+      "@feature/0801/*": [
+        "./src/feature_0801/*"
+      ],
+      "@feature/0802/*": [
+        "./src/feature_0802/*"
+      ],
+      "@feature/0803/*": [
+        "./src/feature_0803/*"
+      ],
+      "@feature/0804/*": [
+        "./src/feature_0804/*"
+      ],
+      "@feature/0805/*": [
+        "./src/feature_0805/*"
+      ],
+      "@feature/0806/*": [
+        "./src/feature_0806/*"
+      ],
+      "@feature/0807/*": [
+        "./src/feature_0807/*"
+      ],
+      "@feature/0808/*": [
+        "./src/feature_0808/*"
+      ],
+      "@feature/0809/*": [
+        "./src/feature_0809/*"
+      ],
+      "@feature/0810/*": [
+        "./src/feature_0810/*"
+      ],
+      "@feature/0811/*": [
+        "./src/feature_0811/*"
+      ],
+      "@feature/0812/*": [
+        "./src/feature_0812/*"
+      ],
+      "@feature/0813/*": [
+        "./src/feature_0813/*"
+      ],
+      "@feature/0814/*": [
+        "./src/feature_0814/*"
+      ],
+      "@feature/0815/*": [
+        "./src/feature_0815/*"
+      ],
+      "@feature/0816/*": [
+        "./src/feature_0816/*"
+      ],
+      "@feature/0817/*": [
+        "./src/feature_0817/*"
+      ],
+      "@feature/0818/*": [
+        "./src/feature_0818/*"
+      ],
+      "@feature/0819/*": [
+        "./src/feature_0819/*"
+      ],
+      "@feature/0820/*": [
+        "./src/feature_0820/*"
+      ],
+      "@feature/0821/*": [
+        "./src/feature_0821/*"
+      ],
+      "@feature/0822/*": [
+        "./src/feature_0822/*"
+      ],
+      "@feature/0823/*": [
+        "./src/feature_0823/*"
+      ],
+      "@feature/0824/*": [
+        "./src/feature_0824/*"
+      ],
+      "@feature/0825/*": [
+        "./src/feature_0825/*"
+      ],
+      "@feature/0826/*": [
+        "./src/feature_0826/*"
+      ],
+      "@feature/0827/*": [
+        "./src/feature_0827/*"
+      ],
+      "@feature/0828/*": [
+        "./src/feature_0828/*"
+      ],
+      "@feature/0829/*": [
+        "./src/feature_0829/*"
+      ],
+      "@feature/0830/*": [
+        "./src/feature_0830/*"
+      ],
+      "@feature/0831/*": [
+        "./src/feature_0831/*"
+      ],
+      "@feature/0832/*": [
+        "./src/feature_0832/*"
+      ],
+      "@feature/0833/*": [
+        "./src/feature_0833/*"
+      ],
+      "@feature/0834/*": [
+        "./src/feature_0834/*"
+      ],
+      "@feature/0835/*": [
+        "./src/feature_0835/*"
+      ],
+      "@feature/0836/*": [
+        "./src/feature_0836/*"
+      ],
+      "@feature/0837/*": [
+        "./src/feature_0837/*"
+      ],
+      "@feature/0838/*": [
+        "./src/feature_0838/*"
+      ],
+      "@feature/0839/*": [
+        "./src/feature_0839/*"
+      ],
+      "@feature/0840/*": [
+        "./src/feature_0840/*"
+      ],
+      "@feature/0841/*": [
+        "./src/feature_0841/*"
+      ],
+      "@feature/0842/*": [
+        "./src/feature_0842/*"
+      ],
+      "@feature/0843/*": [
+        "./src/feature_0843/*"
+      ],
+      "@feature/0844/*": [
+        "./src/feature_0844/*"
+      ],
+      "@feature/0845/*": [
+        "./src/feature_0845/*"
+      ],
+      "@feature/0846/*": [
+        "./src/feature_0846/*"
+      ],
+      "@feature/0847/*": [
+        "./src/feature_0847/*"
+      ],
+      "@feature/0848/*": [
+        "./src/feature_0848/*"
+      ],
+      "@feature/0849/*": [
+        "./src/feature_0849/*"
+      ],
+      "@feature/0850/*": [
+        "./src/feature_0850/*"
+      ],
+      "@feature/0851/*": [
+        "./src/feature_0851/*"
+      ],
+      "@feature/0852/*": [
+        "./src/feature_0852/*"
+      ],
+      "@feature/0853/*": [
+        "./src/feature_0853/*"
+      ],
+      "@feature/0854/*": [
+        "./src/feature_0854/*"
+      ],
+      "@feature/0855/*": [
+        "./src/feature_0855/*"
+      ],
+      "@feature/0856/*": [
+        "./src/feature_0856/*"
+      ],
+      "@feature/0857/*": [
+        "./src/feature_0857/*"
+      ],
+      "@feature/0858/*": [
+        "./src/feature_0858/*"
+      ],
+      "@feature/0859/*": [
+        "./src/feature_0859/*"
+      ],
+      "@feature/0860/*": [
+        "./src/feature_0860/*"
+      ],
+      "@feature/0861/*": [
+        "./src/feature_0861/*"
+      ],
+      "@feature/0862/*": [
+        "./src/feature_0862/*"
+      ],
+      "@feature/0863/*": [
+        "./src/feature_0863/*"
+      ],
+      "@feature/0864/*": [
+        "./src/feature_0864/*"
+      ],
+      "@feature/0865/*": [
+        "./src/feature_0865/*"
+      ],
+      "@feature/0866/*": [
+        "./src/feature_0866/*"
+      ],
+      "@feature/0867/*": [
+        "./src/feature_0867/*"
+      ],
+      "@feature/0868/*": [
+        "./src/feature_0868/*"
+      ],
+      "@feature/0869/*": [
+        "./src/feature_0869/*"
+      ],
+      "@feature/0870/*": [
+        "./src/feature_0870/*"
+      ],
+      "@feature/0871/*": [
+        "./src/feature_0871/*"
+      ],
+      "@feature/0872/*": [
+        "./src/feature_0872/*"
+      ],
+      "@feature/0873/*": [
+        "./src/feature_0873/*"
+      ],
+      "@feature/0874/*": [
+        "./src/feature_0874/*"
+      ],
+      "@feature/0875/*": [
+        "./src/feature_0875/*"
+      ],
+      "@feature/0876/*": [
+        "./src/feature_0876/*"
+      ],
+      "@feature/0877/*": [
+        "./src/feature_0877/*"
+      ],
+      "@feature/0878/*": [
+        "./src/feature_0878/*"
+      ],
+      "@feature/0879/*": [
+        "./src/feature_0879/*"
+      ],
+      "@feature/0880/*": [
+        "./src/feature_0880/*"
+      ],
+      "@feature/0881/*": [
+        "./src/feature_0881/*"
+      ],
+      "@feature/0882/*": [
+        "./src/feature_0882/*"
+      ],
+      "@feature/0883/*": [
+        "./src/feature_0883/*"
+      ],
+      "@feature/0884/*": [
+        "./src/feature_0884/*"
+      ],
+      "@feature/0885/*": [
+        "./src/feature_0885/*"
+      ],
+      "@feature/0886/*": [
+        "./src/feature_0886/*"
+      ],
+      "@feature/0887/*": [
+        "./src/feature_0887/*"
+      ],
+      "@feature/0888/*": [
+        "./src/feature_0888/*"
+      ],
+      "@feature/0889/*": [
+        "./src/feature_0889/*"
+      ],
+      "@feature/0890/*": [
+        "./src/feature_0890/*"
+      ],
+      "@feature/0891/*": [
+        "./src/feature_0891/*"
+      ],
+      "@feature/0892/*": [
+        "./src/feature_0892/*"
+      ],
+      "@feature/0893/*": [
+        "./src/feature_0893/*"
+      ],
+      "@feature/0894/*": [
+        "./src/feature_0894/*"
+      ],
+      "@feature/0895/*": [
+        "./src/feature_0895/*"
+      ],
+      "@feature/0896/*": [
+        "./src/feature_0896/*"
+      ],
+      "@feature/0897/*": [
+        "./src/feature_0897/*"
+      ],
+      "@feature/0898/*": [
+        "./src/feature_0898/*"
+      ],
+      "@feature/0899/*": [
+        "./src/feature_0899/*"
+      ],
+      "@feature/0900/*": [
+        "./src/feature_0900/*"
+      ],
+      "@feature/0901/*": [
+        "./src/feature_0901/*"
+      ],
+      "@feature/0902/*": [
+        "./src/feature_0902/*"
+      ],
+      "@feature/0903/*": [
+        "./src/feature_0903/*"
+      ],
+      "@feature/0904/*": [
+        "./src/feature_0904/*"
+      ],
+      "@feature/0905/*": [
+        "./src/feature_0905/*"
+      ],
+      "@feature/0906/*": [
+        "./src/feature_0906/*"
+      ],
+      "@feature/0907/*": [
+        "./src/feature_0907/*"
+      ],
+      "@feature/0908/*": [
+        "./src/feature_0908/*"
+      ],
+      "@feature/0909/*": [
+        "./src/feature_0909/*"
+      ],
+      "@feature/0910/*": [
+        "./src/feature_0910/*"
+      ],
+      "@feature/0911/*": [
+        "./src/feature_0911/*"
+      ],
+      "@feature/0912/*": [
+        "./src/feature_0912/*"
+      ],
+      "@feature/0913/*": [
+        "./src/feature_0913/*"
+      ],
+      "@feature/0914/*": [
+        "./src/feature_0914/*"
+      ],
+      "@feature/0915/*": [
+        "./src/feature_0915/*"
+      ],
+      "@feature/0916/*": [
+        "./src/feature_0916/*"
+      ],
+      "@feature/0917/*": [
+        "./src/feature_0917/*"
+      ],
+      "@feature/0918/*": [
+        "./src/feature_0918/*"
+      ],
+      "@feature/0919/*": [
+        "./src/feature_0919/*"
+      ],
+      "@feature/0920/*": [
+        "./src/feature_0920/*"
+      ],
+      "@feature/0921/*": [
+        "./src/feature_0921/*"
+      ],
+      "@feature/0922/*": [
+        "./src/feature_0922/*"
+      ],
+      "@feature/0923/*": [
+        "./src/feature_0923/*"
+      ],
+      "@feature/0924/*": [
+        "./src/feature_0924/*"
+      ],
+      "@feature/0925/*": [
+        "./src/feature_0925/*"
+      ],
+      "@feature/0926/*": [
+        "./src/feature_0926/*"
+      ],
+      "@feature/0927/*": [
+        "./src/feature_0927/*"
+      ],
+      "@feature/0928/*": [
+        "./src/feature_0928/*"
+      ],
+      "@feature/0929/*": [
+        "./src/feature_0929/*"
+      ],
+      "@feature/0930/*": [
+        "./src/feature_0930/*"
+      ],
+      "@feature/0931/*": [
+        "./src/feature_0931/*"
+      ],
+      "@feature/0932/*": [
+        "./src/feature_0932/*"
+      ],
+      "@feature/0933/*": [
+        "./src/feature_0933/*"
+      ],
+      "@feature/0934/*": [
+        "./src/feature_0934/*"
+      ],
+      "@feature/0935/*": [
+        "./src/feature_0935/*"
+      ],
+      "@feature/0936/*": [
+        "./src/feature_0936/*"
+      ],
+      "@feature/0937/*": [
+        "./src/feature_0937/*"
+      ],
+      "@feature/0938/*": [
+        "./src/feature_0938/*"
+      ],
+      "@feature/0939/*": [
+        "./src/feature_0939/*"
+      ],
+      "@feature/0940/*": [
+        "./src/feature_0940/*"
+      ],
+      "@feature/0941/*": [
+        "./src/feature_0941/*"
+      ],
+      "@feature/0942/*": [
+        "./src/feature_0942/*"
+      ],
+      "@feature/0943/*": [
+        "./src/feature_0943/*"
+      ],
+      "@feature/0944/*": [
+        "./src/feature_0944/*"
+      ],
+      "@feature/0945/*": [
+        "./src/feature_0945/*"
+      ],
+      "@feature/0946/*": [
+        "./src/feature_0946/*"
+      ],
+      "@feature/0947/*": [
+        "./src/feature_0947/*"
+      ],
+      "@feature/0948/*": [
+        "./src/feature_0948/*"
+      ],
+      "@feature/0949/*": [
+        "./src/feature_0949/*"
+      ],
+      "@feature/0950/*": [
+        "./src/feature_0950/*"
+      ],
+      "@feature/0951/*": [
+        "./src/feature_0951/*"
+      ],
+      "@feature/0952/*": [
+        "./src/feature_0952/*"
+      ],
+      "@feature/0953/*": [
+        "./src/feature_0953/*"
+      ],
+      "@feature/0954/*": [
+        "./src/feature_0954/*"
+      ],
+      "@feature/0955/*": [
+        "./src/feature_0955/*"
+      ],
+      "@feature/0956/*": [
+        "./src/feature_0956/*"
+      ],
+      "@feature/0957/*": [
+        "./src/feature_0957/*"
+      ],
+      "@feature/0958/*": [
+        "./src/feature_0958/*"
+      ],
+      "@feature/0959/*": [
+        "./src/feature_0959/*"
+      ],
+      "@feature/0960/*": [
+        "./src/feature_0960/*"
+      ],
+      "@feature/0961/*": [
+        "./src/feature_0961/*"
+      ],
+      "@feature/0962/*": [
+        "./src/feature_0962/*"
+      ],
+      "@feature/0963/*": [
+        "./src/feature_0963/*"
+      ],
+      "@feature/0964/*": [
+        "./src/feature_0964/*"
+      ],
+      "@feature/0965/*": [
+        "./src/feature_0965/*"
+      ],
+      "@feature/0966/*": [
+        "./src/feature_0966/*"
+      ],
+      "@feature/0967/*": [
+        "./src/feature_0967/*"
+      ],
+      "@feature/0968/*": [
+        "./src/feature_0968/*"
+      ],
+      "@feature/0969/*": [
+        "./src/feature_0969/*"
+      ],
+      "@feature/0970/*": [
+        "./src/feature_0970/*"
+      ],
+      "@feature/0971/*": [
+        "./src/feature_0971/*"
+      ],
+      "@feature/0972/*": [
+        "./src/feature_0972/*"
+      ],
+      "@feature/0973/*": [
+        "./src/feature_0973/*"
+      ],
+      "@feature/0974/*": [
+        "./src/feature_0974/*"
+      ],
+      "@feature/0975/*": [
+        "./src/feature_0975/*"
+      ],
+      "@feature/0976/*": [
+        "./src/feature_0976/*"
+      ],
+      "@feature/0977/*": [
+        "./src/feature_0977/*"
+      ],
+      "@feature/0978/*": [
+        "./src/feature_0978/*"
+      ],
+      "@feature/0979/*": [
+        "./src/feature_0979/*"
+      ],
+      "@feature/0980/*": [
+        "./src/feature_0980/*"
+      ],
+      "@feature/0981/*": [
+        "./src/feature_0981/*"
+      ],
+      "@feature/0982/*": [
+        "./src/feature_0982/*"
+      ],
+      "@feature/0983/*": [
+        "./src/feature_0983/*"
+      ],
+      "@feature/0984/*": [
+        "./src/feature_0984/*"
+      ],
+      "@feature/0985/*": [
+        "./src/feature_0985/*"
+      ],
+      "@feature/0986/*": [
+        "./src/feature_0986/*"
+      ],
+      "@feature/0987/*": [
+        "./src/feature_0987/*"
+      ],
+      "@feature/0988/*": [
+        "./src/feature_0988/*"
+      ],
+      "@feature/0989/*": [
+        "./src/feature_0989/*"
+      ],
+      "@feature/0990/*": [
+        "./src/feature_0990/*"
+      ],
+      "@feature/0991/*": [
+        "./src/feature_0991/*"
+      ],
+      "@feature/0992/*": [
+        "./src/feature_0992/*"
+      ],
+      "@feature/0993/*": [
+        "./src/feature_0993/*"
+      ],
+      "@feature/0994/*": [
+        "./src/feature_0994/*"
+      ],
+      "@feature/0995/*": [
+        "./src/feature_0995/*"
+      ],
+      "@feature/0996/*": [
+        "./src/feature_0996/*"
+      ],
+      "@feature/0997/*": [
+        "./src/feature_0997/*"
+      ],
+      "@feature/0998/*": [
+        "./src/feature_0998/*"
+      ],
+      "@feature/0999/*": [
+        "./src/feature_0999/*"
+      ],
+      "@feature/1000/*": [
+        "./src/feature_1000/*"
+      ],
+      "@feature/1001/*": [
+        "./src/feature_1001/*"
+      ],
+      "@feature/1002/*": [
+        "./src/feature_1002/*"
+      ],
+      "@feature/1003/*": [
+        "./src/feature_1003/*"
+      ],
+      "@feature/1004/*": [
+        "./src/feature_1004/*"
+      ],
+      "@feature/1005/*": [
+        "./src/feature_1005/*"
+      ],
+      "@feature/1006/*": [
+        "./src/feature_1006/*"
+      ],
+      "@feature/1007/*": [
+        "./src/feature_1007/*"
+      ],
+      "@feature/1008/*": [
+        "./src/feature_1008/*"
+      ],
+      "@feature/1009/*": [
+        "./src/feature_1009/*"
+      ],
+      "@feature/1010/*": [
+        "./src/feature_1010/*"
+      ],
+      "@feature/1011/*": [
+        "./src/feature_1011/*"
+      ],
+      "@feature/1012/*": [
+        "./src/feature_1012/*"
+      ],
+      "@feature/1013/*": [
+        "./src/feature_1013/*"
+      ],
+      "@feature/1014/*": [
+        "./src/feature_1014/*"
+      ],
+      "@feature/1015/*": [
+        "./src/feature_1015/*"
+      ],
+      "@feature/1016/*": [
+        "./src/feature_1016/*"
+      ],
+      "@feature/1017/*": [
+        "./src/feature_1017/*"
+      ],
+      "@feature/1018/*": [
+        "./src/feature_1018/*"
+      ],
+      "@feature/1019/*": [
+        "./src/feature_1019/*"
+      ],
+      "@feature/1020/*": [
+        "./src/feature_1020/*"
+      ],
+      "@feature/1021/*": [
+        "./src/feature_1021/*"
+      ],
+      "@feature/1022/*": [
+        "./src/feature_1022/*"
+      ],
+      "@feature/1023/*": [
+        "./src/feature_1023/*"
+      ],
+      "@feature/1024/*": [
+        "./src/feature_1024/*"
+      ],
+      "@feature/1025/*": [
+        "./src/feature_1025/*"
+      ],
+      "@feature/1026/*": [
+        "./src/feature_1026/*"
+      ],
+      "@feature/1027/*": [
+        "./src/feature_1027/*"
+      ],
+      "@feature/1028/*": [
+        "./src/feature_1028/*"
+      ],
+      "@feature/1029/*": [
+        "./src/feature_1029/*"
+      ],
+      "@feature/1030/*": [
+        "./src/feature_1030/*"
+      ],
+      "@feature/1031/*": [
+        "./src/feature_1031/*"
+      ],
+      "@feature/1032/*": [
+        "./src/feature_1032/*"
+      ],
+      "@feature/1033/*": [
+        "./src/feature_1033/*"
+      ],
+      "@feature/1034/*": [
+        "./src/feature_1034/*"
+      ],
+      "@feature/1035/*": [
+        "./src/feature_1035/*"
+      ],
+      "@feature/1036/*": [
+        "./src/feature_1036/*"
+      ],
+      "@feature/1037/*": [
+        "./src/feature_1037/*"
+      ],
+      "@feature/1038/*": [
+        "./src/feature_1038/*"
+      ],
+      "@feature/1039/*": [
+        "./src/feature_1039/*"
+      ],
+      "@feature/1040/*": [
+        "./src/feature_1040/*"
+      ],
+      "@feature/1041/*": [
+        "./src/feature_1041/*"
+      ],
+      "@feature/1042/*": [
+        "./src/feature_1042/*"
+      ],
+      "@feature/1043/*": [
+        "./src/feature_1043/*"
+      ],
+      "@feature/1044/*": [
+        "./src/feature_1044/*"
+      ],
+      "@feature/1045/*": [
+        "./src/feature_1045/*"
+      ],
+      "@feature/1046/*": [
+        "./src/feature_1046/*"
+      ],
+      "@feature/1047/*": [
+        "./src/feature_1047/*"
+      ],
+      "@feature/1048/*": [
+        "./src/feature_1048/*"
+      ],
+      "@feature/1049/*": [
+        "./src/feature_1049/*"
+      ],
+      "@feature/1050/*": [
+        "./src/feature_1050/*"
+      ],
+      "@feature/1051/*": [
+        "./src/feature_1051/*"
+      ],
+      "@feature/1052/*": [
+        "./src/feature_1052/*"
+      ],
+      "@feature/1053/*": [
+        "./src/feature_1053/*"
+      ],
+      "@feature/1054/*": [
+        "./src/feature_1054/*"
+      ],
+      "@feature/1055/*": [
+        "./src/feature_1055/*"
+      ],
+      "@feature/1056/*": [
+        "./src/feature_1056/*"
+      ],
+      "@feature/1057/*": [
+        "./src/feature_1057/*"
+      ],
+      "@feature/1058/*": [
+        "./src/feature_1058/*"
+      ],
+      "@feature/1059/*": [
+        "./src/feature_1059/*"
+      ],
+      "@feature/1060/*": [
+        "./src/feature_1060/*"
+      ],
+      "@feature/1061/*": [
+        "./src/feature_1061/*"
+      ],
+      "@feature/1062/*": [
+        "./src/feature_1062/*"
+      ],
+      "@feature/1063/*": [
+        "./src/feature_1063/*"
+      ],
+      "@feature/1064/*": [
+        "./src/feature_1064/*"
+      ],
+      "@feature/1065/*": [
+        "./src/feature_1065/*"
+      ],
+      "@feature/1066/*": [
+        "./src/feature_1066/*"
+      ],
+      "@feature/1067/*": [
+        "./src/feature_1067/*"
+      ],
+      "@feature/1068/*": [
+        "./src/feature_1068/*"
+      ],
+      "@feature/1069/*": [
+        "./src/feature_1069/*"
+      ],
+      "@feature/1070/*": [
+        "./src/feature_1070/*"
+      ],
+      "@feature/1071/*": [
+        "./src/feature_1071/*"
+      ],
+      "@feature/1072/*": [
+        "./src/feature_1072/*"
+      ],
+      "@feature/1073/*": [
+        "./src/feature_1073/*"
+      ],
+      "@feature/1074/*": [
+        "./src/feature_1074/*"
+      ],
+      "@feature/1075/*": [
+        "./src/feature_1075/*"
+      ],
+      "@feature/1076/*": [
+        "./src/feature_1076/*"
+      ],
+      "@feature/1077/*": [
+        "./src/feature_1077/*"
+      ],
+      "@feature/1078/*": [
+        "./src/feature_1078/*"
+      ],
+      "@feature/1079/*": [
+        "./src/feature_1079/*"
+      ],
+      "@feature/1080/*": [
+        "./src/feature_1080/*"
+      ],
+      "@feature/1081/*": [
+        "./src/feature_1081/*"
+      ],
+      "@feature/1082/*": [
+        "./src/feature_1082/*"
+      ],
+      "@feature/1083/*": [
+        "./src/feature_1083/*"
+      ],
+      "@feature/1084/*": [
+        "./src/feature_1084/*"
+      ],
+      "@feature/1085/*": [
+        "./src/feature_1085/*"
+      ],
+      "@feature/1086/*": [
+        "./src/feature_1086/*"
+      ],
+      "@feature/1087/*": [
+        "./src/feature_1087/*"
+      ],
+      "@feature/1088/*": [
+        "./src/feature_1088/*"
+      ],
+      "@feature/1089/*": [
+        "./src/feature_1089/*"
+      ],
+      "@feature/1090/*": [
+        "./src/feature_1090/*"
+      ],
+      "@feature/1091/*": [
+        "./src/feature_1091/*"
+      ],
+      "@feature/1092/*": [
+        "./src/feature_1092/*"
+      ],
+      "@feature/1093/*": [
+        "./src/feature_1093/*"
+      ],
+      "@feature/1094/*": [
+        "./src/feature_1094/*"
+      ],
+      "@feature/1095/*": [
+        "./src/feature_1095/*"
+      ],
+      "@feature/1096/*": [
+        "./src/feature_1096/*"
+      ],
+      "@feature/1097/*": [
+        "./src/feature_1097/*"
+      ],
+      "@feature/1098/*": [
+        "./src/feature_1098/*"
+      ],
+      "@feature/1099/*": [
+        "./src/feature_1099/*"
+      ],
+      "@feature/1100/*": [
+        "./src/feature_1100/*"
+      ],
+      "@feature/1101/*": [
+        "./src/feature_1101/*"
+      ],
+      "@feature/1102/*": [
+        "./src/feature_1102/*"
+      ],
+      "@feature/1103/*": [
+        "./src/feature_1103/*"
+      ],
+      "@feature/1104/*": [
+        "./src/feature_1104/*"
+      ],
+      "@feature/1105/*": [
+        "./src/feature_1105/*"
+      ],
+      "@feature/1106/*": [
+        "./src/feature_1106/*"
+      ],
+      "@feature/1107/*": [
+        "./src/feature_1107/*"
+      ],
+      "@feature/1108/*": [
+        "./src/feature_1108/*"
+      ],
+      "@feature/1109/*": [
+        "./src/feature_1109/*"
+      ],
+      "@feature/1110/*": [
+        "./src/feature_1110/*"
+      ],
+      "@feature/1111/*": [
+        "./src/feature_1111/*"
+      ],
+      "@feature/1112/*": [
+        "./src/feature_1112/*"
+      ],
+      "@feature/1113/*": [
+        "./src/feature_1113/*"
+      ],
+      "@feature/1114/*": [
+        "./src/feature_1114/*"
+      ],
+      "@feature/1115/*": [
+        "./src/feature_1115/*"
+      ],
+      "@feature/1116/*": [
+        "./src/feature_1116/*"
+      ],
+      "@feature/1117/*": [
+        "./src/feature_1117/*"
+      ],
+      "@feature/1118/*": [
+        "./src/feature_1118/*"
+      ],
+      "@feature/1119/*": [
+        "./src/feature_1119/*"
+      ],
+      "@feature/1120/*": [
+        "./src/feature_1120/*"
+      ],
+      "@feature/1121/*": [
+        "./src/feature_1121/*"
+      ],
+      "@feature/1122/*": [
+        "./src/feature_1122/*"
+      ],
+      "@feature/1123/*": [
+        "./src/feature_1123/*"
+      ],
+      "@feature/1124/*": [
+        "./src/feature_1124/*"
+      ],
+      "@feature/1125/*": [
+        "./src/feature_1125/*"
+      ],
+      "@feature/1126/*": [
+        "./src/feature_1126/*"
+      ],
+      "@feature/1127/*": [
+        "./src/feature_1127/*"
+      ],
+      "@feature/1128/*": [
+        "./src/feature_1128/*"
+      ],
+      "@feature/1129/*": [
+        "./src/feature_1129/*"
+      ],
+      "@feature/1130/*": [
+        "./src/feature_1130/*"
+      ],
+      "@feature/1131/*": [
+        "./src/feature_1131/*"
+      ],
+      "@feature/1132/*": [
+        "./src/feature_1132/*"
+      ],
+      "@feature/1133/*": [
+        "./src/feature_1133/*"
+      ],
+      "@feature/1134/*": [
+        "./src/feature_1134/*"
+      ],
+      "@feature/1135/*": [
+        "./src/feature_1135/*"
+      ],
+      "@feature/1136/*": [
+        "./src/feature_1136/*"
+      ],
+      "@feature/1137/*": [
+        "./src/feature_1137/*"
+      ],
+      "@feature/1138/*": [
+        "./src/feature_1138/*"
+      ],
+      "@feature/1139/*": [
+        "./src/feature_1139/*"
+      ],
+      "@feature/1140/*": [
+        "./src/feature_1140/*"
+      ],
+      "@feature/1141/*": [
+        "./src/feature_1141/*"
+      ],
+      "@feature/1142/*": [
+        "./src/feature_1142/*"
+      ],
+      "@feature/1143/*": [
+        "./src/feature_1143/*"
+      ],
+      "@feature/1144/*": [
+        "./src/feature_1144/*"
+      ],
+      "@feature/1145/*": [
+        "./src/feature_1145/*"
+      ],
+      "@feature/1146/*": [
+        "./src/feature_1146/*"
+      ],
+      "@feature/1147/*": [
+        "./src/feature_1147/*"
+      ],
+      "@feature/1148/*": [
+        "./src/feature_1148/*"
+      ],
+      "@feature/1149/*": [
+        "./src/feature_1149/*"
+      ],
+      "@feature/1150/*": [
+        "./src/feature_1150/*"
+      ],
+      "@feature/1151/*": [
+        "./src/feature_1151/*"
+      ],
+      "@feature/1152/*": [
+        "./src/feature_1152/*"
+      ],
+      "@feature/1153/*": [
+        "./src/feature_1153/*"
+      ],
+      "@feature/1154/*": [
+        "./src/feature_1154/*"
+      ],
+      "@feature/1155/*": [
+        "./src/feature_1155/*"
+      ],
+      "@feature/1156/*": [
+        "./src/feature_1156/*"
+      ],
+      "@feature/1157/*": [
+        "./src/feature_1157/*"
+      ],
+      "@feature/1158/*": [
+        "./src/feature_1158/*"
+      ],
+      "@feature/1159/*": [
+        "./src/feature_1159/*"
+      ],
+      "@feature/1160/*": [
+        "./src/feature_1160/*"
+      ],
+      "@feature/1161/*": [
+        "./src/feature_1161/*"
+      ],
+      "@feature/1162/*": [
+        "./src/feature_1162/*"
+      ],
+      "@feature/1163/*": [
+        "./src/feature_1163/*"
+      ],
+      "@feature/1164/*": [
+        "./src/feature_1164/*"
+      ],
+      "@feature/1165/*": [
+        "./src/feature_1165/*"
+      ],
+      "@feature/1166/*": [
+        "./src/feature_1166/*"
+      ],
+      "@feature/1167/*": [
+        "./src/feature_1167/*"
+      ],
+      "@feature/1168/*": [
+        "./src/feature_1168/*"
+      ],
+      "@feature/1169/*": [
+        "./src/feature_1169/*"
+      ],
+      "@feature/1170/*": [
+        "./src/feature_1170/*"
+      ],
+      "@feature/1171/*": [
+        "./src/feature_1171/*"
+      ],
+      "@feature/1172/*": [
+        "./src/feature_1172/*"
+      ],
+      "@feature/1173/*": [
+        "./src/feature_1173/*"
+      ],
+      "@feature/1174/*": [
+        "./src/feature_1174/*"
+      ],
+      "@feature/1175/*": [
+        "./src/feature_1175/*"
+      ],
+      "@feature/1176/*": [
+        "./src/feature_1176/*"
+      ],
+      "@feature/1177/*": [
+        "./src/feature_1177/*"
+      ],
+      "@feature/1178/*": [
+        "./src/feature_1178/*"
+      ],
+      "@feature/1179/*": [
+        "./src/feature_1179/*"
+      ],
+      "@feature/1180/*": [
+        "./src/feature_1180/*"
+      ],
+      "@feature/1181/*": [
+        "./src/feature_1181/*"
+      ],
+      "@feature/1182/*": [
+        "./src/feature_1182/*"
+      ],
+      "@feature/1183/*": [
+        "./src/feature_1183/*"
+      ],
+      "@feature/1184/*": [
+        "./src/feature_1184/*"
+      ],
+      "@feature/1185/*": [
+        "./src/feature_1185/*"
+      ],
+      "@feature/1186/*": [
+        "./src/feature_1186/*"
+      ],
+      "@feature/1187/*": [
+        "./src/feature_1187/*"
+      ],
+      "@feature/1188/*": [
+        "./src/feature_1188/*"
+      ],
+      "@feature/1189/*": [
+        "./src/feature_1189/*"
+      ],
+      "@feature/1190/*": [
+        "./src/feature_1190/*"
+      ],
+      "@feature/1191/*": [
+        "./src/feature_1191/*"
+      ],
+      "@feature/1192/*": [
+        "./src/feature_1192/*"
+      ],
+      "@feature/1193/*": [
+        "./src/feature_1193/*"
+      ],
+      "@feature/1194/*": [
+        "./src/feature_1194/*"
+      ],
+      "@feature/1195/*": [
+        "./src/feature_1195/*"
+      ],
+      "@feature/1196/*": [
+        "./src/feature_1196/*"
+      ],
+      "@feature/1197/*": [
+        "./src/feature_1197/*"
+      ],
+      "@feature/1198/*": [
+        "./src/feature_1198/*"
+      ],
+      "@feature/1199/*": [
+        "./src/feature_1199/*"
+      ],
+      "@feature/1200/*": [
+        "./src/feature_1200/*"
+      ],
+      "@feature/1201/*": [
+        "./src/feature_1201/*"
+      ],
+      "@feature/1202/*": [
+        "./src/feature_1202/*"
+      ],
+      "@feature/1203/*": [
+        "./src/feature_1203/*"
+      ],
+      "@feature/1204/*": [
+        "./src/feature_1204/*"
+      ],
+      "@feature/1205/*": [
+        "./src/feature_1205/*"
+      ],
+      "@feature/1206/*": [
+        "./src/feature_1206/*"
+      ],
+      "@feature/1207/*": [
+        "./src/feature_1207/*"
+      ],
+      "@feature/1208/*": [
+        "./src/feature_1208/*"
+      ],
+      "@feature/1209/*": [
+        "./src/feature_1209/*"
+      ],
+      "@feature/1210/*": [
+        "./src/feature_1210/*"
+      ],
+      "@feature/1211/*": [
+        "./src/feature_1211/*"
+      ],
+      "@feature/1212/*": [
+        "./src/feature_1212/*"
+      ],
+      "@feature/1213/*": [
+        "./src/feature_1213/*"
+      ],
+      "@feature/1214/*": [
+        "./src/feature_1214/*"
+      ],
+      "@feature/1215/*": [
+        "./src/feature_1215/*"
+      ],
+      "@feature/1216/*": [
+        "./src/feature_1216/*"
+      ],
+      "@feature/1217/*": [
+        "./src/feature_1217/*"
+      ],
+      "@feature/1218/*": [
+        "./src/feature_1218/*"
+      ],
+      "@feature/1219/*": [
+        "./src/feature_1219/*"
+      ],
+      "@feature/1220/*": [
+        "./src/feature_1220/*"
+      ],
+      "@feature/1221/*": [
+        "./src/feature_1221/*"
+      ],
+      "@feature/1222/*": [
+        "./src/feature_1222/*"
+      ],
+      "@feature/1223/*": [
+        "./src/feature_1223/*"
+      ],
+      "@feature/1224/*": [
+        "./src/feature_1224/*"
+      ],
+      "@feature/1225/*": [
+        "./src/feature_1225/*"
+      ],
+      "@feature/1226/*": [
+        "./src/feature_1226/*"
+      ],
+      "@feature/1227/*": [
+        "./src/feature_1227/*"
+      ],
+      "@feature/1228/*": [
+        "./src/feature_1228/*"
+      ],
+      "@feature/1229/*": [
+        "./src/feature_1229/*"
+      ],
+      "@feature/1230/*": [
+        "./src/feature_1230/*"
+      ],
+      "@feature/1231/*": [
+        "./src/feature_1231/*"
+      ],
+      "@feature/1232/*": [
+        "./src/feature_1232/*"
+      ],
+      "@feature/1233/*": [
+        "./src/feature_1233/*"
+      ],
+      "@feature/1234/*": [
+        "./src/feature_1234/*"
+      ],
+      "@feature/1235/*": [
+        "./src/feature_1235/*"
+      ],
+      "@feature/1236/*": [
+        "./src/feature_1236/*"
+      ],
+      "@feature/1237/*": [
+        "./src/feature_1237/*"
+      ],
+      "@feature/1238/*": [
+        "./src/feature_1238/*"
+      ],
+      "@feature/1239/*": [
+        "./src/feature_1239/*"
+      ],
+      "@feature/1240/*": [
+        "./src/feature_1240/*"
+      ],
+      "@feature/1241/*": [
+        "./src/feature_1241/*"
+      ],
+      "@feature/1242/*": [
+        "./src/feature_1242/*"
+      ],
+      "@feature/1243/*": [
+        "./src/feature_1243/*"
+      ],
+      "@feature/1244/*": [
+        "./src/feature_1244/*"
+      ],
+      "@feature/1245/*": [
+        "./src/feature_1245/*"
+      ],
+      "@feature/1246/*": [
+        "./src/feature_1246/*"
+      ],
+      "@feature/1247/*": [
+        "./src/feature_1247/*"
+      ],
+      "@feature/1248/*": [
+        "./src/feature_1248/*"
+      ],
+      "@feature/1249/*": [
+        "./src/feature_1249/*"
+      ],
+      "@feature/1250/*": [
+        "./src/feature_1250/*"
+      ],
+      "@feature/1251/*": [
+        "./src/feature_1251/*"
+      ],
+      "@feature/1252/*": [
+        "./src/feature_1252/*"
+      ],
+      "@feature/1253/*": [
+        "./src/feature_1253/*"
+      ],
+      "@feature/1254/*": [
+        "./src/feature_1254/*"
+      ],
+      "@feature/1255/*": [
+        "./src/feature_1255/*"
+      ],
+      "@feature/1256/*": [
+        "./src/feature_1256/*"
+      ],
+      "@feature/1257/*": [
+        "./src/feature_1257/*"
+      ],
+      "@feature/1258/*": [
+        "./src/feature_1258/*"
+      ],
+      "@feature/1259/*": [
+        "./src/feature_1259/*"
+      ],
+      "@feature/1260/*": [
+        "./src/feature_1260/*"
+      ],
+      "@feature/1261/*": [
+        "./src/feature_1261/*"
+      ],
+      "@feature/1262/*": [
+        "./src/feature_1262/*"
+      ],
+      "@feature/1263/*": [
+        "./src/feature_1263/*"
+      ],
+      "@feature/1264/*": [
+        "./src/feature_1264/*"
+      ],
+      "@feature/1265/*": [
+        "./src/feature_1265/*"
+      ],
+      "@feature/1266/*": [
+        "./src/feature_1266/*"
+      ],
+      "@feature/1267/*": [
+        "./src/feature_1267/*"
+      ],
+      "@feature/1268/*": [
+        "./src/feature_1268/*"
+      ],
+      "@feature/1269/*": [
+        "./src/feature_1269/*"
+      ],
+      "@feature/1270/*": [
+        "./src/feature_1270/*"
+      ],
+      "@feature/1271/*": [
+        "./src/feature_1271/*"
+      ],
+      "@feature/1272/*": [
+        "./src/feature_1272/*"
+      ],
+      "@feature/1273/*": [
+        "./src/feature_1273/*"
+      ],
+      "@feature/1274/*": [
+        "./src/feature_1274/*"
+      ],
+      "@feature/1275/*": [
+        "./src/feature_1275/*"
+      ],
+      "@feature/1276/*": [
+        "./src/feature_1276/*"
+      ],
+      "@feature/1277/*": [
+        "./src/feature_1277/*"
+      ],
+      "@feature/1278/*": [
+        "./src/feature_1278/*"
+      ],
+      "@feature/1279/*": [
+        "./src/feature_1279/*"
+      ],
+      "@feature/1280/*": [
+        "./src/feature_1280/*"
+      ],
+      "@feature/1281/*": [
+        "./src/feature_1281/*"
+      ],
+      "@feature/1282/*": [
+        "./src/feature_1282/*"
+      ],
+      "@feature/1283/*": [
+        "./src/feature_1283/*"
+      ],
+      "@feature/1284/*": [
+        "./src/feature_1284/*"
+      ],
+      "@feature/1285/*": [
+        "./src/feature_1285/*"
+      ],
+      "@feature/1286/*": [
+        "./src/feature_1286/*"
+      ],
+      "@feature/1287/*": [
+        "./src/feature_1287/*"
+      ],
+      "@feature/1288/*": [
+        "./src/feature_1288/*"
+      ],
+      "@feature/1289/*": [
+        "./src/feature_1289/*"
+      ],
+      "@feature/1290/*": [
+        "./src/feature_1290/*"
+      ],
+      "@feature/1291/*": [
+        "./src/feature_1291/*"
+      ],
+      "@feature/1292/*": [
+        "./src/feature_1292/*"
+      ],
+      "@feature/1293/*": [
+        "./src/feature_1293/*"
+      ],
+      "@feature/1294/*": [
+        "./src/feature_1294/*"
+      ],
+      "@feature/1295/*": [
+        "./src/feature_1295/*"
+      ],
+      "@feature/1296/*": [
+        "./src/feature_1296/*"
+      ],
+      "@feature/1297/*": [
+        "./src/feature_1297/*"
+      ],
+      "@feature/1298/*": [
+        "./src/feature_1298/*"
+      ],
+      "@feature/1299/*": [
+        "./src/feature_1299/*"
+      ],
+      "@feature/1300/*": [
+        "./src/feature_1300/*"
+      ],
+      "@feature/1301/*": [
+        "./src/feature_1301/*"
+      ],
+      "@feature/1302/*": [
+        "./src/feature_1302/*"
+      ],
+      "@feature/1303/*": [
+        "./src/feature_1303/*"
+      ],
+      "@feature/1304/*": [
+        "./src/feature_1304/*"
+      ],
+      "@feature/1305/*": [
+        "./src/feature_1305/*"
+      ],
+      "@feature/1306/*": [
+        "./src/feature_1306/*"
+      ],
+      "@feature/1307/*": [
+        "./src/feature_1307/*"
+      ],
+      "@feature/1308/*": [
+        "./src/feature_1308/*"
+      ],
+      "@feature/1309/*": [
+        "./src/feature_1309/*"
+      ],
+      "@feature/1310/*": [
+        "./src/feature_1310/*"
+      ],
+      "@feature/1311/*": [
+        "./src/feature_1311/*"
+      ],
+      "@feature/1312/*": [
+        "./src/feature_1312/*"
+      ],
+      "@feature/1313/*": [
+        "./src/feature_1313/*"
+      ],
+      "@feature/1314/*": [
+        "./src/feature_1314/*"
+      ],
+      "@feature/1315/*": [
+        "./src/feature_1315/*"
+      ],
+      "@feature/1316/*": [
+        "./src/feature_1316/*"
+      ],
+      "@feature/1317/*": [
+        "./src/feature_1317/*"
+      ],
+      "@feature/1318/*": [
+        "./src/feature_1318/*"
+      ],
+      "@feature/1319/*": [
+        "./src/feature_1319/*"
+      ],
+      "@feature/1320/*": [
+        "./src/feature_1320/*"
+      ],
+      "@feature/1321/*": [
+        "./src/feature_1321/*"
+      ],
+      "@feature/1322/*": [
+        "./src/feature_1322/*"
+      ],
+      "@feature/1323/*": [
+        "./src/feature_1323/*"
+      ],
+      "@feature/1324/*": [
+        "./src/feature_1324/*"
+      ],
+      "@feature/1325/*": [
+        "./src/feature_1325/*"
+      ],
+      "@feature/1326/*": [
+        "./src/feature_1326/*"
+      ],
+      "@feature/1327/*": [
+        "./src/feature_1327/*"
+      ],
+      "@feature/1328/*": [
+        "./src/feature_1328/*"
+      ],
+      "@feature/1329/*": [
+        "./src/feature_1329/*"
+      ],
+      "@feature/1330/*": [
+        "./src/feature_1330/*"
+      ],
+      "@feature/1331/*": [
+        "./src/feature_1331/*"
+      ],
+      "@feature/1332/*": [
+        "./src/feature_1332/*"
+      ],
+      "@feature/1333/*": [
+        "./src/feature_1333/*"
+      ],
+      "@feature/1334/*": [
+        "./src/feature_1334/*"
+      ],
+      "@feature/1335/*": [
+        "./src/feature_1335/*"
+      ],
+      "@feature/1336/*": [
+        "./src/feature_1336/*"
+      ],
+      "@feature/1337/*": [
+        "./src/feature_1337/*"
+      ],
+      "@feature/1338/*": [
+        "./src/feature_1338/*"
+      ],
+      "@feature/1339/*": [
+        "./src/feature_1339/*"
+      ],
+      "@feature/1340/*": [
+        "./src/feature_1340/*"
+      ],
+      "@feature/1341/*": [
+        "./src/feature_1341/*"
+      ],
+      "@feature/1342/*": [
+        "./src/feature_1342/*"
+      ],
+      "@feature/1343/*": [
+        "./src/feature_1343/*"
+      ],
+      "@feature/1344/*": [
+        "./src/feature_1344/*"
+      ],
+      "@feature/1345/*": [
+        "./src/feature_1345/*"
+      ],
+      "@feature/1346/*": [
+        "./src/feature_1346/*"
+      ],
+      "@feature/1347/*": [
+        "./src/feature_1347/*"
+      ],
+      "@feature/1348/*": [
+        "./src/feature_1348/*"
+      ],
+      "@feature/1349/*": [
+        "./src/feature_1349/*"
+      ],
+      "@feature/1350/*": [
+        "./src/feature_1350/*"
+      ],
+      "@feature/1351/*": [
+        "./src/feature_1351/*"
+      ],
+      "@feature/1352/*": [
+        "./src/feature_1352/*"
+      ],
+      "@feature/1353/*": [
+        "./src/feature_1353/*"
+      ],
+      "@feature/1354/*": [
+        "./src/feature_1354/*"
+      ],
+      "@feature/1355/*": [
+        "./src/feature_1355/*"
+      ],
+      "@feature/1356/*": [
+        "./src/feature_1356/*"
+      ],
+      "@feature/1357/*": [
+        "./src/feature_1357/*"
+      ],
+      "@feature/1358/*": [
+        "./src/feature_1358/*"
+      ],
+      "@feature/1359/*": [
+        "./src/feature_1359/*"
+      ],
+      "@feature/1360/*": [
+        "./src/feature_1360/*"
+      ],
+      "@feature/1361/*": [
+        "./src/feature_1361/*"
+      ],
+      "@feature/1362/*": [
+        "./src/feature_1362/*"
+      ],
+      "@feature/1363/*": [
+        "./src/feature_1363/*"
+      ],
+      "@feature/1364/*": [
+        "./src/feature_1364/*"
+      ],
+      "@feature/1365/*": [
+        "./src/feature_1365/*"
+      ],
+      "@feature/1366/*": [
+        "./src/feature_1366/*"
+      ],
+      "@feature/1367/*": [
+        "./src/feature_1367/*"
+      ],
+      "@feature/1368/*": [
+        "./src/feature_1368/*"
+      ],
+      "@feature/1369/*": [
+        "./src/feature_1369/*"
+      ],
+      "@feature/1370/*": [
+        "./src/feature_1370/*"
+      ],
+      "@feature/1371/*": [
+        "./src/feature_1371/*"
+      ],
+      "@feature/1372/*": [
+        "./src/feature_1372/*"
+      ],
+      "@feature/1373/*": [
+        "./src/feature_1373/*"
+      ],
+      "@feature/1374/*": [
+        "./src/feature_1374/*"
+      ],
+      "@feature/1375/*": [
+        "./src/feature_1375/*"
+      ],
+      "@feature/1376/*": [
+        "./src/feature_1376/*"
+      ],
+      "@feature/1377/*": [
+        "./src/feature_1377/*"
+      ],
+      "@feature/1378/*": [
+        "./src/feature_1378/*"
+      ],
+      "@feature/1379/*": [
+        "./src/feature_1379/*"
+      ],
+      "@feature/1380/*": [
+        "./src/feature_1380/*"
+      ],
+      "@feature/1381/*": [
+        "./src/feature_1381/*"
+      ],
+      "@feature/1382/*": [
+        "./src/feature_1382/*"
+      ],
+      "@feature/1383/*": [
+        "./src/feature_1383/*"
+      ],
+      "@feature/1384/*": [
+        "./src/feature_1384/*"
+      ],
+      "@feature/1385/*": [
+        "./src/feature_1385/*"
+      ],
+      "@feature/1386/*": [
+        "./src/feature_1386/*"
+      ],
+      "@feature/1387/*": [
+        "./src/feature_1387/*"
+      ],
+      "@feature/1388/*": [
+        "./src/feature_1388/*"
+      ],
+      "@feature/1389/*": [
+        "./src/feature_1389/*"
+      ],
+      "@feature/1390/*": [
+        "./src/feature_1390/*"
+      ],
+      "@feature/1391/*": [
+        "./src/feature_1391/*"
+      ],
+      "@feature/1392/*": [
+        "./src/feature_1392/*"
+      ],
+      "@feature/1393/*": [
+        "./src/feature_1393/*"
+      ],
+      "@feature/1394/*": [
+        "./src/feature_1394/*"
+      ],
+      "@feature/1395/*": [
+        "./src/feature_1395/*"
+      ],
+      "@feature/1396/*": [
+        "./src/feature_1396/*"
+      ],
+      "@feature/1397/*": [
+        "./src/feature_1397/*"
+      ],
+      "@feature/1398/*": [
+        "./src/feature_1398/*"
+      ],
+      "@feature/1399/*": [
+        "./src/feature_1399/*"
+      ],
+      "@feature/1400/*": [
+        "./src/feature_1400/*"
+      ],
+      "@feature/1401/*": [
+        "./src/feature_1401/*"
+      ],
+      "@feature/1402/*": [
+        "./src/feature_1402/*"
+      ],
+      "@feature/1403/*": [
+        "./src/feature_1403/*"
+      ],
+      "@feature/1404/*": [
+        "./src/feature_1404/*"
+      ],
+      "@feature/1405/*": [
+        "./src/feature_1405/*"
+      ],
+      "@feature/1406/*": [
+        "./src/feature_1406/*"
+      ],
+      "@feature/1407/*": [
+        "./src/feature_1407/*"
+      ],
+      "@feature/1408/*": [
+        "./src/feature_1408/*"
+      ],
+      "@feature/1409/*": [
+        "./src/feature_1409/*"
+      ],
+      "@feature/1410/*": [
+        "./src/feature_1410/*"
+      ],
+      "@feature/1411/*": [
+        "./src/feature_1411/*"
+      ],
+      "@feature/1412/*": [
+        "./src/feature_1412/*"
+      ],
+      "@feature/1413/*": [
+        "./src/feature_1413/*"
+      ],
+      "@feature/1414/*": [
+        "./src/feature_1414/*"
+      ],
+      "@feature/1415/*": [
+        "./src/feature_1415/*"
+      ],
+      "@feature/1416/*": [
+        "./src/feature_1416/*"
+      ],
+      "@feature/1417/*": [
+        "./src/feature_1417/*"
+      ],
+      "@feature/1418/*": [
+        "./src/feature_1418/*"
+      ],
+      "@feature/1419/*": [
+        "./src/feature_1419/*"
+      ],
+      "@feature/1420/*": [
+        "./src/feature_1420/*"
+      ],
+      "@feature/1421/*": [
+        "./src/feature_1421/*"
+      ],
+      "@feature/1422/*": [
+        "./src/feature_1422/*"
+      ],
+      "@feature/1423/*": [
+        "./src/feature_1423/*"
+      ],
+      "@feature/1424/*": [
+        "./src/feature_1424/*"
+      ],
+      "@feature/1425/*": [
+        "./src/feature_1425/*"
+      ],
+      "@feature/1426/*": [
+        "./src/feature_1426/*"
+      ],
+      "@feature/1427/*": [
+        "./src/feature_1427/*"
+      ],
+      "@feature/1428/*": [
+        "./src/feature_1428/*"
+      ],
+      "@feature/1429/*": [
+        "./src/feature_1429/*"
+      ],
+      "@feature/1430/*": [
+        "./src/feature_1430/*"
+      ],
+      "@feature/1431/*": [
+        "./src/feature_1431/*"
+      ],
+      "@feature/1432/*": [
+        "./src/feature_1432/*"
+      ],
+      "@feature/1433/*": [
+        "./src/feature_1433/*"
+      ],
+      "@feature/1434/*": [
+        "./src/feature_1434/*"
+      ],
+      "@feature/1435/*": [
+        "./src/feature_1435/*"
+      ],
+      "@feature/1436/*": [
+        "./src/feature_1436/*"
+      ],
+      "@feature/1437/*": [
+        "./src/feature_1437/*"
+      ],
+      "@feature/1438/*": [
+        "./src/feature_1438/*"
+      ],
+      "@feature/1439/*": [
+        "./src/feature_1439/*"
+      ],
+      "@feature/1440/*": [
+        "./src/feature_1440/*"
+      ],
+      "@feature/1441/*": [
+        "./src/feature_1441/*"
+      ],
+      "@feature/1442/*": [
+        "./src/feature_1442/*"
+      ],
+      "@feature/1443/*": [
+        "./src/feature_1443/*"
+      ],
+      "@feature/1444/*": [
+        "./src/feature_1444/*"
+      ],
+      "@feature/1445/*": [
+        "./src/feature_1445/*"
+      ],
+      "@feature/1446/*": [
+        "./src/feature_1446/*"
+      ],
+      "@feature/1447/*": [
+        "./src/feature_1447/*"
+      ],
+      "@feature/1448/*": [
+        "./src/feature_1448/*"
+      ],
+      "@feature/1449/*": [
+        "./src/feature_1449/*"
+      ],
+      "@feature/1450/*": [
+        "./src/feature_1450/*"
+      ],
+      "@feature/1451/*": [
+        "./src/feature_1451/*"
+      ],
+      "@feature/1452/*": [
+        "./src/feature_1452/*"
+      ],
+      "@feature/1453/*": [
+        "./src/feature_1453/*"
+      ],
+      "@feature/1454/*": [
+        "./src/feature_1454/*"
+      ],
+      "@feature/1455/*": [
+        "./src/feature_1455/*"
+      ],
+      "@feature/1456/*": [
+        "./src/feature_1456/*"
+      ],
+      "@feature/1457/*": [
+        "./src/feature_1457/*"
+      ],
+      "@feature/1458/*": [
+        "./src/feature_1458/*"
+      ],
+      "@feature/1459/*": [
+        "./src/feature_1459/*"
+      ],
+      "@feature/1460/*": [
+        "./src/feature_1460/*"
+      ],
+      "@feature/1461/*": [
+        "./src/feature_1461/*"
+      ],
+      "@feature/1462/*": [
+        "./src/feature_1462/*"
+      ],
+      "@feature/1463/*": [
+        "./src/feature_1463/*"
+      ],
+      "@feature/1464/*": [
+        "./src/feature_1464/*"
+      ],
+      "@feature/1465/*": [
+        "./src/feature_1465/*"
+      ],
+      "@feature/1466/*": [
+        "./src/feature_1466/*"
+      ],
+      "@feature/1467/*": [
+        "./src/feature_1467/*"
+      ],
+      "@feature/1468/*": [
+        "./src/feature_1468/*"
+      ],
+      "@feature/1469/*": [
+        "./src/feature_1469/*"
+      ],
+      "@feature/1470/*": [
+        "./src/feature_1470/*"
+      ],
+      "@feature/1471/*": [
+        "./src/feature_1471/*"
+      ],
+      "@feature/1472/*": [
+        "./src/feature_1472/*"
+      ],
+      "@feature/1473/*": [
+        "./src/feature_1473/*"
+      ],
+      "@feature/1474/*": [
+        "./src/feature_1474/*"
+      ],
+      "@feature/1475/*": [
+        "./src/feature_1475/*"
+      ],
+      "@feature/1476/*": [
+        "./src/feature_1476/*"
+      ],
+      "@feature/1477/*": [
+        "./src/feature_1477/*"
+      ],
+      "@feature/1478/*": [
+        "./src/feature_1478/*"
+      ],
+      "@feature/1479/*": [
+        "./src/feature_1479/*"
+      ],
+      "@feature/1480/*": [
+        "./src/feature_1480/*"
+      ],
+      "@feature/1481/*": [
+        "./src/feature_1481/*"
+      ],
+      "@feature/1482/*": [
+        "./src/feature_1482/*"
+      ],
+      "@feature/1483/*": [
+        "./src/feature_1483/*"
+      ],
+      "@feature/1484/*": [
+        "./src/feature_1484/*"
+      ],
+      "@feature/1485/*": [
+        "./src/feature_1485/*"
+      ],
+      "@feature/1486/*": [
+        "./src/feature_1486/*"
+      ],
+      "@feature/1487/*": [
+        "./src/feature_1487/*"
+      ],
+      "@feature/1488/*": [
+        "./src/feature_1488/*"
+      ],
+      "@feature/1489/*": [
+        "./src/feature_1489/*"
+      ],
+      "@feature/1490/*": [
+        "./src/feature_1490/*"
+      ],
+      "@feature/1491/*": [
+        "./src/feature_1491/*"
+      ],
+      "@feature/1492/*": [
+        "./src/feature_1492/*"
+      ],
+      "@feature/1493/*": [
+        "./src/feature_1493/*"
+      ],
+      "@feature/1494/*": [
+        "./src/feature_1494/*"
+      ],
+      "@feature/1495/*": [
+        "./src/feature_1495/*"
+      ],
+      "@feature/1496/*": [
+        "./src/feature_1496/*"
+      ],
+      "@feature/1497/*": [
+        "./src/feature_1497/*"
+      ],
+      "@feature/1498/*": [
+        "./src/feature_1498/*"
+      ],
+      "@feature/1499/*": [
+        "./src/feature_1499/*"
+      ],
+      "@feature/1500/*": [
+        "./src/feature_1500/*"
+      ],
+      "@feature/1501/*": [
+        "./src/feature_1501/*"
+      ],
+      "@feature/1502/*": [
+        "./src/feature_1502/*"
+      ],
+      "@feature/1503/*": [
+        "./src/feature_1503/*"
+      ],
+      "@feature/1504/*": [
+        "./src/feature_1504/*"
+      ],
+      "@feature/1505/*": [
+        "./src/feature_1505/*"
+      ],
+      "@feature/1506/*": [
+        "./src/feature_1506/*"
+      ],
+      "@feature/1507/*": [
+        "./src/feature_1507/*"
+      ],
+      "@feature/1508/*": [
+        "./src/feature_1508/*"
+      ],
+      "@feature/1509/*": [
+        "./src/feature_1509/*"
+      ],
+      "@feature/1510/*": [
+        "./src/feature_1510/*"
+      ],
+      "@feature/1511/*": [
+        "./src/feature_1511/*"
+      ],
+      "@feature/1512/*": [
+        "./src/feature_1512/*"
+      ],
+      "@feature/1513/*": [
+        "./src/feature_1513/*"
+      ],
+      "@feature/1514/*": [
+        "./src/feature_1514/*"
+      ],
+      "@feature/1515/*": [
+        "./src/feature_1515/*"
+      ],
+      "@feature/1516/*": [
+        "./src/feature_1516/*"
+      ],
+      "@feature/1517/*": [
+        "./src/feature_1517/*"
+      ],
+      "@feature/1518/*": [
+        "./src/feature_1518/*"
+      ]
+    },
+    "strict": true,
+    "target": "ES2022"
+  },
+  "exclude": [
+    "dist",
+    "node_modules"
+  ],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ]
+}

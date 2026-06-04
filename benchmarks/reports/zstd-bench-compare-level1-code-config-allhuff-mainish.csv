@@ -1,0 +1,13 @@
+fixture,encoder,bytes,elapsed,cpu,rss
+build_libruzstd.rlib,upstream,611155,0.03,0.03,5780
+build_libruzstd.rlib,current,611155,0.04,0.03,6408
+build_libruzstd.rlib,c_zstd,635879,0.00,0.00,6864
+dict_dictionary.bin,upstream,20667,0.00,0.00,4472
+dict_dictionary.bin,current,20667,0.00,0.00,4944
+dict_dictionary.bin,c_zstd,20145,0.00,0.00,2952
+generated_json_logs_001m.jsonl,upstream,58767,0.01,0.00,5068
+generated_json_logs_001m.jsonl,current,58767,0.01,0.00,5672
+generated_json_logs_001m.jsonl,c_zstd,59118,0.00,0.00,4880
+repo_match_generator.rs,upstream,22587,0.00,0.00,4700
+repo_match_generator.rs,current,22587,0.00,0.00,5232
+repo_match_generator.rs,c_zstd,22797,0.00,0.00,3148

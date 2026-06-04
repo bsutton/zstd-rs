@@ -1,0 +1,223 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 2K of event 'cpu/cycles/P'
+# Event count (approx.): 2309166995
+#
+# Overhead  Command          Shared Object            Symbol                                                                                                                
+# ........  ...............  .......................  ......................................................................................................................
+#
+    62.61%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+            |          
+            |--53.43%--ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+            |          |          
+            |          |--4.68%--0x676c6120676e6968
+            |          |          
+            |          |--1.00%--0x9f00000000000000
+            |          |          
+            |          |--0.66%--0x2020202020202020
+            |          |          
+            |           --0.54%--0x686374616d202020
+            |          
+            |--5.82%--ruzstd::encoding::match_generator::MatchGenerator::extend_match_backwards
+            |          
+            |--1.14%--core::ops::function::impls::<impl core::ops::function::FnMut<A> for &mut F>::call_mut
+            |          
+             --0.96%--ruzstd::encoding::match_generator::MatcherDiagnostics::record
+
+     6.20%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::match_generator::MatchGenerator::extend_match_backwards
+            |          
+            |--5.50%--ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+            |          |          
+            |           --0.61%--0x676c6120676e6968
+            |          
+             --0.62%--ruzstd::encoding::match_generator::MatchGenerator::extend_match_backwards
+
+     3.79%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::blocks::compressed::encode_sequences
+            |          
+            |--2.54%--ruzstd::encoding::blocks::compressed::encode_sequences
+            |          
+             --1.09%--ruzstd::fse::fse_encoder::FSETable::next_state
+
+     3.70%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::build_table_from_probabilities
+            |          
+             --1.86%--ruzstd::fse::fse_encoder::build_table_from_probabilities
+
+     3.21%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::blocks::compressed::compress_prepared_block
+            |          
+             --2.84%--ruzstd::encoding::blocks::compressed::compress_prepared_block
+                       |          
+                        --1.16%--0x676c6120676e6968
+
+     2.45%  tests::profile_  libc.so.6                [.] __memmove_avx_unaligned_erms
+            |          
+            |--0.79%--__memmove_avx_unaligned_erms
+            |          
+             --0.70%--ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+
+     1.61%  tests::profile_  libc.so.6                [.] _int_malloc
+     1.51%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::HuffmanEncoder<V>::encode4x
+            |          
+             --1.27%--ruzstd::huff0::huff0_encoder::HuffmanEncoder<V>::encode4x
+                       |          
+                        --0.77%--0
+
+     1.37%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::ops::function::impls::<impl core::ops::function::FnMut<A> for &mut F>::call_mut
+            |          
+             --1.18%--ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+
+     0.95%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::match_generator::MatcherDiagnostics::record
+            |          
+             --0.79%--ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+
+     0.72%  tests::profile_  ruzstd-143ebdf88e998775  [.] <twox_hash::xxhash64::Hasher as core::hash::Hasher>::write
+            |          
+             --0.64%--<twox_hash::xxhash64::Hasher as core::hash::Hasher>::write
+
+     0.65%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::FSETable::next_state
+     0.58%  tests::profile_  ruzstd-143ebdf88e998775  [.] <core::iter::adapters::map::Map<I,F> as core::iter::traits::unchecked_iterator::UncheckedIterator>::next_unchecked
+     0.50%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::bit_io::bit_writer::BitWriter<V>::write_bits_64_cold
+     0.45%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::HuffmanTable::encoded_len
+     0.45%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::length_limited_code_lengths
+     0.43%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::collections::binary_heap::BinaryHeap<T,A>::pop
+     0.36%  tests::profile_  libc.so.6                [.] __memset_avx2_unaligned_erms
+     0.29%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general
+     0.29%  tests::profile_  libc.so.6                [.] _int_free_chunk
+     0.28%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::insertion_sort_shift_left
+     0.25%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::blocks::compressed::prepare_block
+     0.25%  tests::profile_  libc.so.6                [.] __memmove_avx_unaligned
+     0.24%  tests::profile_  libc.so.6                [.] unlink_chunk.isra.0
+     0.24%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::build_table_from_data
+     0.24%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::raw_vec::RawVecInner<A>::finish_grow
+     0.22%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::build_table_from_data
+     0.21%  tests::profile_  libc.so.6                [.] _int_free_merge_chunk
+     0.19%  tests::profile_  ruzstd-143ebdf88e998775  [.] <ruzstd::encoding::match_generator::MatchGeneratorDriver as ruzstd::encoding::Matcher>::commit_space
+     0.17%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::HuffmanEncoder<V>::write_table
+     0.17%  tests::profile_  libc.so.6                [.] __libc_malloc2
+     0.17%  tests::profile_  libc.so.6                [.] cfree@GLIBC_2.2.5
+     0.17%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::insertion_sort_shift_left
+     0.16%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::levels::fastest::emit_matcher_block_or_raw
+     0.15%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::redistribute_weights
+     0.13%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::collections::binary_heap::BinaryHeap<T,A>::push
+     0.13%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::raw_vec::RawVecInner<A>::reserve::do_reserve_and_handle
+     0.12%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::ptr::drop_in_place<ruzstd::encoding::frame_compressor::FseTables>
+     0.12%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::unstable::quicksort::quicksort
+     0.08%  tests::profile_  [unknown]                [k] 0xffffffff9f5ae860
+     0.08%  tests::profile_  [unknown]                [k] 0xffffffff9f201268
+     0.08%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::normalize_counts
+     0.08%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general
+     0.08%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::HuffmanTable::build_from_weights
+     0.08%  tests::profile_  libc.so.6                [.] realloc
+     0.08%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general
+     0.07%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::FSETable::write_table
+     0.07%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::unstable::quicksort::quicksort
+     0.07%  tests::profile_  libc.so.6                [.] malloc
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffffa092d860
+     0.05%  env              [unknown]                [k] 0xffffffff9fa62810
+     0.05%  env              [unknown]                [k] 0xffffffff9fa32fe8
+     0.05%  env              [unknown]                [k] 0xffffffffa08e2cd6
+     0.05%  env              [unknown]                [k] 0xffffffff9f9f623b
+     0.05%  env              env                      [.] 0x00000000001ec293
+     0.05%  env              [unknown]                [k] 0xffffffff9fa31cd2
+     0.05%  env              [unknown]                [k] 0xffffffff9f9f3865
+     0.05%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9fa0360b
+     0.05%  tests::profile_  [unknown]                [k] 0xffffffff9f6dba97
+     0.04%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9fa13888
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::match_generator::MatchGeneratorDriver::new
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f9fc53b
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffffa092cdc0
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f6b8920
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9fa3791a
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] __rustc::__rust_dealloc
+     0.04%  env              [unknown]                [k] 0xffffffff9f955125
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9fab4e96
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f608282
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f9fafe7
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::old_normalize_counts
+     0.04%  tests::profile_  libc.so.6                [.] _int_free_maybe_trim
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::build_table_from_counts
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9fab8097
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general_with_scratch
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::pivot::median3_rec
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f9fc4c5
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f687de6
+     0.04%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f6fff49
+     0.04%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffffa091b2d0
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::unstable::quicksort::quicksort
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9fab5502
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffffc199f432
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9fa7ca36
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffffc19ea2c0
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::sort8_stable
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f996a2a
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9fab8017
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f9fcbcf
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f996044
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f71d4e6
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f78a8b9
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f5af9cb
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffffa08e2c24
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9fa2a9ce
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f64d6d6
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::frame_compressor::compress_with_level_policy
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::raw_vec::RawVec<T,A>::grow_one
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffffc063eccc
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f7773cc
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f739540
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f9f2b3b
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f739534
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f6b71f6
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9fa49e34
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffffa091617a
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9fab4f81
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::FSEEncoder<V>::encode_interleaved
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::util::likely_incompressible
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f75e0f8
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f6d8572
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f6d8553
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffffc199f43c
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9fab8176
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f9961e8
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffffa08f9673
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffffa06f373b
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f6b893f
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9fa1138e
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f71d4e2
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f95be46
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::rank_limited_weights
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f6162fe
+     0.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::raw_vec::RawVec<T,A>::grow_one
+     0.03%  tests::profile_  [unknown]                [k] 0xffffffff9f6a3fdb
+     0.03%  tests::profile_  [unknown]                [k] 0xffffffff9f997565
+     0.03%  tests::profile_  [unknown]                [k] 0xffffffff9f9fafc7
+     0.03%  tests::profile_  [unknown]                [k] 0xffffffff9f9fb104
+     0.03%  tests::profile_  [unknown]                [k] 0xffffffff9fa08860
+     0.03%  tests::profile_  [unknown]                [k] 0xffffffff9fa35057
+     0.03%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::pivot::median3_rec
+     0.03%  tests::profile_  libc.so.6                [.] __libc_calloc
+     0.02%  env              [unknown]                [k] 0xffffffff9f9f6233
+     0.02%  tests::profile_  [unknown]                [k] 0xffffffff9f9f621a
+     0.02%  tests::profile_  [unknown]                [k] 0xffffffff9fa25718
+     0.01%  tests::profile_  [unknown]                [k] 0xffffffff9fab81ab
+     0.01%  tests::profile_  [unknown]                [k] 0xffffffffc0b205c1
+     0.00%  tests::profile_  [unknown]                [k] 0xffffffffa0609c66
+     0.00%  env              [unknown]                [k] 0xffffffff9fb43bff
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f97a705
+     0.00%  env              [unknown]                [k] 0xffffffff9fd9fb04
+     0.00%  ruzstd-143ebdf8  libc.so.6                [.] __GI___clone3
+     0.00%  perf-exec        [unknown]                [k] 0xffffffff9f556b19
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f7438b4
+     0.00%  perf-exec        [unknown]                [k] 0xffffffff9f60843b
+     0.00%  perf-exec        [unknown]                [k] 0xffffffff9f96050c
+     0.00%  perf-exec        [unknown]                [k] 0xffffffffa092d845
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f9604d0
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f96050c
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffffa092d845
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

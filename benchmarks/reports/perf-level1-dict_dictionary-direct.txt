@@ -1,0 +1,169 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cpu/cycles/P'
+# Event count (approx.): 1548968969
+#
+# Overhead  Command          Shared Object            Symbol                                                                                                  
+# ........  ...............  .......................  ........................................................................................................
+#
+    66.32%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+            |          
+            |--59.50%--ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+            |          |          
+            |          |--6.52%--0x3bcf00049bc01036
+            |          |          
+            |           --1.73%--0
+            |          
+            |--4.79%--ruzstd::encoding::match_generator::MatchGenerator::extend_match_backwards
+            |          
+            |--0.69%--core::ops::function::impls::<impl core::ops::function::FnMut<A> for &mut F>::call_mut
+            |          
+             --0.54%--__memmove_avx_unaligned_erms
+
+     4.03%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::match_generator::MatchGenerator::extend_match_backwards
+            |          
+             --3.50%--ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+
+     3.93%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::blocks::compressed::compress_prepared_block
+            |          
+             --3.75%--ruzstd::encoding::blocks::compressed::compress_prepared_block
+                       |          
+                        --2.83%--0x3bcf00049bc01036
+
+     3.56%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::HuffmanEncoder<V>::encode4x
+            |          
+             --3.44%--ruzstd::huff0::huff0_encoder::HuffmanEncoder<V>::encode4x
+                       |          
+                       |--1.85%--0x740800000001
+                       |          
+                        --0.55%--0x3bcf00049bc01036
+
+     3.47%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::build_table_from_probabilities
+            |          
+             --1.80%--ruzstd::fse::fse_encoder::build_table_from_probabilities
+
+     2.68%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::blocks::compressed::encode_sequences
+            |          
+             --1.86%--ruzstd::encoding::blocks::compressed::encode_sequences
+
+     2.13%  tests::profile_  libc.so.6                [.] __memmove_avx_unaligned_erms
+            |          
+            |--0.64%--__memmove_avx_unaligned_erms
+            |          
+             --0.60%--ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+
+     1.00%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::length_limited_code_lengths
+            |          
+             --0.76%--ruzstd::huff0::huff0_encoder::length_limited_code_lengths
+
+     0.96%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::HuffmanTable::encoded_len
+            |          
+             --0.84%--ruzstd::huff0::huff0_encoder::HuffmanTable::encoded_len
+
+     0.78%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::bit_io::bit_writer::BitWriter<V>::write_bits_64_cold
+     0.74%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::ops::function::impls::<impl core::ops::function::FnMut<A> for &mut F>::call_mut
+            |          
+             --0.61%--ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+
+     0.74%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::collections::binary_heap::BinaryHeap<T,A>::pop
+            |
+            ---alloc::collections::binary_heap::BinaryHeap<T,A>::pop
+
+     0.66%  tests::profile_  libc.so.6                [.] _int_malloc
+     0.41%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::raw_vec::RawVecInner<A>::finish_grow
+     0.37%  tests::profile_  libc.so.6                [.] _int_free_merge_chunk
+     0.35%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::FSETable::next_state
+     0.31%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general
+     0.31%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::redistribute_weights
+     0.31%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general
+     0.31%  tests::profile_  libc.so.6                [.] __memmove_avx_unaligned
+     0.30%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::match_generator::MatcherDiagnostics::record
+     0.27%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::insertion_sort_shift_left
+     0.25%  tests::profile_  libc.so.6                [.] unlink_chunk.isra.0
+     0.25%  tests::profile_  ruzstd-143ebdf88e998775  [.] <ruzstd::encoding::match_generator::MatchGeneratorDriver as ruzstd::encoding::Matcher>::commit_space
+     0.25%  tests::profile_  ruzstd-143ebdf88e998775  [.] <twox_hash::xxhash64::Hasher as core::hash::Hasher>::write
+     0.24%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::collections::binary_heap::BinaryHeap<T,A>::push
+     0.23%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::build_table_from_data
+     0.23%  tests::profile_  libc.so.6                [.] _int_realloc
+     0.18%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::ptr::drop_in_place<ruzstd::encoding::frame_compressor::FseTables>
+     0.18%  tests::profile_  libc.so.6                [.] __libc_malloc2
+     0.18%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::raw_vec::RawVecInner<A>::reserve::do_reserve_and_handle
+     0.17%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::FSEEncoder<V>::encode_interleaved
+     0.13%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::insertion_sort_shift_left
+     0.13%  tests::profile_  libc.so.6                [.] malloc
+     0.13%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::blocks::compressed::prepare_block
+     0.13%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::raw_vec::RawVec<T,A>::grow_one
+     0.12%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::stable::quicksort::quicksort
+     0.12%  tests::profile_  libc.so.6                [.] __memset_avx2_unaligned_erms
+     0.12%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::HuffmanTable::build_from_weights
+     0.12%  tests::profile_  libc.so.6                [.] realloc
+     0.12%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::HuffmanEncoder<V>::write_table
+     0.12%  tests::profile_  [unknown]                [k] 0xffffffff9fa2a9ce
+     0.07%  env              ld-linux-x86-64.so.2     [.] _dl_relocate_object_no_relro
+     0.07%  env              [unknown]                [k] 0xffffffff9f9968bb
+     0.07%  tests::profile_  ruzstd-143ebdf88e998775  [.] __rustc::__rdl_realloc
+     0.07%  env              [unknown]                [k] 0xffffffff9fab4f16
+     0.07%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::sort8_stable
+     0.07%  env              [unknown]                [k] 0xffffffff9f9f619d
+     0.07%  env              [unknown]                [k] 0xffffffff9fbb88f3
+     0.07%  env              [unknown]                [k] 0xffffffff9f9f28dc
+     0.07%  env              [unknown]                [k] 0xffffffff9f9eb416
+     0.07%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::rank_limited_weights
+     0.07%  tests::profile_  [unknown]                [k] 0xffffffffa0918860
+     0.07%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::build_table_from_data
+     0.07%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general
+     0.06%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::util::likely_incompressible
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9fa136ed
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9fb5c56a
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9f7711a4
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9f9fc41c
+     0.06%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::FSETable::write_table
+     0.06%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::levels::fastest::emit_matcher_block_or_raw
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9fa23c1b
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9f739534
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9f77a82d
+     0.06%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::normalize_counts
+     0.06%  tests::profile_  libc.so.6                [.] cfree@GLIBC_2.2.5
+     0.06%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::unstable::quicksort::quicksort
+     0.06%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9fa2a9bb
+     0.06%  tests::profile_  ruzstd-143ebdf88e998775  [.] __rustc::__rust_dealloc
+     0.06%  ruzstd-143ebdf8  libc.so.6                [.] __memmove_avx_unaligned_erms
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9f777406
+     0.06%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f9deb52
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9f741c19
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9f6b72c9
+     0.06%  tests::profile_  ruzstd-143ebdf88e998775  [.] <alloc::vec::Vec<T> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<T,I>>::from_iter
+     0.06%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffffa091b2f4
+     0.06%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::unstable::quicksort::quicksort
+     0.06%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9fb0be6d
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9f787d5c
+     0.06%  tests::profile_  libc.so.6                [.] _int_free_maybe_trim
+     0.05%  tests::profile_  libc.so.6                [.] alloc_perturb
+     0.05%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::unstable::ipnsort
+     0.05%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general
+     0.03%  env              ld-linux-x86-64.so.2     [.] handle_amd
+     0.02%  tests::profile_  [unknown]                [k] 0xffffffff9fabaa3b
+     0.00%  env              [unknown]                [k] 0xffffffff9fa02675
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f9968bb
+     0.00%  env              [unknown]                [k] 0xffffffff9f65b775
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f9fabd9
+     0.00%  perf-exec        [unknown]                [k] 0xffffffff9f5a420a
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffffa0915aba
+     0.00%  tests::profile_  [unknown]                [k] 0xffffffff9f5a424b
+     0.00%  perf-exec        [unknown]                [k] 0xffffffff9f9604d0
+     0.00%  perf-exec        [unknown]                [k] 0xffffffff9f96050c
+     0.00%  perf-exec        [unknown]                [k] 0xffffffffa092d845
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f60843b
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f60843d
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f9604d5
+     0.00%  tests::profile_  [unknown]                [k] 0xffffffff9f9604d0
+     0.00%  tests::profile_  [unknown]                [k] 0xffffffff9f96050c
+     0.00%  tests::profile_  [unknown]                [k] 0xffffffffa092d845
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

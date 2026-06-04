@@ -1,0 +1,4 @@
+fixture,encoder,bytes,elapsed,cpu,rss
+repo_Cargo.lock,upstream,9170,0.00,0.00,4144
+repo_Cargo.lock,current,9170,0.00,0.00,4912
+repo_Cargo.lock,c_zstd,8088,0.00,0.00,2912

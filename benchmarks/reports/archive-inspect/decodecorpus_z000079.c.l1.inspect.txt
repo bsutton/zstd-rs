@@ -1,0 +1,12 @@
+
+running 1 test
+FRAME path=/home/bsutton/git/zstd-rs/benchmarks/reports/archive-inspect/decodecorpus_z000079.c.l1.zst compressed_bytes=7221 window_size=439951 content_size=439951 checksum=true single_segment=true
+BLOCK idx=0 type=compressed compressed_bytes=565 decompressed_bytes=131072 literals_type=compressed literals_regen=310 literals_payload=157 literals_streams=4 sequence_count=260 sequence_payload=402 ll_mode=fse of_mode=fse ml_mode=fse match_bytes=130762 max_offset=1859
+BLOCK idx=1 type=compressed compressed_bytes=3216 decompressed_bytes=131072 literals_type=compressed literals_regen=1215 literals_payload=626 literals_streams=4 sequence_count=1920 sequence_payload=2583 ll_mode=fse of_mode=fse ml_mode=fse match_bytes=129857 max_offset=137149
+BLOCK idx=2 type=compressed compressed_bytes=3410 decompressed_bytes=98304 literals_type=compressed literals_regen=1274 literals_payload=666 literals_streams=4 sequence_count=2174 sequence_payload=2737 ll_mode=fse of_mode=fse ml_mode=fse match_bytes=97030 max_offset=171526
+BLOCK idx=3 type=rle compressed_bytes=1 decompressed_bytes=32768 byte=191
+BLOCK idx=4 type=rle compressed_bytes=1 decompressed_bytes=46735 byte=191
+TOTAL blocks=5 compressed_blocks=3 raw_blocks=0 rle_blocks=2 compressed_block_bytes=7191 raw_block_input_bytes=0 rle_block_output_bytes=79503 decompressed_block_bytes=439951 literal_section_bytes=1449 sequence_payload_bytes=5722 decoded_literals=2799 sequences=4354 match_bytes=357649
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 211 filtered out; finished in 0.01s
+

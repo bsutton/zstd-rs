@@ -5,13 +5,16 @@ import argparse
 import json
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BENCHMARK_TMP = REPO_ROOT / "benchmarks" / "tmp"
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("/tmp/zstd-bench/expanded-fixtures"),
+        default=BENCHMARK_TMP / "expanded-fixtures",
         help="Directory to write generated fixtures into.",
     )
     return parser.parse_args()

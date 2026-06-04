@@ -1,0 +1,396 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 1K of event 'cpu/cycles/P'
+# Event count (approx.): 996364032
+#
+# Overhead  Command          Shared Object            Symbol                                                                                                                                                                                                                                                                                                                                                 
+# ........  ...............  .......................  .......................................................................................................................................................................................................................................................................................................................................................
+#
+    48.39%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+            |          
+            |--42.77%--ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+            |          |          
+            |          |--3.33%--0x3bcf00049bc01036
+            |          |          
+            |           --0.88%--0
+            |          
+             --3.86%--ruzstd::encoding::match_generator::MatchGenerator::extend_match_backwards
+
+     3.70%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::HuffmanEncoder<V>::encode4x
+            |
+            ---ruzstd::huff0::huff0_encoder::HuffmanEncoder<V>::encode4x
+               |          
+               |--2.13%--0x740800000001
+               |          
+                --0.84%--0x3bcf00049bc01036
+
+     3.04%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::match_generator::MatchGenerator::extend_match_backwards
+            |          
+             --2.56%--ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+
+     2.08%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::blocks::compressed::compress_prepared_block
+            |
+            ---ruzstd::encoding::blocks::compressed::compress_prepared_block
+               |          
+                --1.61%--0x3bcf00049bc01036
+
+     1.91%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::build_table_from_probabilities
+            |          
+             --0.82%--ruzstd::fse::fse_encoder::build_table_from_probabilities
+
+     1.74%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::blocks::compressed::encode_sequences
+            |          
+             --1.26%--ruzstd::encoding::blocks::compressed::encode_sequences
+
+     1.43%  tests::profile_  libc.so.6                [.] __memmove_avx_unaligned_erms
+     1.14%  tests::profile_  libc.so.6                [.] _int_malloc
+     1.10%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::length_limited_code_lengths
+            |          
+             --0.61%--ruzstd::huff0::huff0_encoder::length_limited_code_lengths
+
+     1.07%  cargo            libc.so.6                [.] _int_malloc
+     1.05%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::HuffmanTable::encoded_len
+            |
+            ---ruzstd::huff0::huff0_encoder::HuffmanTable::encoded_len
+
+     0.96%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::collections::binary_heap::BinaryHeap<T,A>::pop
+     0.81%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::ops::function::impls::<impl core::ops::function::FnMut<A> for &mut F>::call_mut
+            |          
+             --0.71%--ruzstd::encoding::match_generator::MatchGenerator::next_sequence
+
+     0.80%  cargo            [unknown]                [k] 0xffffffff9fa2a9ce
+     0.80%  cargo            cargo                    [.] <core::hash::sip::Hasher<core::hash::sip::Sip13Rounds> as core::hash::Hasher>::write
+     0.60%  cargo            libc.so.6                [.] cfree@GLIBC_2.2.5
+     0.48%  cargo            [unknown]                [k] 0xffffffffa092d860
+     0.48%  tests::profile_  ruzstd-143ebdf88e998775  [.] <twox_hash::xxhash64::Hasher as core::hash::Hasher>::write
+     0.46%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::bit_io::bit_writer::BitWriter<V>::write_bits_64_cold
+     0.40%  cargo            libc.so.6                [.] malloc
+     0.39%  cargo            libc.so.6                [.] _int_free_merge_chunk
+     0.36%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::match_generator::MatcherDiagnostics::record
+     0.30%  cargo            [unknown]                [k] 0xffffffff9f201268
+     0.30%  cargo            [unknown]                [k] 0xffffffffc0b8bd71
+     0.29%  cargo            cargo                    [.] <toml::de::parser::devalue::DeValue as core::clone::Clone>::clone
+     0.28%  cargo            cargo                    [.] <std::path::Components as core::iter::traits::iterator::Iterator>::next
+     0.28%  cargo            [unknown]                [k] 0xffffffffc0b8bd6d
+     0.23%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general
+     0.21%  cargo            cargo                    [.] asn1_template_new
+     0.21%  cargo            cargo                    [.] ossl_fnv1a_hash
+     0.21%  tests::profile_  libc.so.6                [.] __memset_avx2_unaligned_erms
+     0.20%  cargo            libc.so.6                [.] __memcmp_avx2_movbe
+     0.20%  tests::profile_  [unknown]                [k] 0xffffffff9f7753b5
+     0.20%  cargo            cargo                    [.] core::str::pattern::StrSearcher::new
+     0.20%  cargo            [unknown]                [k] 0xffffffffa08e927f
+     0.20%  cargo            libc.so.6                [.] __memmove_avx_unaligned_erms
+     0.20%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general
+     0.19%  cargo            [unknown]                [k] 0xffffffff9faddfec
+     0.19%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::stable::quicksort::quicksort
+     0.19%  cargo            cargo                    [.] <toml_parser::lexer::Lexer>::into_vec
+     0.19%  cargo            cargo                    [.] core::str::converts::from_utf8
+     0.19%  cargo            cargo                    [.] cargo::core::summary::build_feature_map
+     0.18%  tests::profile_  ruzstd-143ebdf88e998775  [.] <ruzstd::encoding::match_generator::MatchGeneratorDriver as ruzstd::encoding::Matcher>::commit_space
+     0.18%  cargo            libc.so.6                [.] __memmove_avx_unaligned
+     0.18%  tests::profile_  ruzstd-143ebdf88e998775  [.] __rustc::__rdl_realloc
+     0.18%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general
+     0.18%  cargo            [unknown]                [k] 0xffffffff9fa31cce
+     0.12%  cargo            [unknown]                [k] 0xffffffff9f985717
+     0.12%  cargo            [unknown]                [k] 0xffffffff9fab7ab9
+     0.11%  env              [unknown]                [k] 0xffffffffa091af56
+     0.11%  env              [unknown]                [k] 0xffffffff9fa2a9ce
+     0.11%  cargo            [unknown]                [k] 0xffffffff9faba034
+     0.11%  env              [unknown]                [k] 0xffffffff9f61608d
+     0.11%  env              ld-linux-x86-64.so.2     [.] _dl_check_map_versions
+     0.11%  env              [unknown]                [k] 0xffffffff9f9ec880
+     0.11%  cargo            [unknown]                [k] 0xffffffffa091af78
+     0.11%  cargo            [unknown]                [k] 0xffffffff9f9ebcd9
+     0.11%  env              env                      [.] 0x00000000001f081e
+     0.11%  cargo            ld-linux-x86-64.so.2     [.] do_lookup_x
+     0.11%  cargo            cargo                    [.] ossl_lh_strcasehash
+     0.11%  cargo            [unknown]                [k] 0xffffffff9fa30bf5
+     0.11%  cargo            [unknown]                [k] 0xffffffff9fa24244
+     0.11%  cargo            cargo                    [.] <alloc::string::String as core::fmt::Write>::write_str
+     0.11%  cargo            cargo                    [.] out_utf8
+     0.11%  cargo            [unknown]                [k] 0xffffffff9f99623e
+     0.11%  cargo            cargo                    [.] <clap_builder::builder::command::Command as cargo::util::command_prelude::CommandExt>::_arg
+     0.11%  cargo            cargo                    [.] ASN1_object_size
+     0.11%  cargo            cargo                    [.] CRYPTO_zalloc
+     0.11%  cargo            [unknown]                [k] 0xffffffffa0907f64
+     0.11%  cargo            cargo                    [.] cpy_utf8
+     0.11%  cargo            cargo                    [.] ossl_ctype_check
+     0.11%  cargo            cargo                    [.] rsa_new_intern
+     0.11%  cargo            cargo                    [.] spki2typespki_decode
+     0.11%  cargo            cargo                    [.] OPENSSL_sk_value
+     0.11%  cargo            cargo                    [.] ossl_core_bio_up_ref
+     0.11%  cargo            cargo                    [.] asn1_check_tlen
+     0.11%  cargo            cargo                    [.] <clap_builder::builder::command::Command>::_build_self
+     0.11%  cargo            libc.so.6                [.] __memset_avx2_unaligned_erms
+     0.11%  cargo            cargo                    [.] pthread_once@plt
+     0.11%  cargo            cargo                    [.] CRYPTO_malloc
+     0.11%  cargo            cargo                    [.] ossl_ht_insert
+     0.11%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::insertion_sort_shift_left
+     0.11%  cargo            cargo                    [.] OPENSSL_sk_insert
+     0.10%  cargo            cargo                    [.] OSSL_DECODER_get0_provider
+     0.10%  cargo            cargo                    [.] EVP_ENCODE_CTX_new
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f9f6117
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f983181
+     0.10%  cargo            cargo                    [.] <<cargo_util_schemas::manifest::TomlDependency as serde_core::de::Deserialize>::deserialize<serde_ignored::Deserializer<serde_core::de::value::StringDeserializer<toml::de::error::Error>, cargo::util::toml::deserialize_toml::{closure#0}>>::{closure#2} as core::ops::function::FnOnce<(serde_untagged::map::Map,)>>::call_once::{shim:vtable#0}
+     0.10%  cargo            cargo                    [.] <alloc::string::String as core::fmt::Write>::write_str
+     0.10%  cargo            [unknown]                [k] 0xffffffff9faf7145
+     0.10%  cargo            cargo                    [.] <std::path::Component as core::cmp::PartialEq>::eq
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f9e9a8d
+     0.10%  cargo            cargo                    [.] <core::str::pattern::CharSearcher as core::str::pattern::Searcher>::next_match
+     0.10%  cargo            cargo                    [.] toml_writer::string::write_toml_value::<alloc::string::String>
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f9833d8
+     0.10%  cargo            cargo                    [.] url::host::parse_ipv4number
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f9eb416
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f6b7180
+     0.10%  cargo            libc.so.6                [.] __libc_malloc2
+     0.10%  cargo            [unknown]                [k] 0xffffffffa08e3f62
+     0.10%  cargo            cargo                    [.] <url::parser::Parser>::after_double_slash
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fa56836
+     0.10%  cargo            libc.so.6                [.] __vfscanf_internal
+     0.10%  cargo            [unknown]                [k] 0xffffffff9faf677d
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f953090
+     0.10%  cargo            rustup                   [.] OPENSSL_LH_insert
+     0.10%  cargo            cargo                    [.] <semver::Version as core::hash::Hash>::hash::<rustc_hash::FxHasher>
+     0.10%  cargo            [unknown]                [k] 0xffffffff9faeac1d
+     0.10%  cargo            cargo                    [.] <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&(cargo::core::compiler::unit::Unit, cargo::core::compiler::job_queue::Artifact)>
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fe50940
+     0.10%  cargo            rustup                   [.] <T as alloc::vec::spec_from_elem::SpecFromElem>::from_elem
+     0.10%  cargo            rustup                   [.] alloc::collections::btree::map::BTreeMap<K,V,A>::insert
+     0.10%  ruzstd-143ebdf8  ld-linux-x86-64.so.2     [.] _dl_lookup_symbol_x
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f998cdf
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fdce3d4
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f9faf8a
+     0.10%  cargo            rustup                   [.] <core::iter::adapters::map::Map<I,F> as core::iter::traits::iterator::Iterator>::next
+     0.10%  cargo            ld-linux-x86-64.so.2     [.] _dl_relocate_object_no_relro
+     0.10%  cargo            cargo                    [.] <hashbrown::raw::RawTable<(cargo::core::compiler::unit::Unit, ())>>::reserve_rehash::<hashbrown::map::make_hasher<cargo::core::compiler::unit::Unit, (), std::hash::random::RandomState>::{closure#0}>
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0b1fb04
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0b8b724
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fa30bf3
+     0.10%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::insertion_sort_shift_left
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fafdc56
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fafc141
+     0.10%  cargo            rustup                   [.] regex_automata::nfa::thompson::compiler::Compiler::c
+     0.10%  cargo            rustup                   [.] regex_syntax::ast::parse::NestLimiter<P>::check
+     0.10%  cargo            libc.so.6                [.] statx
+     0.10%  cargo            cargo                    [.] <cargo::sources::registry::index::RegistryIndex>::summaries
+     0.10%  cargo            [unknown]                [k] 0xffffffff9faba038
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f9fc2fb
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f9ec5ed
+     0.10%  cargo            cargo                    [.] OPENSSL_sk_pop_free
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fab4f47
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0b8b9d7
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fb5a849
+     0.10%  env              [unknown]                [k] 0xffffffff9fd8f83d
+     0.10%  cargo            rustup                   [.] <regex_syntax::utf8::Utf8Sequences as core::iter::traits::iterator::Iterator>::next
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f97fd59
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0b8b967
+     0.10%  env              [unknown]                [k] 0xffffffff9f9f28f8
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f61a040
+     0.10%  cargo            [unknown]                [k] 0xffffffff9ffc3f72
+     0.10%  cargo            cargo                    [.] <cargo::sources::registry::index::RegistryIndex>::query_inner_with_online
+     0.10%  cargo            cargo                    [.] Curl_ssl_close_all
+     0.10%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f9b4736
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f9fcbf7
+     0.10%  cargo            [unknown]                [k] 0xffffffff9faf567f
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fb166cb
+     0.10%  cargo            cargo                    [.] cargo::core::compiler::unit_dependencies::deps_of
+     0.10%  cargo            cargo                    [.] toml_parser::decoder::string::decode_basic_string
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f9f6233
+     0.10%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9faf13d0
+     0.10%  cargo            [unknown]                [k] 0xffffffffa09192f3
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0b0a854
+     0.10%  cargo            [unknown]                [k] 0xffffffff9faf3d68
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fa377b6
+     0.10%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffffa092d860
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fda3b4e
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0b032b6
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f9faf40
+     0.10%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffffa08eb91a
+     0.10%  cargo            cargo                    [.] <im_rc::nodes::btree::Node<(cargo::core::package_id::PackageId, std::collections::hash::set::HashSet<cargo::core::dependency::Dependency>)>>::path_last::<cargo::core::package_id::PackageId>
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fa17670
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fa101c9
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0ca1c73
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fa201db
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0b8b9e3
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fe509ad
+     0.10%  cargo            cargo                    [.] <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&serde_spanned::spanned::Spanned<alloc::borrow::Cow<str>>>
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fb1f0eb
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fabb99c
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f9ea363
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0c630a9
+     0.10%  cargo            cargo                    [.] <alloc::collections::btree::map::BTreeMap<cargo_util_schemas::manifest::FeatureName, alloc::vec::Vec<alloc::string::String>>>::insert
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0ba3689
+     0.10%  cargo            cargo                    [.] vdbeUnbind
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fabb997
+     0.10%  cargo            cargo                    [.] std::fs::read::inner
+     0.10%  cargo            cargo                    [.] core::ptr::drop_in_place::<cargo_util_schemas::manifest::TomlTarget>
+     0.10%  tests::profile_  libc.so.6                [.] _int_free_merge_chunk
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0b8b708
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fa31cd2
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fab4f81
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0b02fb0
+     0.10%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::sort8_stable
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fab5502
+     0.10%  cargo            cargo                    [.] <hashbrown::map::HashMap<cargo::core::package_id::PackageId, cargo::core::summary::Summary, std::hash::random::RandomState>>::insert
+     0.10%  cargo            cargo                    [.] <hashbrown::map::HashMap<semver::Version, cargo::sources::registry::index::MaybeIndexSummary, std::hash::random::RandomState>>::insert
+     0.10%  cargo            [unknown]                [k] 0xffffffff9faf3445
+     0.10%  cargo            [unknown]                [k] 0xffffffffc0ba36f7
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f9c3fa5
+     0.10%  cargo            [unknown]                [k] 0xffffffffa09199bb
+     0.10%  cargo            cargo                    [.] cargo::util::toml::dep_to_dependency::<alloc::string::String>
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fa32fe8
+     0.10%  cargo            cargo                    [.] <url::parser::Parser>::parse_path
+     0.10%  cargo            [unknown]                [k] 0xffffffff9fa201c9
+     0.10%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::unstable::quicksort::quicksort
+     0.10%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::redistribute_weights
+     0.10%  cargo            cargo                    [.] core::ptr::drop_in_place::<alloc::collections::btree::map::BTreeMap<cargo::util::interning::InternedString, cargo::core::source_id::SourceId>>
+     0.10%  cargo            [unknown]                [k] 0xffffffff9f99768c
+     0.09%  tests::profile_  libc.so.6                [.] cfree@GLIBC_2.2.5
+     0.09%  cargo            [unknown]                [k] 0xffffffff9fab4f0c
+     0.09%  cargo            cargo                    [.] toml_parser::parser::document::on_expression_key
+     0.09%  cargo            cargo                    [.] <erased_serde::de::erase::SeqAccess<serde_core::de::value::SeqDeserializer<core::iter::adapters::map::Map<alloc::vec::into_iter::IntoIter<serde_value::Value>, <serde_value::de::ValueDeserializer<toml::de::error::Error>>::new>, toml::de::error::Error>> as erased_serde::de::SeqAccess>::erased_next_element
+     0.09%  cargo            cargo                    [.] <alloc::raw_vec::RawVecInner>::finish_grow
+     0.09%  cargo            [unknown]                [k] 0xffffffff9f739525
+     0.09%  tests::profile_  [unknown]                [k] 0xffffffff9f6b7e6d
+     0.09%  cargo            cargo                    [.] <std::hash::random::RandomState as core::hash::BuildHasher>::hash_one::<&url::Url>
+     0.09%  cargo            cargo                    [.] <toml::value::Value as <[_]>::to_vec_in::ConvertVec>::to_vec::<alloc::alloc::Global>
+     0.09%  cargo            [unknown]                [k] 0xffffffff9f61615c
+     0.09%  cargo            [unknown]                [k] 0xffffffffc0b8b9e7
+     0.09%  cargo            [unknown]                [k] 0xffffffff9fab82d3
+     0.09%  cargo            [unknown]                [k] 0xffffffffc067ef32
+     0.09%  cargo            [unknown]                [k] 0xffffffff9fabad77
+     0.09%  cargo            libc.so.6                [.] _int_free_maybe_trim
+     0.09%  cargo            cargo                    [.] <cargo::core::compiler::unit::UnitInner as core::hash::Hash>::hash::<std::hash::random::DefaultHasher>
+     0.09%  cargo            [unknown]                [k] 0xffffffff9fabb945
+     0.09%  cargo            [unknown]                [k] 0xffffffff9faf8b9e
+     0.09%  cargo            [unknown]                [k] 0xffffffffa092b99b
+     0.09%  cargo            [unknown]                [k] 0xffffffff9fa3625d
+     0.09%  cargo            cargo                    [.] toml::de::parser::parse_document
+     0.09%  cargo            [unknown]                [k] 0xffffffff9fadef43
+     0.09%  cargo            cargo                    [.] <alloc::raw_vec::RawVecInner>::finish_grow
+     0.09%  cargo            cargo                    [.] semver::parse::numeric_identifier
+     0.09%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::raw_vec::RawVecInner<A>::finish_grow
+     0.09%  cargo            [unknown]                [k] 0xffffffffa090b905
+     0.09%  tests::profile_  libc.so.6                [.] _int_realloc
+     0.09%  cargo            [unknown]                [k] 0xffffffffc0b8b744
+     0.09%  cargo            [unknown]                [k] 0xffffffff9fa792f0
+     0.09%  cargo            [unknown]                [k] 0xffffffffc0b8b8f4
+     0.09%  cargo            [unknown]                [k] 0xffffffffc067e4bb
+     0.09%  cargo            [unknown]                [k] 0xffffffff9fa37ad8
+     0.09%  cargo            [unknown]                [k] 0xffffffff9f9fb20b
+     0.09%  cargo            [unknown]                [k] 0xffffffffc0ae4348
+     0.09%  cargo            [unknown]                [k] 0xffffffff9f9fb0aa
+     0.09%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::unstable::quicksort::quicksort
+     0.09%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::FSETable::next_state
+     0.09%  cargo            [unknown]                [k] 0xffffffff9fab54f8
+     0.09%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::slice::sort::shared::smallsort::small_sort_general
+     0.09%  cargo            [unknown]                [k] 0xffffffffc0b8b752
+     0.09%  cargo            [unknown]                [k] 0xffffffffc0ba36f5
+     0.09%  cargo            [unknown]                [k] 0xffffffffa092412c
+     0.09%  cargo            [unknown]                [k] 0xffffffff9fafa508
+     0.09%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::rank_limited_weights
+     0.09%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::encoding::blocks::compressed::prepare_block
+     0.09%  tests::profile_  ruzstd-143ebdf88e998775  [.] core::ptr::drop_in_place<ruzstd::encoding::frame_compressor::FseTables>
+     0.09%  tests::profile_  [unknown]                [k] 0xffffffff9fab54ed
+     0.09%  tests::profile_  [unknown]                [k] 0xffffffff9f6b827b
+     0.09%  tests::profile_  libc.so.6                [.] __libc_malloc2
+     0.08%  ruzstd-143ebdf8  ld-linux-x86-64.so.2     [.] _dl_map_new_object
+     0.08%  tests::profile_  ruzstd-143ebdf88e998775  [.] __rustc::__rdl_alloc_zeroed
+     0.08%  tests::profile_  libc.so.6                [.] unlink_chunk.isra.0
+     0.08%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::HuffmanEncoder<V>::write_table
+     0.08%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::fse::fse_encoder::build_table_from_data
+     0.07%  tests::profile_  ruzstd-143ebdf88e998775  [.] alloc::raw_vec::RawVecInner<A>::reserve::do_reserve_and_handle
+     0.07%  cargo            [unknown]                [k] 0xffffffff9f649f39
+     0.06%  tests::profile_  libc.so.6                [.] __memmove_avx_unaligned
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9fab8254
+     0.06%  tests::profile_  [unknown]                [k] 0xffffffff9fa059d0
+     0.06%  tests::profile_  ruzstd-143ebdf88e998775  [.] ruzstd::huff0::huff0_encoder::HuffmanTable::build_from_weights
+     0.05%  tests::profile_  [unknown]                [k] 0xffffffff9fa37a67
+     0.05%  tests::profile_  [unknown]                [k] 0xffffffff9f9de9b3
+     0.05%  tests::profile_  [unknown]                [k] 0xffffffff9fa2a9ce
+     0.05%  env              [unknown]                [k] 0xffffffff9f5b31e3
+     0.05%  tests::profile_  [unknown]                [k] 0xffffffff9f9faf6e
+     0.04%  tests::profile_  [unknown]                [k] 0xffffffff9f201268
+     0.04%  cargo            [unknown]                [k] 0xffffffff9fd8ff00
+     0.03%  tests::profile_  [unknown]                [k] 0xffffffff9f996132
+     0.01%  cargo            [unknown]                [k] 0xffffffffa092d845
+     0.01%  tests::profile_  [unknown]                [k] 0xffffffffa08e2ded
+     0.01%  tokio-runtime-w  [unknown]                [k] 0xffffffff9fa091f0
+     0.01%  tokio-runtime-w  [unknown]                [k] 0xffffffff9fa2a9ce
+     0.01%  cargo            [unknown]                [k] 0xffffffffa091b2b6
+     0.01%  tokio-runtime-w  [unknown]                [k] 0xffffffffa092d840
+     0.01%  tokio-runtime-w  rustup                   [.] std::sys::pal::unix::stack_overflow::thread_info::set_current_info
+     0.01%  tokio-runtime-w  [unknown]                [k] 0xffffffffa0916060
+     0.01%  cargo            [unknown]                [k] 0xffffffff9fa10347
+     0.01%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f6be040
+     0.01%  env              [unknown]                [k] 0xffffffff9f739520
+     0.01%  tokio-runtime-w  [unknown]                [k] 0xffffffff9fa01cf5
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f800616
+     0.00%  tests::profile_  [unknown]                [k] 0xffffffffa08ed989
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f955165
+     0.00%  cargo            cargo                    [.] std::sys::thread::unix::Thread::new::thread_start
+     0.00%  cargo            libc.so.6                [.] __GI___pthread_self
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9faba98a
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f6b7a89
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f6b71d2
+     0.00%  cargo            [unknown]                [k] 0xffffffffa092d840
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f95458d
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f2000c2
+     0.00%  cargo            [unknown]                [k] 0xffffffff9fa01c7f
+     0.00%  cargo            [unknown]                [k] 0xffffffff9fa1363b
+     0.00%  cargo            [unknown]                [k] 0xffffffff9fad3a38
+     0.00%  env              [unknown]                [k] 0xffffffff9f65b7c6
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f9fabd9
+     0.00%  tokio-runtime-w  rustup                   [.] tokio::runtime::task::raw::poll
+     0.00%  tokio-runtime-w  rustup                   [.] std::sys::sync::mutex::futex::Mutex::lock_contended
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9fa33446
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f2018ae
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f6162b5
+     0.00%  cargo            [unknown]                [k] 0xffffffffa08e2c24
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f7438bc
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f2015f7
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f79da35
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f6b1efa
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f96050c
+     0.00%  cargo            [unknown]                [k] 0xffffffffa091007e
+     0.00%  cargo            [unknown]                [k] 0xffffffffa08e2dbb
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f2018a4
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f20187b
+     0.00%  perf-exec        [unknown]                [k] 0xffffffff9f556b17
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffffa092d845
+     0.00%  cargo            [unknown]                [k] 0xffffffffa0910160
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffffa091015b
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffffa0910047
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffffa0915858
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffffa09198a3
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f9604d0
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f96050c
+     0.00%  cargo            [unknown]                [k] 0xffffffffa0915858
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f5a4265
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f7438bc
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f960513
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f60843b
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f960513
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f9604d6
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f9604d0
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f73952d
+     0.00%  cargo            [unknown]                [k] 0xffffffff9f960507
+     0.00%  perf-exec        [unknown]                [k] 0xffffffff9f9604d5
+     0.00%  perf-exec        [unknown]                [k] 0xffffffff9f960513
+     0.00%  perf-exec        [unknown]                [k] 0xffffffffa092d840
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f739525
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f9604d0
+     0.00%  ruzstd-143ebdf8  [unknown]                [k] 0xffffffff9f96050c
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f739525
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f9604d5
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f9604d6
+     0.00%  tokio-runtime-w  [unknown]                [k] 0xffffffff9f9604d9
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

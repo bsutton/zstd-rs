@@ -1,0 +1,4 @@
+fixture,encoder,bytes,elapsed,cpu,rss
+build_libruzstd.rlib,upstream,611155,0.04,0.03,5776
+build_libruzstd.rlib,current,600329,0.04,0.04,6544
+build_libruzstd.rlib,c_zstd,635879,0.00,0.00,6908

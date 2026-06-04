@@ -1,0 +1,12 @@
+
+running 1 test
+FRAME path=/home/bsutton/git/zstd-rs/benchmarks/archive/tmp/archive-inspect/current/decodecorpus_z000059.current.l1.zst compressed_bytes=711 window_size=524288 content_size=0 checksum=true single_segment=false
+BLOCK idx=0 type=compressed compressed_bytes=698 decompressed_bytes=2138 literals_type=compressed literals_regen=459 literals_payload=212 literals_streams=4 sequence_count=246 sequence_payload=480 ll_mode=fse of_mode=fse ml_mode=fse match_bytes=1679 max_offset=1874 ll_extra_bits=2 ml_extra_bits=7 of_extra_bits=1702
+SEQHIST idx=0 ll_extra_bits=2 ml_extra_bits=7 of_extra_bits=1702
+  ll_codes 0:123 1:36 2:28 3:15 5:11 4:9 7:6 6:5
+  ml_codes 2:116 3:77 4:26 5:8 6:7 7:2 8:2 24:2
+  of_codes 8:53 9:42 7:41 6:30 10:25 5:17 4:16 3:7
+TOTAL blocks=1 compressed_blocks=1 raw_blocks=0 rle_blocks=0 compressed_block_bytes=698 raw_block_input_bytes=0 rle_block_output_bytes=0 decompressed_block_bytes=2138 literal_section_bytes=212 sequence_payload_bytes=480 decoded_literals=459 sequences=246 match_bytes=1679
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 225 filtered out; finished in 0.00s
+

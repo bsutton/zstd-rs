@@ -1,0 +1,32 @@
+
+running 1 test
+FRAME path=/home/bsutton/git/zstd-rs/benchmarks/reports/archive-inspect/generated_composer.lock.current.l1.zst compressed_bytes=4340 window_size=524288 content_size=0 checksum=true single_segment=false
+BLOCK idx=0 type=compressed compressed_bytes=1226 decompressed_bytes=32803 literals_type=compressed literals_regen=538 literals_payload=382 literals_table_desc=45 literals_stream=331 literals_streams=4 sequence_count=528 sequence_payload=838 ll_mode=fse of_mode=fse ml_mode=fse match_bytes=32265 max_offset=29243 ll_extra_bits=12 ml_extra_bits=1483 of_extra_bits=1441
+SEQHIST idx=0 ll_extra_bits=12 ml_extra_bits=1483 of_extra_bits=1441
+  ll_codes 0:266 1:238 5:8 2:3 14:3 16:2 20:2 3:1
+  ml_codes 40:188 41:112 8:71 31:38 38:38 42:30 9:11 7:8
+  of_codes 1:202 0:200 7:41 13:32 12:30 5:7 6:3 8:3
+BLOCK idx=1 type=compressed compressed_bytes=579 decompressed_bytes=32767 literals_type=compressed literals_regen=191 literals_payload=35 literals_table_desc=11 literals_stream=24 literals_streams=1 sequence_count=428 sequence_payload=538 ll_mode=fse of_mode=fse ml_mode=fse match_bytes=32576 max_offset=29243 ll_extra_bits=0 ml_extra_bits=1538 of_extra_bits=813
+SEQHIST idx=1 ll_extra_bits=0 ml_extra_bits=1538 of_extra_bits=813
+  ll_codes 0:237 1:191
+  ml_codes 40:190 41:177 9:47 42:14
+  of_codes 0:275 1:84 7:26 13:20 14:12 11:10 9:1
+BLOCK idx=2 type=compressed compressed_bytes=1181 decompressed_bytes=65502 literals_type=compressed literals_regen=382 literals_payload=95 literals_table_desc=11 literals_stream=78 literals_streams=4 sequence_count=871 sequence_payload=1080 ll_mode=fse of_mode=fse ml_mode=fse match_bytes=65120 max_offset=29243 ll_extra_bits=0 ml_extra_bits=3078 of_extra_bits=1664
+SEQHIST idx=2 ll_extra_bits=0 ml_extra_bits=3078 of_extra_bits=1664
+  ll_codes 0:489 1:382
+  ml_codes 40:381 41:349 9:109 42:31 39:1
+  of_codes 0:525 1:212 7:45 13:34 14:32 11:20 9:3
+BLOCK idx=3 type=compressed compressed_bytes=1332 decompressed_bytes=58673 literals_type=compressed literals_regen=368 literals_payload=166 literals_table_desc=28 literals_stream=132 literals_streams=4 sequence_count=850 sequence_payload=1160 ll_mode=fse of_mode=fse ml_mode=fse match_bytes=58305 max_offset=152763 ll_extra_bits=0 ml_extra_bits=2711 of_extra_bits=1941
+SEQHIST idx=3 ll_extra_bits=0 ml_extra_bits=2711 of_extra_bits=1941
+  ll_codes 0:500 1:345 2:2 5:2 3:1
+  ml_codes 40:339 41:304 9:131 31:21 38:19 42:13 8:10 37:4
+  of_codes 0:384 1:320 7:41 14:26 13:22 10:14 9:11 17:9
+TOTAL blocks=4 compressed_blocks=4 raw_blocks=0 rle_blocks=0 compressed_block_bytes=4318 raw_block_input_bytes=0 rle_block_output_bytes=0 decompressed_block_bytes=189745 literal_section_bytes=678 sequence_payload_bytes=3616 decoded_literals=1479 sequences=2677 match_bytes=188266
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 254 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+

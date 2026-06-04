@@ -1,0 +1,8 @@
+
+running 1 test
+FRAME path=/home/bsutton/git/zstd-rs/benchmarks/archive/tmp/archive-inspect/current/repo_Cargo.lock.current.l1.zst compressed_bytes=9255 window_size=524288 content_size=0 checksum=true single_segment=false
+BLOCK idx=0 type=compressed compressed_bytes=9242 decompressed_bytes=31858 literals_type=compressed literals_regen=10061 literals_payload=6981 literals_streams=4 sequence_count=836 sequence_payload=2254 ll_mode=fse of_mode=fse ml_mode=fse match_bytes=21797 max_offset=30872 ll_extra_bits=734 ml_extra_bits=586 of_extra_bits=7169
+TOTAL blocks=1 compressed_blocks=1 raw_blocks=0 rle_blocks=0 compressed_block_bytes=9242 raw_block_input_bytes=0 rle_block_output_bytes=0 decompressed_block_bytes=31858 literal_section_bytes=6981 sequence_payload_bytes=2254 decoded_literals=10061 sequences=836 match_bytes=21797
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 232 filtered out; finished in 0.00s
+

@@ -1,0 +1,16 @@
+fixture,encoder,bytes,elapsed,cpu,rss
+build_ruzstd-cli,upstream,854529,0.07,0.07,5912
+build_ruzstd-cli,current,854529,0.07,0.07,6368
+build_ruzstd-cli,c_zstd,906038,0.01,0.00,7908
+decodecorpus_z000079,upstream,7322,0.00,0.00,4780
+decodecorpus_z000079,current,7322,0.00,0.00,5396
+decodecorpus_z000079,c_zstd,7221,0.00,0.00,3796
+dict_dictionary.bin,upstream,20160,0.00,0.00,4420
+dict_dictionary.bin,current,20160,0.00,0.00,5068
+dict_dictionary.bin,c_zstd,20145,0.00,0.00,2988
+generated_json_logs_001m.jsonl,upstream,58767,0.01,0.00,5124
+generated_json_logs_001m.jsonl,current,58767,0.01,0.00,5780
+generated_json_logs_001m.jsonl,c_zstd,59118,0.00,0.00,4992
+repo_Cargo.lock,upstream,9185,0.00,0.00,4248
+repo_Cargo.lock,current,9170,0.00,0.00,4852
+repo_Cargo.lock,c_zstd,8088,0.00,0.00,2944

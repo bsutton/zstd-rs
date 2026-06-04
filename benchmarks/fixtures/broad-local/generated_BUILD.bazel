@@ -1,0 +1,3156 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+
+rust_binary(
+    name = "tool",
+    srcs = ["src/main.rs"],
+    deps = [":core_lib"],
+)
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "core_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    deps = ["@crate_index//:serde"],
+)
+

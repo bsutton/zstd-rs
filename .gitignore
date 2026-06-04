@@ -13,6 +13,12 @@ ruzstd/fuzz/corpus
 .mcp_logs/mcp_command_server.log
 ruzstd/target/criterion/**
 /benchmarks/tmp
+/benchmarks/reports/current-broad-local-out/
+/benchmarks/reports/tmp-*/
+/benchmarks/reports/perf-*.data
+/benchmarks/reports/*.data.old
+/benchmarks/reports/ruzstd-cli-*
+/benchmarks/reports/archive-inspect/*.zst
 /benchmarks/archive/**
 !/benchmarks/archive/
 !/benchmarks/archive/README.md

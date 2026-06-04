@@ -1,0 +1,2222 @@
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
+COPY ruzstd ./ruzstd
+RUN cargo build --release -p ruzstd-cli
+
+FROM debian:bookworm-slim
+COPY --from=build /app/target/release/ruzstd-cli /usr/local/bin/ruzstd-cli
+ENTRYPOINT ["/usr/local/bin/ruzstd-cli"]
+FROM rust:1.88-bookworm AS build
+WORKDIR /app

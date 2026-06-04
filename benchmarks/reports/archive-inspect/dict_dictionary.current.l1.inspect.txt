@@ -1,0 +1,12 @@
+
+running 1 test
+FRAME path=/home/bsutton/git/zstd-rs/benchmarks/archive/tmp/archive-inspect/current/dict_dictionary.current.l1.zst compressed_bytes=20175 window_size=524288 content_size=0 checksum=true single_segment=false
+BLOCK idx=0 type=compressed compressed_bytes=20162 decompressed_bytes=51962 literals_type=compressed literals_regen=11071 literals_payload=8973 literals_streams=4 sequence_count=4285 sequence_payload=11182 ll_mode=fse of_mode=fse ml_mode=fse match_bytes=40891 max_offset=51089 ll_extra_bits=238 ml_extra_bits=106 of_extra_bits=47698
+SEQHIST idx=0 ll_extra_bits=238 ml_extra_bits=106 of_extra_bits=47698
+  ll_codes 0:2484 1:339 3:261 2:237 4:168 5:163 6:123 7:89
+  ml_codes 2:922 4:863 3:790 5:369 6:208 7:137 8:124 9:82
+  of_codes 14:664 13:635 12:625 11:492 10:401 15:398 9:297 8:243
+TOTAL blocks=1 compressed_blocks=1 raw_blocks=0 rle_blocks=0 compressed_block_bytes=20162 raw_block_input_bytes=0 rle_block_output_bytes=0 decompressed_block_bytes=51962 literal_section_bytes=8973 sequence_payload_bytes=11182 decoded_literals=11071 sequences=4285 match_bytes=40891
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 218 filtered out; finished in 0.00s
+

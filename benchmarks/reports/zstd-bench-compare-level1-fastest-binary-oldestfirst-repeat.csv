@@ -1,0 +1,7 @@
+fixture,encoder,bytes,elapsed,cpu,rss
+build_ruzstd-cli,upstream,867739,0.05,0.04,5836
+build_ruzstd-cli,current,867739,0.05,0.04,6312
+build_ruzstd-cli,c_zstd,894099,0.01,0.00,7824
+decodecorpus_z000033,upstream,544118,0.02,0.02,5648
+decodecorpus_z000033,current,544118,0.02,0.02,6240
+decodecorpus_z000033,c_zstd,571529,0.00,0.00,5920

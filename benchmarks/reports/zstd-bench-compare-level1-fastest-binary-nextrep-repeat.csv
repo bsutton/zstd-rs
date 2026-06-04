@@ -1,0 +1,13 @@
+fixture,encoder,bytes,elapsed,cpu,rss
+build_libruzstd.rlib,upstream,619650,0.03,0.03,5908
+build_libruzstd.rlib,current,611155,0.03,0.03,6364
+build_libruzstd.rlib,c_zstd,635879,0.00,0.00,6908
+build_ruzstd-cli,upstream,867739,0.05,0.04,5692
+build_ruzstd-cli,current,860072,0.05,0.05,6384
+build_ruzstd-cli,c_zstd,894099,0.01,0.00,7804
+decodecorpus_z000033,upstream,544118,0.02,0.02,5692
+decodecorpus_z000033,current,544266,0.02,0.02,6260
+decodecorpus_z000033,c_zstd,571529,0.00,0.00,5904
+decodecorpus_z000079,upstream,8372,0.00,0.00,4620
+decodecorpus_z000079,current,7540,0.00,0.00,5248
+decodecorpus_z000079,c_zstd,7221,0.00,0.00,3788

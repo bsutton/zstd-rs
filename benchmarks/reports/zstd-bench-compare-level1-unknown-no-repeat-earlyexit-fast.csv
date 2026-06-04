@@ -1,0 +1,13 @@
+fixture,encoder,bytes,elapsed,cpu,rss
+decodecorpus_pack.bin,upstream,5319265,0.23,0.22,5900
+decodecorpus_pack.bin,current,5319265,0.23,0.23,6680
+decodecorpus_pack.bin,c_zstd,5385951,0.01,0.04,22368
+json_logs_32m.jsonl,upstream,690084,0.18,0.17,5196
+json_logs_32m.jsonl,current,690084,0.17,0.17,5792
+json_logs_32m.jsonl,c_zstd,1138701,0.01,0.04,19136
+repeated_text_32m.txt,upstream,2874,0.07,0.07,4636
+repeated_text_32m.txt,current,2874,0.07,0.06,5352
+repeated_text_32m.txt,c_zstd,3116,0.01,0.02,18428
+xorshift_32m.bin,upstream,33555210,0.01,0.01,4740
+xorshift_32m.bin,current,33555210,0.01,0.01,5352
+xorshift_32m.bin,c_zstd,33555214,0.02,0.04,25784
