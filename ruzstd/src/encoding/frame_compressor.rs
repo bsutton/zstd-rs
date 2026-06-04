@@ -8,21 +8,20 @@ use twox_hash::XxHash64;
 #[cfg(feature = "hash")]
 use core::hash::Hasher;
 
+mod adaptive;
+mod offset_history;
+
+use adaptive::best_block_segment_lengths;
+pub(crate) use offset_history::OffsetHistory;
+
 use super::{
-    block_header::BlockHeader,
-    frame_header::FrameHeader,
-    levels::*,
-    match_generator::MatchGeneratorDriver,
-    util::{likely_incompressible, likely_text},
-    CompressionFileProfile, CompressionFileType, CompressionLevel, Matcher,
+    block_header::BlockHeader, frame_header::FrameHeader, levels::*,
+    match_generator::MatchGeneratorDriver, CompressionFileProfile, CompressionFileType,
+    CompressionLevel, Matcher,
 };
 use crate::fse::fse_encoder::{default_ll_table, default_ml_table, default_of_table, FSETable};
 
 use crate::io::{Read, Write};
-
-const BEST_SPLIT_CHUNK_SIZE: usize = 8 * 1024;
-const BEST_SPLIT_COMPRESSIBLE_RUN_MAX: usize = 128 * 1024;
-const BEST_SPLIT_MIN_INCOMPRESSIBLE_RUN_CHUNKS: usize = 1;
 
 /// An interface for compressing arbitrary data with the ZStandard compression algorithm.
 ///
@@ -90,111 +89,6 @@ pub(crate) struct CompressState<M: Matcher> {
     pub(crate) offset_history: OffsetHistory,
     pub(crate) file_type_hint: CompressionFileType,
     pub(crate) file_profile_hint: CompressionFileProfile,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct OffsetHistory {
-    pub(crate) newest: u32,
-    pub(crate) second: u32,
-    pub(crate) third: u32,
-}
-
-impl OffsetHistory {
-    pub(crate) const fn new() -> Self {
-        Self {
-            newest: 1,
-            second: 4,
-            third: 8,
-        }
-    }
-
-    pub(crate) const fn from_offsets(newest: u32, second: u32, third: u32) -> Self {
-        Self {
-            newest,
-            second,
-            third,
-        }
-    }
-
-    pub(crate) fn as_offsets(self) -> (u32, u32, u32) {
-        (self.newest, self.second, self.third)
-    }
-
-    pub(crate) fn encode_offset_value(&mut self, offset: u32, lit_len: u32) -> u32 {
-        let offset_value = if lit_len > 0 {
-            if offset == self.newest {
-                1
-            } else if offset == self.second {
-                2
-            } else if offset == self.third {
-                3
-            } else {
-                offset + 3
-            }
-        } else if offset == self.second {
-            1
-        } else if offset == self.third {
-            2
-        } else if self.newest.checked_sub(1) == Some(offset) {
-            3
-        } else {
-            offset + 3
-        };
-
-        self.update_from_offset_value(offset_value, lit_len, offset);
-        offset_value
-    }
-
-    #[inline(always)]
-    pub(crate) fn update_after_match(&mut self, offset: u32, has_literals: bool) {
-        if has_literals {
-            if offset == self.newest {
-                return;
-            }
-            if offset == self.second {
-                self.second = self.newest;
-                self.newest = offset;
-                return;
-            }
-        } else if offset == self.second {
-            self.second = self.newest;
-            self.newest = offset;
-            return;
-        }
-
-        self.third = self.second;
-        self.second = self.newest;
-        self.newest = offset;
-    }
-
-    fn update_from_offset_value(&mut self, offset_value: u32, lit_len: u32, actual_offset: u32) {
-        if lit_len > 0 {
-            match offset_value {
-                1 => {}
-                2 => {
-                    self.second = self.newest;
-                    self.newest = actual_offset;
-                }
-                _ => {
-                    self.third = self.second;
-                    self.second = self.newest;
-                    self.newest = actual_offset;
-                }
-            }
-        } else {
-            match offset_value {
-                1 => {
-                    self.second = self.newest;
-                    self.newest = actual_offset;
-                }
-                _ => {
-                    self.third = self.second;
-                    self.second = self.newest;
-                    self.newest = actual_offset;
-                }
-            }
-        }
-    }
 }
 
 impl<R: Read, W: Write> FrameCompressor<R, W, MatchGeneratorDriver> {
@@ -507,94 +401,6 @@ fn compress_best_adaptive<M: Matcher>(
             core::mem::replace(&mut remaining, tail)
         };
         compress_at_level_without_incompressible_probe(state, level, segment_last, segment, output);
-    }
-}
-
-fn best_block_segment_lengths(data: &[u8]) -> Vec<usize> {
-    if data.len() < BEST_SPLIT_CHUNK_SIZE * 2 {
-        return alloc::vec![data.len()];
-    }
-
-    let chunk_count = data.len().div_ceil(BEST_SPLIT_CHUNK_SIZE);
-    let mut incompressible_chunks = Vec::with_capacity(chunk_count);
-
-    for chunk_idx in 0..chunk_count {
-        let start = chunk_idx * BEST_SPLIT_CHUNK_SIZE;
-        let end = (start + BEST_SPLIT_CHUNK_SIZE).min(data.len());
-        let chunk = &data[start..end];
-        incompressible_chunks.push(likely_incompressible(chunk) && !likely_text(chunk));
-    }
-
-    let mut split_chunks = alloc::vec![false; chunk_count];
-    let mut any_split_chunk = false;
-    let mut chunk_idx = 0usize;
-    while chunk_idx < chunk_count {
-        if !incompressible_chunks[chunk_idx] {
-            chunk_idx += 1;
-            continue;
-        }
-
-        let run_start = chunk_idx;
-        while chunk_idx < chunk_count && incompressible_chunks[chunk_idx] {
-            chunk_idx += 1;
-        }
-        let run_len = chunk_idx - run_start;
-        if run_len >= BEST_SPLIT_MIN_INCOMPRESSIBLE_RUN_CHUNKS {
-            for split_chunk in &mut split_chunks[run_start..chunk_idx] {
-                *split_chunk = true;
-            }
-            any_split_chunk = true;
-        }
-    }
-
-    if !any_split_chunk {
-        return alloc::vec![data.len()];
-    }
-
-    if split_chunks.iter().all(|split_chunk| *split_chunk) && likely_incompressible(data) {
-        return alloc::vec![data.len()];
-    }
-
-    let mut segments = Vec::with_capacity(chunk_count);
-    let mut run_start_chunk = 0usize;
-
-    for (chunk_idx, split_chunk) in split_chunks.iter().copied().enumerate() {
-        if !split_chunk {
-            continue;
-        }
-
-        push_compressible_run_segments(&mut segments, data, run_start_chunk, chunk_idx);
-        let start = chunk_idx * BEST_SPLIT_CHUNK_SIZE;
-        let end = (start + BEST_SPLIT_CHUNK_SIZE).min(data.len());
-        segments.push(end - start);
-        run_start_chunk = chunk_idx + 1;
-    }
-
-    push_compressible_run_segments(&mut segments, data, run_start_chunk, chunk_count);
-
-    if segments.is_empty() {
-        alloc::vec![data.len()]
-    } else {
-        segments
-    }
-}
-
-fn push_compressible_run_segments(
-    segments: &mut Vec<usize>,
-    data: &[u8],
-    start_chunk: usize,
-    end_chunk: usize,
-) {
-    if start_chunk == end_chunk {
-        return;
-    }
-
-    let mut start = start_chunk * BEST_SPLIT_CHUNK_SIZE;
-    let end = (end_chunk * BEST_SPLIT_CHUNK_SIZE).min(data.len());
-    while start < end {
-        let next_end = (start + BEST_SPLIT_COMPRESSIBLE_RUN_MAX).min(end);
-        segments.push(next_end - start);
-        start = next_end;
     }
 }
 
