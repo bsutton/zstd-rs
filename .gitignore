@@ -12,3 +12,8 @@ ruzstd/fuzz/corpus
 .idea
 .mcp_logs/mcp_command_server.log
 ruzstd/target/criterion/**
+/benchmarks/tmp
+/benchmarks/archive/**
+!/benchmarks/archive/
+!/benchmarks/archive/README.md
+!/benchmarks/archive/MANIFEST.tsv
