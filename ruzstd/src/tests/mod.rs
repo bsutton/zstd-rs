@@ -1,4 +1,4 @@
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 use alloc::format;
 
 #[cfg(test)]
@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 #[cfg(test)]
 extern crate std;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 use std::hint::black_box;
 
 #[cfg(all(test, not(feature = "std")))]

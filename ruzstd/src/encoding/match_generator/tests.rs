@@ -1358,6 +1358,7 @@ fn no_match_step_does_not_skip_next_repeat_offset_match() {
     assert!(matcher.repeat_offset_can_match_at(1, "MATCHTAIL".len()));
 }
 
+#[cfg(feature = "std")]
 #[test]
 #[ignore]
 fn inspect_best_matcher_from_env() {
@@ -1400,6 +1401,7 @@ fn inspect_best_matcher_from_env() {
     println!("{:#?}", matcher.diagnostics());
 }
 
+#[cfg(feature = "std")]
 #[test]
 #[ignore]
 fn inspect_fastest_matcher_from_env() {

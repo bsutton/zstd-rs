@@ -6,8 +6,10 @@
 //! The task here is to efficiently find matches in the already encoded data for the current suffix of the not yet encoded data.
 
 use alloc::vec::Vec;
+#[cfg(all(test, feature = "std"))]
+use core::cell::Ref;
 #[cfg(test)]
-use core::cell::{Ref, RefCell};
+use core::cell::RefCell;
 use core::convert::{TryFrom, TryInto};
 use core::num::NonZeroU32;
 #[cfg(test)]
@@ -137,7 +139,7 @@ impl MatchGeneratorDriver {
         self.match_generator.offset_history.as_offsets()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "std"))]
     pub(crate) fn diagnostics(&self) -> Ref<'_, MatcherDiagnostics> {
         self.match_generator.diagnostics.borrow()
     }

@@ -132,7 +132,7 @@ pub fn create_raw_dict_from_source<R: io::Read, W: io::Write>(
 ) {
     if source_size < 16 {
         let mut source = source;
-        let mut buf = vec![];
+        let mut buf = Vec::new();
         source
             .read_to_end(&mut buf)
             .expect("Could not read from source");
@@ -256,7 +256,7 @@ fn create_raw_dict_from_source_no_panics_on_small_input() {
     use std::io::Cursor;
 
     for size in 0..1024 {
-        let input = vec![b'A'; size];
+        let input = alloc::vec![b'A'; size];
         let mut output = Vec::new();
 
         create_raw_dict_from_source(Cursor::new(input.clone()), input.len(), &mut output, 64);

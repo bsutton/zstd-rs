@@ -193,6 +193,7 @@ fn implemented_compression_levels_round_trip_with_rust_and_c_decoders() {
     }
 }
 
+#[cfg(feature = "std")]
 #[test]
 #[ignore]
 fn best_level_external_fixture_round_trips_with_rust_and_c_decoders_from_env() {
@@ -267,6 +268,7 @@ fn assert_fastest_round_trips_with_rust_and_c(data: &[u8]) -> Vec<u8> {
     fastest
 }
 
+#[cfg(feature = "std")]
 fn assert_round_trips_with_rust_and_c(
     compressed: &[u8],
     expected: &[u8],
