@@ -102,6 +102,8 @@ fn compress_at_level_with_options<M: Matcher>(
         state.file_type_hint,
         crate::encoding::CompressionFileType::DictionaryText
     ) && likely_lockfile_text(&uncompressed_data);
+    #[cfg(not(feature = "std"))]
+    let _ = is_lockfile_dictionary_block;
     if uncompressed_data.is_empty() {
         write_raw_block(last_block, block_size, &uncompressed_data, output);
         return;

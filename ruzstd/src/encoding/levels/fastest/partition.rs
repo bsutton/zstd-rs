@@ -194,16 +194,26 @@ fn estimated_entropy_bits(counts: &[u32], total: usize) -> f64 {
         return 0.0;
     }
 
-    let total_f = total as f64;
+    let total_log2 = entropy_log2(total);
     let mut bits = 0.0;
     for &count in counts {
         if count == 0 {
             continue;
         }
         let count_f = count as f64;
-        bits += count_f * (total_f.log2() - count_f.log2());
+        bits += count_f * (total_log2 - entropy_log2(count as usize));
     }
     bits
+}
+
+#[cfg(feature = "std")]
+fn entropy_log2(value: usize) -> f64 {
+    (value as f64).log2()
+}
+
+#[cfg(not(feature = "std"))]
+fn entropy_log2(value: usize) -> f64 {
+    value.ilog2() as f64
 }
 
 pub(super) fn split_prepared_range(

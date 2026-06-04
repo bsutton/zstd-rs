@@ -2,12 +2,15 @@
 
 #[cfg(feature = "std")]
 use crate::io::Read;
+#[cfg(feature = "std")]
 use alloc::vec::Vec;
 #[cfg(feature = "std")]
 use std::path::Path;
 
+#[cfg(feature = "std")]
 use super::util::{likely_composer_lockfile_text, likely_incompressible, likely_lockfile_text};
 
+#[cfg(feature = "std")]
 const FILE_TYPE_SAMPLE_BYTES: usize = 32 * 1024;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -47,6 +50,7 @@ mod known;
 #[cfg(feature = "std")]
 use known::{classify_file_name, file_name_matches_exact_or_prefixed};
 
+#[cfg(feature = "std")]
 fn likely_json_text_sample(data: &[u8]) -> bool {
     if !sample_looks_text(data) {
         return false;
@@ -66,6 +70,7 @@ fn likely_json_text_sample(data: &[u8]) -> bool {
     window.contains(&b':') && window.iter().filter(|&&byte| byte == b'"').count() >= 4
 }
 
+#[cfg(feature = "std")]
 fn sample_looks_text(data: &[u8]) -> bool {
     if data.len() < 16 {
         return false;
@@ -90,6 +95,7 @@ fn sample_looks_text(data: &[u8]) -> bool {
     printable * 100 >= total * 85
 }
 
+#[cfg(feature = "std")]
 fn likely_dictionary_text_sample(data: &[u8]) -> bool {
     let mut package_markers = 0usize;
     let mut name_markers = 0usize;
@@ -143,6 +149,7 @@ fn likely_dictionary_text_sample(data: &[u8]) -> bool {
     false
 }
 
+#[cfg(feature = "std")]
 fn likely_config_text_sample(data: &[u8]) -> bool {
     if !sample_looks_text(data) {
         return false;
@@ -190,6 +197,7 @@ fn likely_config_text_sample(data: &[u8]) -> bool {
     false
 }
 
+#[cfg(feature = "std")]
 fn likely_code_text_sample(data: &[u8]) -> bool {
     if !sample_looks_text(data) {
         return false;
@@ -240,6 +248,7 @@ fn likely_code_text_sample(data: &[u8]) -> bool {
     false
 }
 
+#[cfg(feature = "std")]
 fn has_archive_signature(data: &[u8]) -> bool {
     data.starts_with(b"PK\x03\x04")
         || data.starts_with(b"PK\x05\x06")
@@ -254,6 +263,7 @@ fn has_archive_signature(data: &[u8]) -> bool {
         || (data.len() > 262 && &data[257..262] == b"ustar")
 }
 
+#[cfg(feature = "std")]
 fn has_binary_signature(data: &[u8]) -> bool {
     data.starts_with(b"\x7FELF")
         || data.starts_with(b"MZ")
@@ -267,6 +277,7 @@ fn has_binary_signature(data: &[u8]) -> bool {
         || data.starts_with(b"%PDF-")
 }
 
+#[cfg(feature = "std")]
 fn compression_file_type_for_sample(sample: &[u8]) -> CompressionFileType {
     if sample.is_empty() {
         return CompressionFileType::Unknown;

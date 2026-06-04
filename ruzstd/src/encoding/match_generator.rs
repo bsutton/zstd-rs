@@ -13,6 +13,7 @@ use core::num::NonZeroU32;
 #[cfg(test)]
 mod diagnostics;
 mod suffix_store;
+#[cfg(feature = "std")]
 mod tuning;
 
 #[cfg(test)]
