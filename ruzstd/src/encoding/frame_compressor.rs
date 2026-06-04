@@ -9,12 +9,20 @@ use twox_hash::XxHash64;
 use core::hash::Hasher;
 
 use super::{
-    block_header::BlockHeader, frame_header::FrameHeader, levels::*,
-    match_generator::MatchGeneratorDriver, CompressionLevel, Matcher,
+    block_header::BlockHeader,
+    frame_header::FrameHeader,
+    levels::*,
+    match_generator::MatchGeneratorDriver,
+    util::{likely_incompressible, likely_text},
+    CompressionFileProfile, CompressionFileType, CompressionLevel, Matcher,
 };
 use crate::fse::fse_encoder::{default_ll_table, default_ml_table, default_of_table, FSETable};
 
 use crate::io::{Read, Write};
+
+const BEST_SPLIT_CHUNK_SIZE: usize = 8 * 1024;
+const BEST_SPLIT_COMPRESSIBLE_RUN_MAX: usize = 128 * 1024;
+const BEST_SPLIT_MIN_INCOMPRESSIBLE_RUN_CHUNKS: usize = 1;
 
 /// An interface for compressing arbitrary data with the ZStandard compression algorithm.
 ///
@@ -39,11 +47,14 @@ pub struct FrameCompressor<R: Read, W: Write, M: Matcher> {
     uncompressed_data: Option<R>,
     compressed_data: Option<W>,
     compression_level: CompressionLevel,
+    file_type_hint: CompressionFileType,
+    file_profile_hint: CompressionFileProfile,
     state: CompressState<M>,
     #[cfg(feature = "hash")]
     hasher: XxHash64,
 }
 
+#[derive(Clone)]
 pub(crate) struct FseTables {
     pub(crate) ll_default: FSETable,
     pub(crate) ll_previous: Option<FSETable>,
@@ -77,6 +88,8 @@ pub(crate) struct CompressState<M: Matcher> {
     pub(crate) last_huff_table: Option<crate::huff0::huff0_encoder::HuffmanTable>,
     pub(crate) fse_tables: FseTables,
     pub(crate) offset_history: OffsetHistory,
+    pub(crate) file_type_hint: CompressionFileType,
+    pub(crate) file_profile_hint: CompressionFileProfile,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -191,15 +204,42 @@ impl<R: Read, W: Write> FrameCompressor<R, W, MatchGeneratorDriver> {
             uncompressed_data: None,
             compressed_data: None,
             compression_level,
+            file_type_hint: CompressionFileType::Unknown,
+            file_profile_hint: CompressionFileProfile::None,
             state: CompressState {
                 matcher: MatchGeneratorDriver::new(1024 * 128, 4),
                 last_huff_table: None,
                 fse_tables: FseTables::new(),
                 offset_history: OffsetHistory::new(),
+                file_type_hint: CompressionFileType::Unknown,
+                file_profile_hint: CompressionFileProfile::None,
             },
             #[cfg(feature = "hash")]
             hasher: XxHash64::with_seed(0),
         }
+    }
+
+    /// Create a new `FrameCompressor` with a coarse file-type hint.
+    pub fn new_with_file_type(
+        compression_level: CompressionLevel,
+        file_type_hint: CompressionFileType,
+    ) -> Self {
+        Self::new_with_hints(
+            compression_level,
+            file_type_hint,
+            CompressionFileProfile::None,
+        )
+    }
+
+    pub(crate) fn new_with_hints(
+        compression_level: CompressionLevel,
+        file_type_hint: CompressionFileType,
+        file_profile_hint: CompressionFileProfile,
+    ) -> Self {
+        let mut compressor = Self::new(compression_level);
+        compressor.file_type_hint = file_type_hint;
+        compressor.file_profile_hint = file_profile_hint;
+        compressor
     }
 }
 
@@ -209,11 +249,15 @@ impl<R: Read, W: Write, M: Matcher> FrameCompressor<R, W, M> {
         Self {
             uncompressed_data: None,
             compressed_data: None,
+            file_type_hint: CompressionFileType::Unknown,
+            file_profile_hint: CompressionFileProfile::None,
             state: CompressState {
                 matcher,
                 last_huff_table: None,
                 fse_tables: FseTables::new(),
                 offset_history: OffsetHistory::new(),
+                file_type_hint: CompressionFileType::Unknown,
+                file_profile_hint: CompressionFileProfile::None,
             },
             compression_level,
             #[cfg(feature = "hash")]
@@ -244,6 +288,12 @@ impl<R: Read, W: Write, M: Matcher> FrameCompressor<R, W, M> {
     /// [Read::take] function
     pub fn compress(&mut self) {
         // Clearing buffers to allow re-using of the compressor
+        self.state.file_type_hint = self.file_type_hint;
+        self.state.file_profile_hint = self.file_profile_hint;
+        self.state.matcher.set_file_type_hint(self.file_type_hint);
+        self.state
+            .matcher
+            .set_internal_file_profile_hint(self.file_profile_hint.internal_hint_code());
         self.state.matcher.reset(self.compression_level);
         self.state.last_huff_table = None;
         self.state.fse_tables.reset();
@@ -317,30 +367,13 @@ impl<R: Read, W: Write, M: Matcher> FrameCompressor<R, W, M> {
                 break;
             }
 
-            match self.compression_level {
-                CompressionLevel::Uncompressed => {
-                    let header = BlockHeader {
-                        last_block,
-                        block_type: crate::blocks::block::BlockType::Raw,
-                        block_size: read_bytes.try_into().unwrap(),
-                    };
-                    // Write the header, then the block
-                    header.serialize(output);
-                    output.extend_from_slice(&uncompressed_data);
-                }
-                CompressionLevel::Fastest => {
-                    compress_fastest(&mut self.state, last_block, uncompressed_data, output)
-                }
-                CompressionLevel::Default | CompressionLevel::Better | CompressionLevel::Best => {
-                    compress_at_level(
-                        &mut self.state,
-                        self.compression_level,
-                        last_block,
-                        uncompressed_data,
-                        output,
-                    )
-                }
-            }
+            compress_with_level_policy(
+                &mut self.state,
+                self.compression_level,
+                last_block,
+                uncompressed_data,
+                output,
+            );
             drain.write_all(output).unwrap();
             output.clear();
             if last_block {
@@ -411,16 +444,168 @@ impl<R: Read, W: Write, M: Matcher> FrameCompressor<R, W, M> {
     pub fn compression_level(&self) -> CompressionLevel {
         self.compression_level
     }
+
+    /// Replace the coarse file-type hint used to choose internal starting points.
+    pub fn set_file_type_hint(
+        &mut self,
+        file_type_hint: CompressionFileType,
+    ) -> CompressionFileType {
+        let old = self.file_type_hint;
+        self.file_type_hint = file_type_hint;
+        old
+    }
+}
+
+fn compress_with_level_policy<M: Matcher>(
+    state: &mut CompressState<M>,
+    level: CompressionLevel,
+    last_block: bool,
+    uncompressed_data: Vec<u8>,
+    output: &mut Vec<u8>,
+) {
+    match level {
+        CompressionLevel::Uncompressed => {
+            let header = BlockHeader {
+                last_block,
+                block_type: crate::blocks::block::BlockType::Raw,
+                block_size: uncompressed_data.len().try_into().unwrap(),
+            };
+            header.serialize(output);
+            output.extend_from_slice(&uncompressed_data);
+        }
+        CompressionLevel::Fastest => compress_fastest(state, last_block, uncompressed_data, output),
+        CompressionLevel::Default | CompressionLevel::Better => {
+            compress_at_level(state, level, last_block, uncompressed_data, output)
+        }
+        CompressionLevel::Best => {
+            compress_best_adaptive(state, level, last_block, uncompressed_data, output)
+        }
+    }
+}
+
+fn compress_best_adaptive<M: Matcher>(
+    state: &mut CompressState<M>,
+    level: CompressionLevel,
+    last_block: bool,
+    uncompressed_data: Vec<u8>,
+    output: &mut Vec<u8>,
+) {
+    let segment_lengths = best_block_segment_lengths(uncompressed_data.as_slice());
+    if segment_lengths.len() == 1 {
+        compress_at_level(state, level, last_block, uncompressed_data, output);
+        return;
+    }
+
+    let mut remaining = uncompressed_data;
+    let segment_count = segment_lengths.len();
+    for (segment_idx, segment_len) in segment_lengths.into_iter().enumerate() {
+        let segment_last = last_block && segment_idx + 1 == segment_count;
+        let segment = if segment_idx + 1 == segment_count {
+            core::mem::take(&mut remaining)
+        } else {
+            let tail = remaining.split_off(segment_len);
+            core::mem::replace(&mut remaining, tail)
+        };
+        compress_at_level_without_incompressible_probe(state, level, segment_last, segment, output);
+    }
+}
+
+fn best_block_segment_lengths(data: &[u8]) -> Vec<usize> {
+    if data.len() < BEST_SPLIT_CHUNK_SIZE * 2 {
+        return alloc::vec![data.len()];
+    }
+
+    let chunk_count = data.len().div_ceil(BEST_SPLIT_CHUNK_SIZE);
+    let mut incompressible_chunks = Vec::with_capacity(chunk_count);
+
+    for chunk_idx in 0..chunk_count {
+        let start = chunk_idx * BEST_SPLIT_CHUNK_SIZE;
+        let end = (start + BEST_SPLIT_CHUNK_SIZE).min(data.len());
+        let chunk = &data[start..end];
+        incompressible_chunks.push(likely_incompressible(chunk) && !likely_text(chunk));
+    }
+
+    let mut split_chunks = alloc::vec![false; chunk_count];
+    let mut any_split_chunk = false;
+    let mut chunk_idx = 0usize;
+    while chunk_idx < chunk_count {
+        if !incompressible_chunks[chunk_idx] {
+            chunk_idx += 1;
+            continue;
+        }
+
+        let run_start = chunk_idx;
+        while chunk_idx < chunk_count && incompressible_chunks[chunk_idx] {
+            chunk_idx += 1;
+        }
+        let run_len = chunk_idx - run_start;
+        if run_len >= BEST_SPLIT_MIN_INCOMPRESSIBLE_RUN_CHUNKS {
+            for split_chunk in &mut split_chunks[run_start..chunk_idx] {
+                *split_chunk = true;
+            }
+            any_split_chunk = true;
+        }
+    }
+
+    if !any_split_chunk {
+        return alloc::vec![data.len()];
+    }
+
+    if split_chunks.iter().all(|split_chunk| *split_chunk) && likely_incompressible(data) {
+        return alloc::vec![data.len()];
+    }
+
+    let mut segments = Vec::with_capacity(chunk_count);
+    let mut run_start_chunk = 0usize;
+
+    for (chunk_idx, split_chunk) in split_chunks.iter().copied().enumerate() {
+        if !split_chunk {
+            continue;
+        }
+
+        push_compressible_run_segments(&mut segments, data, run_start_chunk, chunk_idx);
+        let start = chunk_idx * BEST_SPLIT_CHUNK_SIZE;
+        let end = (start + BEST_SPLIT_CHUNK_SIZE).min(data.len());
+        segments.push(end - start);
+        run_start_chunk = chunk_idx + 1;
+    }
+
+    push_compressible_run_segments(&mut segments, data, run_start_chunk, chunk_count);
+
+    if segments.is_empty() {
+        alloc::vec![data.len()]
+    } else {
+        segments
+    }
+}
+
+fn push_compressible_run_segments(
+    segments: &mut Vec<usize>,
+    data: &[u8],
+    start_chunk: usize,
+    end_chunk: usize,
+) {
+    if start_chunk == end_chunk {
+        return;
+    }
+
+    let mut start = start_chunk * BEST_SPLIT_CHUNK_SIZE;
+    let end = (end_chunk * BEST_SPLIT_CHUNK_SIZE).min(data.len());
+    while start < end {
+        let next_end = (start + BEST_SPLIT_COMPRESSIBLE_RUN_MAX).min(end);
+        segments.push(next_end - start);
+        start = next_end;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use alloc::vec;
+    use alloc::vec::Vec;
 
-    use super::{FrameCompressor, OffsetHistory};
+    use super::{best_block_segment_lengths, FrameCompressor, OffsetHistory};
     use crate::common::MAGIC_NUM;
     use crate::decoding::FrameDecoder;
-    use alloc::vec::Vec;
 
     #[test]
     fn frame_starts_with_magic_num() {
@@ -613,6 +798,86 @@ mod tests {
     }
 
     #[test]
+    fn best_keeps_fully_compressible_block_whole() {
+        let mut data = Vec::with_capacity(128 * 1024);
+        while data.len() < 128 * 1024 {
+            data.extend_from_slice(b"tenant=alpha path=/v1/archive status=200 bytes=4812\n");
+        }
+        data.truncate(128 * 1024);
+
+        let compressed =
+            crate::encoding::compress_to_vec(data.as_slice(), super::CompressionLevel::Best);
+        assert_decodes_with_rust_and_c(&compressed, &data);
+
+        let block_headers = collect_block_headers(&compressed);
+        assert_eq!(block_headers.len(), 1);
+        assert!(block_headers[0].last_block);
+    }
+
+    #[test]
+    fn best_splits_mixed_block_and_round_trips() {
+        let mut data = Vec::with_capacity(64 * 1024);
+        while data.len() < 24 * 1024 {
+            data.extend_from_slice(b"repeated-best-split-fixture-line\n");
+        }
+        data.truncate(24 * 1024);
+        data.extend_from_slice(&xorshift(24 * 1024));
+        while data.len() < 64 * 1024 {
+            data.extend_from_slice(b"repeated-best-split-fixture-line\n");
+        }
+        data.truncate(64 * 1024);
+
+        let compressed =
+            crate::encoding::compress_to_vec(data.as_slice(), super::CompressionLevel::Best);
+        assert_decodes_with_rust_and_c(&compressed, &data);
+
+        let block_headers = collect_block_headers(&compressed);
+        assert!(
+            block_headers.len() > 1,
+            "best level should split mixed blocks: got {} block(s)",
+            block_headers.len()
+        );
+        assert!(block_headers
+            .iter()
+            .take(block_headers.len() - 1)
+            .all(|header| !header.last_block));
+        assert!(block_headers.last().expect("at least one block").last_block);
+    }
+
+    #[test]
+    fn best_presplit_marks_single_chunk_incompressible_runs() {
+        let mut data = Vec::with_capacity(40 * 1024);
+        while data.len() < 16 * 1024 {
+            data.extend_from_slice(b"repeated-best-split-fixture-line\n");
+        }
+        data.truncate(16 * 1024);
+        data.extend_from_slice(&xorshift(8 * 1024));
+        while data.len() < 40 * 1024 {
+            data.extend_from_slice(b"repeated-best-split-fixture-line\n");
+        }
+        data.truncate(40 * 1024);
+
+        let segments = best_block_segment_lengths(&data);
+        assert!(
+            segments.len() > 1,
+            "a single incompressible 8KiB chunk should be split"
+        );
+    }
+
+    #[test]
+    fn best_keeps_fully_incompressible_block_unsplit() {
+        let data = xorshift(128 * 1024);
+
+        let compressed =
+            crate::encoding::compress_to_vec(data.as_slice(), super::CompressionLevel::Best);
+        assert_decodes_with_rust_and_c(&compressed, &data);
+
+        let block_headers = collect_block_headers(&compressed);
+        assert_eq!(block_headers.len(), 1);
+        assert!(block_headers[0].last_block);
+    }
+
+    #[test]
     fn aaa_compress() {
         let mock_data = vec![0, 1, 3, 4, 5];
         let mut output: Vec<u8> = Vec::new();
@@ -631,7 +896,6 @@ mod tests {
         zstd::stream::copy_decode(output.as_slice(), &mut decoded).unwrap();
         assert_eq!(mock_data, decoded);
     }
-
     #[cfg(feature = "hash")]
     #[test]
     fn checksum_two_frames_reused_compressor() {
@@ -706,6 +970,40 @@ mod tests {
         let mut c_decoded = Vec::new();
         zstd::stream::copy_decode(compressed, &mut c_decoded).unwrap();
         assert_eq!(c_decoded, expected);
+    }
+
+    fn collect_block_headers(frame: &[u8]) -> Vec<crate::blocks::block::BlockHeader> {
+        let (_, frame_header_size) =
+            crate::decoding::frame::read_frame_header(frame).expect("frame header should parse");
+        let mut headers = Vec::new();
+        let mut offset = frame_header_size as usize;
+
+        loop {
+            let mut block_decoder = crate::decoding::block_decoder::new();
+            let (header, header_size) = block_decoder
+                .read_block_header(&frame[offset..])
+                .expect("block header should parse");
+            offset += header_size as usize + header.content_size as usize;
+            headers.push(header);
+            if headers.last().expect("pushed header").last_block {
+                break;
+            }
+        }
+
+        headers
+    }
+
+    fn xorshift(len: usize) -> Vec<u8> {
+        let mut state = 0x1234_5678_9ABC_DEF0u64;
+        let mut data = Vec::with_capacity(len);
+        while data.len() < len {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            data.extend_from_slice(&state.to_le_bytes());
+        }
+        data.truncate(len);
+        data
     }
 
     #[cfg(feature = "std")]

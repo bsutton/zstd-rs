@@ -45,14 +45,14 @@ fn fastest_reuses_history_across_blocks() {
 #[test]
 fn incompressible_gate_distinguishes_random_from_repetitive_data() {
     let random = xorshift(128 * 1024);
-    assert!(super::fastest::likely_incompressible(&random));
+    assert!(crate::encoding::util::likely_incompressible(&random));
 
     let mut repetitive = Vec::with_capacity(128 * 1024);
     while repetitive.len() < 128 * 1024 {
         repetitive.extend_from_slice(b"tenant=alpha path=/v1/archive status=200\n");
     }
     repetitive.truncate(128 * 1024);
-    assert!(!super::fastest::likely_incompressible(&repetitive));
+    assert!(!crate::encoding::util::likely_incompressible(&repetitive));
 }
 
 #[test]
@@ -86,6 +86,8 @@ fn fastest_empty_block_emits_raw_without_panic() {
         last_huff_table: None,
         fse_tables: FseTables::new(),
         offset_history: OffsetHistory::new(),
+        file_type_hint: crate::encoding::CompressionFileType::Unknown,
+        file_profile_hint: crate::encoding::CompressionFileProfile::None,
     };
     let mut output = Vec::new();
 
@@ -192,6 +194,42 @@ fn implemented_compression_levels_round_trip_with_rust_and_c_decoders() {
 }
 
 #[test]
+#[ignore]
+fn best_level_external_fixture_round_trips_with_rust_and_c_decoders_from_env() {
+    use std::fs;
+    use std::fs::File;
+    use std::io::BufReader;
+    use std::io::Write;
+
+    let fixture =
+        std::env::var("RUZSTD_BEST_FIXTURE").expect("set RUZSTD_BEST_FIXTURE to a fixture path");
+    let data = fs::read(&fixture).expect("fixture must be readable");
+    let by_slice = compress_to_vec(data.as_slice(), CompressionLevel::Best);
+    assert_round_trips_with_rust_and_c(&by_slice, &data, &fixture, "slice source");
+
+    let mut by_reader = Vec::new();
+    crate::encoding::compress(
+        BufReader::new(File::open(&fixture).expect("fixture must reopen")),
+        &mut by_reader,
+        CompressionLevel::Best,
+    );
+    assert_round_trips_with_rust_and_c(&by_reader, &data, &fixture, "reader source");
+
+    let temp_output = std::env::temp_dir().join("ruzstd-best-external-fixture.zst");
+    let mut output_file = File::create(&temp_output).expect("temp output must be creatable");
+    crate::encoding::compress(
+        BufReader::new(File::open(&fixture).expect("fixture must reopen")),
+        &mut output_file,
+        CompressionLevel::Best,
+    );
+    output_file.flush().expect("temp output must flush");
+    drop(output_file);
+    let by_file = fs::read(&temp_output).expect("temp output must be readable");
+    let _ = fs::remove_file(&temp_output);
+    assert_round_trips_with_rust_and_c(&by_file, &data, &fixture, "file drain");
+}
+
+#[test]
 fn raw_fallback_restores_matcher_repeat_offsets() {
     let previous_offsets = OffsetHistory::from_offsets(7, 11, 13);
     let mut state = CompressState {
@@ -199,6 +237,8 @@ fn raw_fallback_restores_matcher_repeat_offsets() {
         last_huff_table: None,
         fse_tables: FseTables::new(),
         offset_history: previous_offsets,
+        file_type_hint: crate::encoding::CompressionFileType::Unknown,
+        file_profile_hint: crate::encoding::CompressionFileProfile::None,
     };
 
     let mut output = Vec::new();
@@ -225,6 +265,30 @@ fn assert_fastest_round_trips_with_rust_and_c(data: &[u8]) -> Vec<u8> {
     assert_eq!(decoded_by_c, data);
 
     fastest
+}
+
+fn assert_round_trips_with_rust_and_c(
+    compressed: &[u8],
+    expected: &[u8],
+    fixture: &str,
+    mode: &str,
+) {
+    let mut decoded = Vec::with_capacity(expected.len());
+    FrameDecoder::new()
+        .decode_all_to_vec(compressed, &mut decoded)
+        .unwrap_or_else(|err| panic!("{} Rust decode failed for {}: {:?}", mode, fixture, err));
+    assert_eq!(
+        decoded, expected,
+        "{mode} Rust decoder mismatch for {fixture}"
+    );
+
+    let mut decoded_by_c = Vec::new();
+    zstd::stream::copy_decode(compressed, &mut decoded_by_c)
+        .unwrap_or_else(|err| panic!("{} C decode failed for {}: {:?}", mode, fixture, err));
+    assert_eq!(
+        decoded_by_c, expected,
+        "{mode} C decoder mismatch for {fixture}"
+    );
 }
 
 fn assert_fastest_does_not_exceed_raw(len: usize) {

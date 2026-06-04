@@ -145,6 +145,9 @@ fn fmt_duration(duration: Duration) -> String {
 #[cfg(test)]
 mod tests {
     use std::{
+        fs,
+        fs::File,
+        io::BufReader,
         io::{Cursor, Read},
         time::Duration,
     };
@@ -188,5 +191,52 @@ mod tests {
 
         assert_eq!(output, input);
         assert_eq!(monitor.read, input.len());
+    }
+
+    #[test]
+    #[ignore]
+    fn best_level_progress_monitor_round_trips_external_fixture_from_env() {
+        let fixture = std::env::var("RUZSTD_BEST_FIXTURE")
+            .expect("set RUZSTD_BEST_FIXTURE to a fixture path");
+        let data = fs::read(&fixture).expect("fixture must be readable");
+        let source_file = File::open(&fixture).expect("fixture must reopen");
+        let reader = BufReader::new(source_file);
+        let monitor = ProgressMonitor::without_progress(reader, data.len());
+        let mut compressed = Vec::new();
+
+        ruzstd::encoding::compress(
+            monitor,
+            &mut compressed,
+            ruzstd::encoding::CompressionLevel::Best,
+        );
+
+        let mut decoded = Vec::with_capacity(data.len());
+        zstd::stream::copy_decode(compressed.as_slice(), &mut decoded)
+            .expect("progress monitor output should decode with C zstd");
+        assert_eq!(decoded, data);
+
+        let temp_output = std::env::temp_dir().join("ruzstd-progress-monitor-best.zst");
+        let source_file = File::open(&fixture).expect("fixture must reopen");
+        let reader = BufReader::new(source_file);
+        let monitor = ProgressMonitor::without_progress(reader, data.len());
+        let mut output_file = File::create(&temp_output).expect("temp output must be creatable");
+        ruzstd::encoding::compress(
+            monitor,
+            &mut output_file,
+            ruzstd::encoding::CompressionLevel::Best,
+        );
+        drop(output_file);
+
+        let decode = std::process::Command::new("/usr/bin/zstd")
+            .args(["-q", "-d", "-c", temp_output.to_str().expect("utf8 path")])
+            .output()
+            .expect("external zstd must run");
+        assert!(
+            decode.status.success(),
+            "external zstd failed: {}",
+            String::from_utf8_lossy(&decode.stderr)
+        );
+        assert_eq!(decode.stdout, data);
+        let _ = fs::remove_file(&temp_output);
     }
 }

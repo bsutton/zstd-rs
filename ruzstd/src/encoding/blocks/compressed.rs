@@ -1,10 +1,14 @@
+use alloc::vec;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
+#[cfg(feature = "std")]
+use std::sync::OnceLock;
 
 use crate::{
     bit_io::BitWriter,
-    encoding::frame_compressor::CompressState,
-    encoding::{CompressionLevel, Matcher, Sequence},
+    encoding::frame_compressor::{CompressState, FseTables, OffsetHistory},
+    encoding::util::likely_dependency_json_lockfile_text,
+    encoding::{CompressionFileProfile, CompressionFileType, CompressionLevel, Matcher, Sequence},
     fse::fse_encoder::{build_table_from_data, FSETable, State},
     huff0::huff0_encoder,
 };
@@ -17,32 +21,265 @@ const HUFFMAN_4_STREAMS_MIN: usize = 256;
 const REPEAT_SINGLE_STREAM_LITERALS_MAX: usize = 1024;
 const SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS: usize = 256;
 const SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES: usize = 2;
+const FILE_TYPE_SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS: usize = 4 * 1024;
 const FAST_LITERAL_MIN_GAIN_LOG: u32 = 6;
+const FILE_TYPE_SMALL_SEQUENCE_PREDEFINED_LLML_MAX_SEQUENCES: usize = 64;
+const FILE_TYPE_SINGLE_STREAM_HUFFMAN_MAX_LITERALS: usize = 1024;
+const EXACT_SEQUENCE_TABLE_MIN_LOG: u8 = 7;
 const LITERAL_LENGTH_SMALL_CODES: [(u8, u32, usize); 64] = small_literal_length_codes();
 const MATCH_LENGTH_SMALL_CODES: [(u8, u32, usize); 128] = small_match_length_codes();
 
 #[derive(Clone, Copy)]
 pub(crate) struct BlockCompressionConfig {
     huffman_table_search: HuffmanTableSearch,
+    repeat_table_max_sequences: usize,
+    offset_table_max_log: u8,
+    offset_predefined_max_sequences: usize,
+    exact_sequence_mode_search: bool,
+    file_type_small_sequence_predefined_llml_max_sequences: Option<usize>,
+    file_type_single_stream_huffman_max_literals: Option<usize>,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum HuffmanTableSearch {
-    SmallLiteralSections,
-    AllNewTables,
+    Heuristic,
+    FileTypeSmall,
+    AllSections,
+}
+
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug, Default)]
+struct BlockCompressionTuningOverrides {
+    huffman_table_search: Option<HuffmanTableSearch>,
+    repeat_table_max_sequences: Option<usize>,
+    offset_table_max_log: Option<u8>,
+    offset_predefined_max_sequences: Option<usize>,
+    exact_sequence_mode_search: Option<bool>,
+    file_type_small_sequence_predefined_llml_max_sequences: Option<Option<usize>>,
+    file_type_single_stream_huffman_max_literals: Option<Option<usize>>,
+}
+
+#[cfg(feature = "std")]
+static BLOCK_COMPRESSION_TUNING_OVERRIDES: OnceLock<BlockCompressionTuningOverrides> =
+    OnceLock::new();
+
+#[cfg(feature = "std")]
+fn block_compression_tuning_overrides() -> &'static BlockCompressionTuningOverrides {
+    BLOCK_COMPRESSION_TUNING_OVERRIDES.get_or_init(BlockCompressionTuningOverrides::from_env)
+}
+
+#[cfg(feature = "std")]
+impl BlockCompressionTuningOverrides {
+    fn from_env() -> Self {
+        Self {
+            huffman_table_search: std::env::var("RUZSTD_TUNE_HUFFMAN_TABLE_SEARCH")
+                .ok()
+                .and_then(|value| match value.as_str() {
+                    "heuristic" => Some(HuffmanTableSearch::Heuristic),
+                    "filetype" => Some(HuffmanTableSearch::FileTypeSmall),
+                    "allsections" => Some(HuffmanTableSearch::AllSections),
+                    _ => None,
+                }),
+            repeat_table_max_sequences: Self::parse_usize("RUZSTD_TUNE_REPEAT_TABLE_MAX_SEQUENCES"),
+            offset_table_max_log: Self::parse_usize("RUZSTD_TUNE_OFFSET_TABLE_MAX_LOG")
+                .and_then(|value| u8::try_from(value).ok()),
+            offset_predefined_max_sequences: Self::parse_usize(
+                "RUZSTD_TUNE_OFFSET_PREDEFINED_MAX_SEQUENCES",
+            ),
+            exact_sequence_mode_search: std::env::var("RUZSTD_TUNE_EXACT_SEQUENCE_MODE_SEARCH")
+                .ok()
+                .and_then(|value| Self::parse_bool_value(&value))
+                .or_else(|| {
+                    std::env::var("RUZSTD_TUNE_EXACT_OFFSET_MODE_SEARCH")
+                        .ok()
+                        .and_then(|value| Self::parse_bool_value(&value))
+                }),
+            file_type_small_sequence_predefined_llml_max_sequences: Self::parse_option_usize(
+                "RUZSTD_TUNE_FILE_TYPE_SMALL_SEQUENCE_PREDEFINED_LLML_MAX_SEQUENCES",
+            ),
+            file_type_single_stream_huffman_max_literals: Self::parse_option_usize(
+                "RUZSTD_TUNE_FILE_TYPE_SINGLE_STREAM_HUFFMAN_MAX_LITERALS",
+            ),
+        }
+    }
+
+    fn parse_usize(name: &str) -> Option<usize> {
+        std::env::var(name).ok()?.parse().ok()
+    }
+
+    fn parse_option_usize(name: &str) -> Option<Option<usize>> {
+        let value = std::env::var(name).ok()?;
+        if value == "none" {
+            Some(None)
+        } else {
+            value.parse().ok().map(Some)
+        }
+    }
+
+    fn parse_bool_value(value: &str) -> Option<bool> {
+        match value {
+            "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON" => Some(true),
+            "0" | "false" | "FALSE" | "no" | "NO" | "off" | "OFF" => Some(false),
+            _ => None,
+        }
+    }
 }
 
 impl BlockCompressionConfig {
     pub(crate) fn for_level(level: CompressionLevel) -> Self {
+        Self::for_level_and_file_type(level, CompressionFileType::Unknown)
+    }
+
+    pub(crate) fn for_level_and_file_type(
+        level: CompressionLevel,
+        file_type: CompressionFileType,
+    ) -> Self {
+        Self::for_level_and_hints(level, file_type, CompressionFileProfile::None)
+    }
+
+    pub(crate) fn for_level_and_hints(
+        level: CompressionLevel,
+        file_type: CompressionFileType,
+        file_profile: CompressionFileProfile,
+    ) -> Self {
         let huffman_table_search = match level {
-            CompressionLevel::Best => HuffmanTableSearch::AllNewTables,
+            CompressionLevel::Best => HuffmanTableSearch::Heuristic,
             CompressionLevel::Uncompressed
             | CompressionLevel::Fastest
             | CompressionLevel::Default
-            | CompressionLevel::Better => HuffmanTableSearch::SmallLiteralSections,
+            | CompressionLevel::Better => {
+                if matches!(file_type, CompressionFileType::DictionaryText) {
+                    HuffmanTableSearch::AllSections
+                } else if matches!(
+                    file_type,
+                    CompressionFileType::CodeText
+                        | CompressionFileType::ConfigText
+                        | CompressionFileType::Unknown
+                ) {
+                    HuffmanTableSearch::FileTypeSmall
+                } else {
+                    HuffmanTableSearch::Heuristic
+                }
+            }
         };
-        Self {
+        let repeat_table_max_sequences = match level {
+            CompressionLevel::Best => 256,
+            CompressionLevel::Uncompressed
+            | CompressionLevel::Fastest
+            | CompressionLevel::Default
+            | CompressionLevel::Better => 64,
+        };
+        let mut config = Self {
             huffman_table_search,
+            repeat_table_max_sequences,
+            offset_table_max_log: if matches!(file_type, CompressionFileType::DictionaryText)
+                || (matches!(file_type, CompressionFileType::Unknown)
+                    && matches!(level, CompressionLevel::Fastest))
+            {
+                7
+            } else {
+                8
+            },
+            offset_predefined_max_sequences: 16,
+            exact_sequence_mode_search: matches!(level, CompressionLevel::Fastest)
+                && matches!(file_type, CompressionFileType::DictionaryText),
+            file_type_small_sequence_predefined_llml_max_sequences: if matches!(
+                level,
+                CompressionLevel::Fastest
+            ) && matches!(
+                file_type,
+                CompressionFileType::Unknown | CompressionFileType::ConfigText
+            ) {
+                Some(FILE_TYPE_SMALL_SEQUENCE_PREDEFINED_LLML_MAX_SEQUENCES)
+            } else {
+                None
+            },
+            file_type_single_stream_huffman_max_literals: if matches!(
+                level,
+                CompressionLevel::Fastest
+            ) && matches!(
+                file_type,
+                CompressionFileType::ConfigText
+            ) {
+                Some(FILE_TYPE_SINGLE_STREAM_HUFFMAN_MAX_LITERALS)
+            } else {
+                None
+            },
+        };
+        #[cfg(feature = "std")]
+        config.apply_tuning_overrides();
+        if matches!(file_profile, CompressionFileProfile::SmallTextLockfile) {
+            config.apply_small_text_lockfile_tuning();
+        } else if matches!(file_profile, CompressionFileProfile::DependencyJsonLockfile) {
+            config.apply_dependency_json_lockfile_tuning();
+        }
+        config
+    }
+
+    #[cfg(feature = "std")]
+    fn apply_tuning_overrides(&mut self) {
+        let overrides = block_compression_tuning_overrides();
+        if let Some(value) = overrides.huffman_table_search {
+            self.huffman_table_search = value;
+        }
+        if let Some(value) = overrides.repeat_table_max_sequences {
+            self.repeat_table_max_sequences = value;
+        }
+        if let Some(value) = overrides.offset_table_max_log {
+            self.offset_table_max_log = value;
+        }
+        if let Some(value) = overrides.offset_predefined_max_sequences {
+            self.offset_predefined_max_sequences = value;
+        }
+        if let Some(value) = overrides.exact_sequence_mode_search {
+            self.exact_sequence_mode_search = value;
+        }
+        if let Some(value) = overrides.file_type_small_sequence_predefined_llml_max_sequences {
+            self.file_type_small_sequence_predefined_llml_max_sequences = value;
+        }
+        if let Some(value) = overrides.file_type_single_stream_huffman_max_literals {
+            self.file_type_single_stream_huffman_max_literals = value;
+        }
+    }
+
+    fn apply_dependency_json_lockfile_tuning(&mut self) {
+        self.huffman_table_search = HuffmanTableSearch::AllSections;
+        self.repeat_table_max_sequences = 256;
+        self.offset_table_max_log = 8;
+        self.exact_sequence_mode_search = true;
+    }
+
+    fn apply_small_text_lockfile_tuning(&mut self) {
+        self.huffman_table_search = HuffmanTableSearch::AllSections;
+        self.repeat_table_max_sequences = 256;
+        self.offset_table_max_log = 7;
+        self.offset_predefined_max_sequences = 64;
+    }
+}
+
+pub(crate) struct PreparedBlock {
+    pub(crate) literals: Vec<u8>,
+    pub(crate) sequences: Vec<PreparedSequence>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct PreparedBlockRef<'a> {
+    pub(crate) literals: &'a [u8],
+    pub(crate) sequences: &'a [PreparedSequence],
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct PreparedSequence {
+    pub(crate) ll: u32,
+    pub(crate) ml: u32,
+    pub(crate) raw_offset: u32,
+}
+
+impl PreparedBlock {
+    pub(crate) fn as_ref(&self) -> PreparedBlockRef<'_> {
+        PreparedBlockRef {
+            literals: &self.literals,
+            sequences: &self.sequences,
         }
     }
 }
@@ -52,11 +289,30 @@ pub(crate) fn compress_block_with_config<M: Matcher>(
     output: &mut Vec<u8>,
     config: BlockCompressionConfig,
 ) -> Option<huff0_encoder::HuffmanTable> {
+    let mut config = config;
+    if matches!(state.file_profile_hint, CompressionFileProfile::None)
+        && likely_dependency_json_lockfile_text(state.matcher.get_last_space())
+    {
+        config.apply_dependency_json_lockfile_tuning();
+    }
+    let prepared = prepare_block(state);
+    let previous_huff_table = state.last_huff_table.take();
+    let result = compress_prepared_block(
+        output,
+        config,
+        prepared.as_ref(),
+        &mut state.fse_tables,
+        &mut state.offset_history,
+        previous_huff_table.as_ref(),
+    );
+    state.last_huff_table = previous_huff_table;
+    result
+}
+
+pub(crate) fn prepare_block<M: Matcher>(state: &mut CompressState<M>) -> PreparedBlock {
     let mut literals_vec = Vec::with_capacity(INITIAL_LITERALS_CAPACITY);
     let mut sequences = Vec::with_capacity(INITIAL_SEQUENCES_CAPACITY);
-    let mut new_huffman_table = None;
-    let offset_history = &mut state.offset_history;
-    let (newest, second, third) = offset_history.as_offsets();
+    let (newest, second, third) = state.offset_history.as_offsets();
     state.matcher.set_repeat_offsets(newest, second, third);
     state.matcher.start_matching(|seq| match seq {
         Sequence::Literals { literals } => literals_vec.extend_from_slice(literals),
@@ -66,37 +322,61 @@ pub(crate) fn compress_block_with_config<M: Matcher>(
             match_len,
         } => {
             literals_vec.extend_from_slice(literals);
-            let offset = offset_to_u32(offset);
-            sequences.push(crate::blocks::sequence_section::Sequence {
+            sequences.push(PreparedSequence {
                 ll: literals.len() as u32,
                 ml: match_len as u32,
-                of: offset_history.encode_offset_value(offset, literals.len() as u32),
+                raw_offset: offset_to_u32(offset),
             });
         }
     });
 
+    PreparedBlock {
+        literals: literals_vec,
+        sequences,
+    }
+}
+
+pub(crate) fn compress_prepared_block(
+    output: &mut Vec<u8>,
+    config: BlockCompressionConfig,
+    prepared: PreparedBlockRef<'_>,
+    fse_tables: &mut FseTables,
+    offset_history: &mut OffsetHistory,
+    previous_huff_table: Option<&huff0_encoder::HuffmanTable>,
+) -> Option<huff0_encoder::HuffmanTable> {
+    let mut new_huffman_table = None;
+    let mut next_offset_history = *offset_history;
+    let sequences = encode_sequences_for_history(prepared.sequences, &mut next_offset_history);
+
     // literals section
 
     let mut writer = BitWriter::from(output);
-    if should_compress_literals(literals_vec.len(), state.last_huff_table.is_some()) {
+    if should_compress_literals(prepared.literals.len(), previous_huff_table.is_some()) {
         let search_smallest_huffman_table = match config.huffman_table_search {
-            HuffmanTableSearch::SmallLiteralSections => {
+            HuffmanTableSearch::Heuristic => {
                 sequences.is_empty()
                     || (sequences.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES
-                        && literals_vec.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS)
+                        && prepared.literals.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS)
             }
-            HuffmanTableSearch::AllNewTables => true,
+            HuffmanTableSearch::FileTypeSmall => {
+                prepared.literals.len() <= FILE_TYPE_SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS
+                    || sequences.is_empty()
+                    || (sequences.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES
+                        && prepared.literals.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS)
+            }
+            HuffmanTableSearch::AllSections => true,
         };
         if let Some(table) = compress_literals(
-            &literals_vec,
-            state.last_huff_table.as_ref(),
+            prepared.literals,
+            previous_huff_table,
             search_smallest_huffman_table,
+            config.file_type_single_stream_huffman_max_literals,
             &mut writer,
         ) {
             new_huffman_table = Some(table);
         }
     } else {
-        raw_literals(&literals_vec, &mut writer);
+        raw_literals(prepared.literals, &mut writer);
     }
 
     // sequences section
@@ -107,26 +387,33 @@ pub(crate) fn compress_block_with_config<M: Matcher>(
         encode_seqnum(sequences.len(), &mut writer);
 
         // Choose the tables.
-        let ll_mode = choose_table(
-            state.fse_tables.ll_previous.as_ref(),
-            &state.fse_tables.ll_default,
+        let file_type_small_sequence_predefined_llml_max_sequences =
+            if prepared.literals.len() >= COMPRESS_LITERALS_SIZE_MIN {
+                config
+                    .file_type_small_sequence_predefined_llml_max_sequences
+                    .unwrap_or(16)
+            } else {
+                16
+            };
+        let ll_previous = fse_tables.ll_previous.clone();
+        let ml_previous = fse_tables.ml_previous.clone();
+        let of_previous = fse_tables.of_previous.clone();
+        let (ll_mode, ml_mode, of_mode) = choose_sequence_table_modes(
             &sequences,
-            |seq| encode_literal_length(seq.ll).0,
-            9,
-        );
-        let ml_mode = choose_table(
-            state.fse_tables.ml_previous.as_ref(),
-            &state.fse_tables.ml_default,
-            &sequences,
-            |seq| encode_match_len(seq.ml).0,
-            9,
-        );
-        let of_mode = choose_table(
-            state.fse_tables.of_previous.as_ref(),
-            &state.fse_tables.of_default,
-            &sequences,
-            |seq| encode_offset(seq.of).0,
-            8,
+            SequenceModeSearchConfig {
+                ll_previous: ll_previous.as_ref(),
+                ll_default: &fse_tables.ll_default,
+                ml_previous: ml_previous.as_ref(),
+                ml_default: &fse_tables.ml_default,
+                of_previous: of_previous.as_ref(),
+                of_default: &fse_tables.of_default,
+                repeat_table_max_sequences: config.repeat_table_max_sequences,
+                llml_predefined_max_sequences:
+                    file_type_small_sequence_predefined_llml_max_sequences,
+                of_predefined_max_sequences: config.offset_predefined_max_sequences,
+                of_max_log: config.offset_table_max_log,
+                exact_sequence_mode_search: config.exact_sequence_mode_search,
+            },
         );
 
         writer.write_bits(encode_fse_table_modes(&ll_mode, &ml_mode, &of_mode), 8);
@@ -138,26 +425,42 @@ pub(crate) fn compress_block_with_config<M: Matcher>(
         encode_sequences(&sequences, &mut writer, &ll_mode, &ml_mode, &of_mode);
 
         match ll_mode {
-            FseTableMode::Encoded(table) => state.fse_tables.ll_previous = Some(table),
-            FseTableMode::Predefined(_) => state.fse_tables.ll_previous = None,
-            FseTableMode::Rle(_) => state.fse_tables.ll_previous = None,
+            FseTableMode::Encoded(table) => fse_tables.ll_previous = Some(table),
+            FseTableMode::Predefined(_) => fse_tables.ll_previous = None,
+            FseTableMode::Rle(_) => fse_tables.ll_previous = None,
             FseTableMode::RepeateLast(_) => {}
         }
         match ml_mode {
-            FseTableMode::Encoded(table) => state.fse_tables.ml_previous = Some(table),
-            FseTableMode::Predefined(_) => state.fse_tables.ml_previous = None,
-            FseTableMode::Rle(_) => state.fse_tables.ml_previous = None,
+            FseTableMode::Encoded(table) => fse_tables.ml_previous = Some(table),
+            FseTableMode::Predefined(_) => fse_tables.ml_previous = None,
+            FseTableMode::Rle(_) => fse_tables.ml_previous = None,
             FseTableMode::RepeateLast(_) => {}
         }
         match of_mode {
-            FseTableMode::Encoded(table) => state.fse_tables.of_previous = Some(table),
-            FseTableMode::Predefined(_) => state.fse_tables.of_previous = None,
-            FseTableMode::Rle(_) => state.fse_tables.of_previous = None,
+            FseTableMode::Encoded(table) => fse_tables.of_previous = Some(table),
+            FseTableMode::Predefined(_) => fse_tables.of_previous = None,
+            FseTableMode::Rle(_) => fse_tables.of_previous = None,
             FseTableMode::RepeateLast(_) => {}
         }
     }
     writer.flush();
+    *offset_history = next_offset_history;
     new_huffman_table
+}
+
+fn encode_sequences_for_history(
+    sequences: &[PreparedSequence],
+    offset_history: &mut OffsetHistory,
+) -> Vec<crate::blocks::sequence_section::Sequence> {
+    let mut encoded = Vec::with_capacity(sequences.len());
+    for sequence in sequences {
+        encoded.push(crate::blocks::sequence_section::Sequence {
+            ll: sequence.ll,
+            ml: sequence.ml,
+            of: offset_history.encode_offset_value(sequence.raw_offset, sequence.ll),
+        });
+    }
+    encoded
 }
 
 #[inline(always)]
@@ -188,12 +491,36 @@ impl FseTableMode<'_> {
     }
 }
 
+struct SequenceModeSearchConfig<'a> {
+    ll_previous: Option<&'a FSETable>,
+    ll_default: &'a FSETable,
+    ml_previous: Option<&'a FSETable>,
+    ml_default: &'a FSETable,
+    of_previous: Option<&'a FSETable>,
+    of_default: &'a FSETable,
+    repeat_table_max_sequences: usize,
+    llml_predefined_max_sequences: usize,
+    of_predefined_max_sequences: usize,
+    of_max_log: u8,
+    exact_sequence_mode_search: bool,
+}
+
+#[derive(Clone, Copy)]
+struct TableModeCandidateConfig {
+    max_log: u8,
+    repeat_table_max_sequences: usize,
+    predefined_max_sequences: usize,
+    exact_sequence_mode_search: bool,
+}
+
 fn choose_table<'a>(
     previous: Option<&'a FSETable>,
     default_table: &'a FSETable,
     sequences: &[crate::blocks::sequence_section::Sequence],
     code: impl Fn(&crate::blocks::sequence_section::Sequence) -> u8 + Copy,
     max_log: u8,
+    repeat_table_max_sequences: usize,
+    predefined_max_sequences: usize,
 ) -> FseTableMode<'a> {
     let first_code = code(&sequences[0]);
     let all_same_code = sequences
@@ -205,7 +532,7 @@ fn choose_table<'a>(
         return FseTableMode::Rle(first_code);
     }
 
-    if sequences.len() <= 16
+    if sequences.len() <= predefined_max_sequences
         && sequences
             .iter()
             .all(|sequence| default_table.can_encode_symbol(code(sequence)))
@@ -218,7 +545,7 @@ fn choose_table<'a>(
     }
 
     if let Some(previous) = previous {
-        if sequences.len() < 64
+        if sequences.len() < repeat_table_max_sequences
             && sequences
                 .iter()
                 .all(|sequence| previous.can_encode_symbol(code(sequence)))
@@ -232,6 +559,170 @@ fn choose_table<'a>(
         max_log,
         true,
     ))
+}
+
+fn candidate_table_modes<'a>(
+    previous: Option<&'a FSETable>,
+    default_table: &'a FSETable,
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    code: impl Fn(&crate::blocks::sequence_section::Sequence) -> u8 + Copy,
+    config: TableModeCandidateConfig,
+) -> Vec<FseTableMode<'a>> {
+    let heuristic = choose_table(
+        previous,
+        default_table,
+        sequences,
+        code,
+        config.max_log,
+        config.repeat_table_max_sequences,
+        config.predefined_max_sequences,
+    );
+
+    let mut candidates = vec![heuristic];
+    let first_code = code(&sequences[0]);
+    let all_same_code = sequences
+        .iter()
+        .skip(1)
+        .all(|sequence| code(sequence) == first_code);
+
+    if sequences.len() <= config.predefined_max_sequences
+        && sequences
+            .iter()
+            .all(|sequence| default_table.can_encode_symbol(code(sequence)))
+    {
+        candidates.push(FseTableMode::Predefined(default_table));
+    }
+
+    if let Some(previous) = previous {
+        if sequences.len() < config.repeat_table_max_sequences
+            && sequences
+                .iter()
+                .all(|sequence| previous.can_encode_symbol(code(sequence)))
+        {
+            candidates.push(FseTableMode::RepeateLast(previous));
+        }
+    }
+
+    if all_same_code {
+        if sequences.len() > 2 {
+            candidates.push(FseTableMode::Rle(first_code));
+        }
+    } else {
+        let exact_min_log = if config.exact_sequence_mode_search {
+            EXACT_SEQUENCE_TABLE_MIN_LOG.min(config.max_log)
+        } else {
+            config.max_log
+        };
+        for candidate_max_log in exact_min_log..=config.max_log {
+            candidates.push(FseTableMode::Encoded(build_table_from_data(
+                sequences.iter().map(code),
+                candidate_max_log,
+                true,
+            )));
+        }
+    }
+
+    candidates
+}
+
+fn choose_sequence_table_modes<'a>(
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    config: SequenceModeSearchConfig<'a>,
+) -> (FseTableMode<'a>, FseTableMode<'a>, FseTableMode<'a>) {
+    let ll_candidates = candidate_table_modes(
+        config.ll_previous,
+        config.ll_default,
+        sequences,
+        |seq| encode_literal_length(seq.ll).0,
+        TableModeCandidateConfig {
+            max_log: 9,
+            repeat_table_max_sequences: config.repeat_table_max_sequences,
+            predefined_max_sequences: config.llml_predefined_max_sequences,
+            exact_sequence_mode_search: config.exact_sequence_mode_search,
+        },
+    );
+    let ml_candidates = candidate_table_modes(
+        config.ml_previous,
+        config.ml_default,
+        sequences,
+        |seq| encode_match_len(seq.ml).0,
+        TableModeCandidateConfig {
+            max_log: 9,
+            repeat_table_max_sequences: config.repeat_table_max_sequences,
+            predefined_max_sequences: config.llml_predefined_max_sequences,
+            exact_sequence_mode_search: config.exact_sequence_mode_search,
+        },
+    );
+    let of_candidates = candidate_table_modes(
+        config.of_previous,
+        config.of_default,
+        sequences,
+        |seq| encode_offset(seq.of).0,
+        TableModeCandidateConfig {
+            max_log: config.of_max_log,
+            repeat_table_max_sequences: config.repeat_table_max_sequences,
+            predefined_max_sequences: config.of_predefined_max_sequences,
+            exact_sequence_mode_search: config.exact_sequence_mode_search,
+        },
+    );
+
+    if !config.exact_sequence_mode_search {
+        return (
+            ll_candidates.into_iter().next().unwrap(),
+            ml_candidates.into_iter().next().unwrap(),
+            of_candidates.into_iter().next().unwrap(),
+        );
+    }
+
+    let mut ll_candidates = ll_candidates;
+    let mut ml_candidates = ml_candidates;
+    let mut of_candidates = of_candidates;
+    let mut best_ll = 0usize;
+    let mut best_ml = 0usize;
+    let mut best_of = 0usize;
+    let mut best_size = exact_sequence_section_size(
+        sequences,
+        &ll_candidates[0],
+        &ml_candidates[0],
+        &of_candidates[0],
+    );
+
+    for (ll_idx, ll_mode) in ll_candidates.iter().enumerate() {
+        for (ml_idx, ml_mode) in ml_candidates.iter().enumerate() {
+            for (of_idx, of_mode) in of_candidates.iter().enumerate() {
+                let size = exact_sequence_section_size(sequences, ll_mode, ml_mode, of_mode);
+                if size < best_size {
+                    best_ll = ll_idx;
+                    best_ml = ml_idx;
+                    best_of = of_idx;
+                    best_size = size;
+                }
+            }
+        }
+    }
+
+    (
+        ll_candidates.swap_remove(best_ll),
+        ml_candidates.swap_remove(best_ml),
+        of_candidates.swap_remove(best_of),
+    )
+}
+
+fn exact_sequence_section_size(
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    ll_mode: &FseTableMode<'_>,
+    ml_mode: &FseTableMode<'_>,
+    of_mode: &FseTableMode<'_>,
+) -> usize {
+    let mut encoded = Vec::new();
+    let mut writer = BitWriter::from(&mut encoded);
+    writer.write_bits(encode_fse_table_modes(ll_mode, ml_mode, of_mode), 8);
+    encode_table(ll_mode, &mut writer);
+    encode_table(of_mode, &mut writer);
+    encode_table(ml_mode, &mut writer);
+    encode_sequences(sequences, &mut writer, ll_mode, ml_mode, of_mode);
+    writer.flush();
+    encoded.len()
 }
 
 fn encode_table(mode: &FseTableMode<'_>, writer: &mut BitWriter<&mut Vec<u8>>) {
@@ -428,6 +919,21 @@ fn encode_seqnum(seqnum: usize, writer: &mut BitWriter<impl AsMut<Vec<u8>>>) {
 }
 
 #[inline(always)]
+pub(crate) fn literal_length_code(len: u32) -> u8 {
+    encode_literal_length(len).0
+}
+
+#[inline(always)]
+pub(crate) fn match_length_code(len: u32) -> u8 {
+    encode_match_len(len).0
+}
+
+#[inline(always)]
+pub(crate) fn offset_code(offset_value: u32) -> u8 {
+    encode_offset(offset_value).0
+}
+
+#[inline(always)]
 fn encode_literal_length(len: u32) -> (u8, u32, usize) {
     if len < LITERAL_LENGTH_SMALL_CODES.len() as u32 {
         return LITERAL_LENGTH_SMALL_CODES[len as usize];
@@ -571,6 +1077,7 @@ fn compress_literals(
     literals: &[u8],
     last_table: Option<&huff0_encoder::HuffmanTable>,
     search_smallest_table: bool,
+    force_single_stream_max_literals: Option<usize>,
     writer: &mut BitWriter<&mut Vec<u8>>,
 ) -> Option<huff0_encoder::HuffmanTable> {
     let reset_idx = writer.index();
@@ -587,7 +1094,10 @@ fn compress_literals(
         return None;
     }
 
-    let (size_format, size_bits) = compressed_literals_size_format(literals.len());
+    let force_single_stream =
+        force_single_stream_max_literals.is_some_and(|max_literals| literals.len() <= max_literals);
+    let (size_format, size_bits) =
+        compressed_literals_size_format(literals.len(), force_single_stream);
     let four_streams = size_format != 0;
     let header_len = compressed_literals_header_len(size_format);
     let new_encoder_table = if search_smallest_table {
@@ -610,7 +1120,13 @@ fn compress_literals(
     };
     let choice = last_table
         .and_then(|previous_table| {
-            repeat_huffman_choice(previous_table, &literal_stats, literals, new_choice)
+            repeat_huffman_choice(
+                previous_table,
+                &literal_stats,
+                literals,
+                new_choice,
+                force_single_stream,
+            )
         })
         .unwrap_or(new_choice);
 
@@ -662,12 +1178,14 @@ fn repeat_huffman_choice<'table>(
     literal_stats: &LiteralStats,
     literals: &[u8],
     new_choice: LiteralEncodingChoice<'_>,
+    force_single_stream: bool,
 ) -> Option<LiteralEncodingChoice<'table>> {
     if !previous_table.can_encode_counts(literal_stats.counts()) {
         return None;
     }
 
-    let (size_format, size_bits) = compressed_literals_repeat_size_format(literals.len());
+    let (size_format, size_bits) =
+        compressed_literals_repeat_size_format(literals.len(), force_single_stream);
     let header_len = compressed_literals_header_len(size_format);
     let four_streams = size_format != 0;
     let estimated_len = previous_table.encoded_len(literals, false, four_streams);
@@ -687,7 +1205,11 @@ fn repeat_huffman_choice<'table>(
     }
 }
 
-fn compressed_literals_size_format(len: usize) -> (u8, usize) {
+fn compressed_literals_size_format(len: usize, force_single_stream: bool) -> (u8, usize) {
+    if force_single_stream && len < HUFFMAN_4_STREAMS_MIN * 4 {
+        return (0b00u8, 10);
+    }
+
     match len {
         0..HUFFMAN_4_STREAMS_MIN => (0b00u8, 10),
         HUFFMAN_4_STREAMS_MIN..1024 => (0b01, 10),
@@ -697,12 +1219,12 @@ fn compressed_literals_size_format(len: usize) -> (u8, usize) {
     }
 }
 
-fn compressed_literals_repeat_size_format(len: usize) -> (u8, usize) {
-    if len < REPEAT_SINGLE_STREAM_LITERALS_MAX {
+fn compressed_literals_repeat_size_format(len: usize, force_single_stream: bool) -> (u8, usize) {
+    if force_single_stream || len < REPEAT_SINGLE_STREAM_LITERALS_MAX {
         return (0b00, 10);
     }
 
-    compressed_literals_size_format(len)
+    compressed_literals_size_format(len, false)
 }
 
 fn compressed_literals_header_len(size_format: u8) -> usize {
@@ -813,7 +1335,7 @@ mod tests {
             Vec::new()
         }
 
-        fn get_last_space(&mut self) -> &[u8] {
+        fn get_last_space(&self) -> &[u8] {
             &[]
         }
 
@@ -871,6 +1393,8 @@ mod tests {
             last_huff_table,
             fse_tables: FseTables::new(),
             offset_history: OffsetHistory::new(),
+            file_type_hint: CompressionFileType::Unknown,
+            file_profile_hint: CompressionFileProfile::None,
         };
         let mut block_payload = Vec::new();
 
@@ -996,7 +1520,9 @@ mod tests {
                 &default,
                 &sequences,
                 |seq| encode_literal_length(seq.ll).0,
-                9
+                9,
+                64,
+                16,
             ),
             FseTableMode::Predefined(_)
         ));
@@ -1029,7 +1555,9 @@ mod tests {
                 &default,
                 &sequences,
                 |seq| encode_literal_length(seq.ll).0,
-                9
+                9,
+                64,
+                16,
             ),
             FseTableMode::Predefined(_)
         ));
@@ -1050,7 +1578,9 @@ mod tests {
                 &default,
                 &sequences,
                 |seq| encode_literal_length(seq.ll).0,
-                9
+                9,
+                64,
+                16,
             ),
             FseTableMode::Rle(5)
         ));
@@ -1458,6 +1988,8 @@ mod tests {
             last_huff_table: None,
             fse_tables: FseTables::new(),
             offset_history: OffsetHistory::new(),
+            file_type_hint: CompressionFileType::Unknown,
+            file_profile_hint: CompressionFileProfile::None,
         };
         let mut first_payload = Vec::new();
         state.last_huff_table = compress_block_with_config(
@@ -1642,12 +2174,18 @@ mod tests {
         let (fast_block, _, _) = compressed_frame_with_literal_payload_and_config(
             literals.clone(),
             None,
-            BlockCompressionConfig::for_level(CompressionLevel::Fastest),
+            BlockCompressionConfig::for_level_and_file_type(
+                CompressionLevel::Fastest,
+                CompressionFileType::ArchiveLike,
+            ),
         );
         let (best_block, best_frame, expected) = compressed_frame_with_literal_payload_and_config(
             literals,
             None,
-            BlockCompressionConfig::for_level(CompressionLevel::Best),
+            BlockCompressionConfig::for_level_and_file_type(
+                CompressionLevel::Best,
+                CompressionFileType::ArchiveLike,
+            ),
         );
 
         assert!(
@@ -1667,6 +2205,134 @@ mod tests {
         let mut c_decoded = Vec::new();
         zstd::stream::copy_decode(best_frame.as_slice(), &mut c_decoded).unwrap();
         assert_eq!(c_decoded, expected);
+    }
+
+    #[test]
+    fn fastest_code_and_config_text_enable_small_literal_exact_search() {
+        assert!(matches!(
+            BlockCompressionConfig::for_level_and_file_type(
+                CompressionLevel::Fastest,
+                CompressionFileType::CodeText,
+            )
+            .huffman_table_search,
+            HuffmanTableSearch::FileTypeSmall
+        ));
+        assert!(matches!(
+            BlockCompressionConfig::for_level_and_file_type(
+                CompressionLevel::Fastest,
+                CompressionFileType::ConfigText,
+            )
+            .huffman_table_search,
+            HuffmanTableSearch::FileTypeSmall
+        ));
+        assert!(matches!(
+            BlockCompressionConfig::for_level_and_file_type(
+                CompressionLevel::Fastest,
+                CompressionFileType::Unknown,
+            )
+            .huffman_table_search,
+            HuffmanTableSearch::FileTypeSmall
+        ));
+        assert!(matches!(
+            BlockCompressionConfig::for_level_and_file_type(
+                CompressionLevel::Fastest,
+                CompressionFileType::JsonText,
+            )
+            .huffman_table_search,
+            HuffmanTableSearch::Heuristic
+        ));
+        assert!(matches!(
+            BlockCompressionConfig::for_level_and_file_type(
+                CompressionLevel::Fastest,
+                CompressionFileType::DictionaryText,
+            )
+            .huffman_table_search,
+            HuffmanTableSearch::AllSections
+        ));
+    }
+
+    #[test]
+    fn fastest_config_text_enables_small_single_stream_huffman_override() {
+        assert_eq!(
+            BlockCompressionConfig::for_level_and_file_type(
+                CompressionLevel::Fastest,
+                CompressionFileType::ConfigText,
+            )
+            .file_type_single_stream_huffman_max_literals,
+            Some(FILE_TYPE_SINGLE_STREAM_HUFFMAN_MAX_LITERALS)
+        );
+        assert_eq!(
+            BlockCompressionConfig::for_level_and_file_type(
+                CompressionLevel::Fastest,
+                CompressionFileType::CodeText,
+            )
+            .file_type_single_stream_huffman_max_literals,
+            None
+        );
+    }
+
+    #[test]
+    fn fastest_dictionary_text_keeps_default_predefined_llml_window() {
+        let config = BlockCompressionConfig::for_level_and_file_type(
+            CompressionLevel::Fastest,
+            CompressionFileType::DictionaryText,
+        );
+        assert_eq!(
+            config.file_type_small_sequence_predefined_llml_max_sequences,
+            None
+        );
+
+        let code_config = BlockCompressionConfig::for_level_and_file_type(
+            CompressionLevel::Fastest,
+            CompressionFileType::CodeText,
+        );
+        assert_eq!(
+            code_config.file_type_small_sequence_predefined_llml_max_sequences,
+            None
+        );
+    }
+
+    #[test]
+    fn fastest_dictionary_text_enables_exact_sequence_mode_search() {
+        let dictionary_config = BlockCompressionConfig::for_level_and_hints(
+            CompressionLevel::Fastest,
+            CompressionFileType::DictionaryText,
+            CompressionFileProfile::None,
+        );
+        assert!(dictionary_config.exact_sequence_mode_search);
+
+        let dependency_json_config = BlockCompressionConfig::for_level_and_hints(
+            CompressionLevel::Fastest,
+            CompressionFileType::JsonText,
+            CompressionFileProfile::DependencyJsonLockfile,
+        );
+        assert!(dependency_json_config.exact_sequence_mode_search);
+
+        let small_text_lockfile_config = BlockCompressionConfig::for_level_and_hints(
+            CompressionLevel::Fastest,
+            CompressionFileType::ConfigText,
+            CompressionFileProfile::SmallTextLockfile,
+        );
+        assert!(!small_text_lockfile_config.exact_sequence_mode_search);
+        assert_eq!(small_text_lockfile_config.offset_table_max_log, 7);
+        assert_eq!(
+            small_text_lockfile_config.offset_predefined_max_sequences,
+            64
+        );
+        assert_eq!(small_text_lockfile_config.repeat_table_max_sequences, 256);
+
+        let code_config = BlockCompressionConfig::for_level_and_hints(
+            CompressionLevel::Fastest,
+            CompressionFileType::CodeText,
+            CompressionFileProfile::None,
+        );
+        assert!(!code_config.exact_sequence_mode_search);
+    }
+
+    #[test]
+    fn forced_single_stream_huffman_uses_single_stream_size_format() {
+        assert_eq!(compressed_literals_size_format(821, false), (0b01, 10));
+        assert_eq!(compressed_literals_size_format(821, true), (0b00, 10));
     }
 
     #[test]
@@ -1697,9 +2363,101 @@ mod tests {
                 &default,
                 &sequences,
                 |seq| encode_offset(seq.of).0,
-                8
+                8,
+                64,
+                16,
             ),
             FseTableMode::RepeateLast(_)
         ));
+    }
+
+    #[test]
+    fn exact_sequence_mode_search_never_worsens_threshold_choice() {
+        let ll_default = default_ll_table();
+        let ml_default = default_ml_table();
+        let of_default = default_of_table();
+
+        for a in 0..=8u32 {
+            for b in 0..=8u32 {
+                for c in 0..=8u32 {
+                    for d in 0..=8u32 {
+                        let sequences = [
+                            crate::blocks::sequence_section::Sequence {
+                                ll: 0,
+                                ml: 3,
+                                of: 1u32 << a,
+                            },
+                            crate::blocks::sequence_section::Sequence {
+                                ll: 0,
+                                ml: 3,
+                                of: 1u32 << b,
+                            },
+                            crate::blocks::sequence_section::Sequence {
+                                ll: 0,
+                                ml: 3,
+                                of: 1u32 << c,
+                            },
+                            crate::blocks::sequence_section::Sequence {
+                                ll: 0,
+                                ml: 3,
+                                of: 1u32 << d,
+                            },
+                        ];
+                        let heuristic_ll = choose_table(
+                            None,
+                            &ll_default,
+                            &sequences,
+                            |seq| encode_literal_length(seq.ll).0,
+                            9,
+                            64,
+                            16,
+                        );
+                        let heuristic_ml = choose_table(
+                            None,
+                            &ml_default,
+                            &sequences,
+                            |seq| encode_match_len(seq.ml).0,
+                            9,
+                            64,
+                            16,
+                        );
+                        let heuristic_of = choose_table(
+                            None,
+                            &of_default,
+                            &sequences,
+                            |seq| encode_offset(seq.of).0,
+                            8,
+                            64,
+                            16,
+                        );
+                        let (ll_mode, ml_mode, of_mode) = choose_sequence_table_modes(
+                            &sequences,
+                            SequenceModeSearchConfig {
+                                ll_previous: None,
+                                ll_default: &ll_default,
+                                ml_previous: None,
+                                ml_default: &ml_default,
+                                of_previous: None,
+                                of_default: &of_default,
+                                repeat_table_max_sequences: 64,
+                                llml_predefined_max_sequences: 16,
+                                of_predefined_max_sequences: 16,
+                                of_max_log: 8,
+                                exact_sequence_mode_search: true,
+                            },
+                        );
+                        let heuristic_size = exact_sequence_section_size(
+                            &sequences,
+                            &heuristic_ll,
+                            &heuristic_ml,
+                            &heuristic_of,
+                        );
+                        let exact_size =
+                            exact_sequence_section_size(&sequences, &ll_mode, &ml_mode, &of_mode);
+                        assert!(exact_size <= heuristic_size);
+                    }
+                }
+            }
+        }
     }
 }

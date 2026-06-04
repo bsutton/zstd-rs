@@ -121,21 +121,12 @@ impl<V: AsMut<Vec<u8>>> HuffmanEncoder<'_, '_, V> {
     }
 
     fn write_table(&mut self) {
-        // TODO strategy for determining this?
         let weights = self.weights();
         let weights = &weights[..weights.len() - 1]; // dont encode last weight
         if weights.len() > 16 {
-            let size_idx = self.writer.index();
-            self.writer.write_bits(0u8, 8);
-            let idx_before = self.writer.index();
-            let mut encoder = FSEEncoder::new(
-                fse_encoder::build_table_from_data(weights.iter().copied(), 6, true),
-                self.writer,
-            );
-            encoder.encode_interleaved(weights);
-            let encoded_len = (self.writer.index() - idx_before) / 8;
-            assert!(encoded_len < 128);
-            self.writer.change_bits(size_idx, encoded_len as u8, 8);
+            for byte in encoded_weight_table_bytes(weights) {
+                self.writer.write_bits(byte, 8);
+            }
         } else {
             self.writer.write_bits(weights.len() as u8 + 127, 8);
             let pairs = weights.chunks_exact(2);
@@ -155,6 +146,33 @@ impl<V: AsMut<Vec<u8>>> HuffmanEncoder<'_, '_, V> {
             }
         }
     }
+}
+
+fn encoded_weight_table_bytes(weights: &[u8]) -> Vec<u8> {
+    let mut best = encode_weight_table_fse_bytes(weights, 6);
+    let smaller = encode_weight_table_fse_bytes(weights, 5);
+    if smaller.len() < best.len() {
+        best = smaller;
+    }
+    best
+}
+
+fn encode_weight_table_fse_bytes(weights: &[u8], max_log: u8) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    let mut writer = BitWriter::from(&mut encoded);
+    writer.write_bits(0u8, 8);
+    let size_idx = writer.index() - 8;
+    let idx_before = writer.index();
+    let mut encoder = FSEEncoder::new(
+        fse_encoder::build_table_from_data(weights.iter().copied(), max_log, true),
+        &mut writer,
+    );
+    encoder.encode_interleaved(weights);
+    let encoded_len = (writer.index() - idx_before) / 8;
+    assert!(encoded_len < 128);
+    writer.change_bits(size_idx, encoded_len as u8, 8);
+    writer.flush();
+    encoded
 }
 
 pub struct HuffmanTable {
@@ -195,6 +213,15 @@ impl HuffmanTable {
     ) -> Self {
         let mut best = Self::build_from_counts(counts);
         let mut best_len = best.encoded_len(data, true, four_streams);
+
+        let rank_limited = Self::build_from_weights(&rank_limited_weights(counts));
+        if rank_limited.can_encode_counts(counts) {
+            let rank_limited_len = rank_limited.encoded_len(data, true, four_streams);
+            if rank_limited_len < best_len {
+                best = rank_limited;
+                best_len = rank_limited_len;
+            }
+        }
 
         if is_flat_distribution(counts) {
             return best;
@@ -859,6 +886,32 @@ fn encoded_len_matches_single_stream_encoder() {
         table.encoded_len(data, false, false),
         actual_encoded_len(&table, data, false, false)
     );
+}
+
+#[test]
+fn adaptive_weight_table_fse_max_log_is_never_worse_than_fixed_six() {
+    let mut saw_smaller_five = false;
+
+    for seed in 1u32..=64 {
+        let mut state = seed;
+        let len = 17 + (seed as usize % 24);
+        let mut weights = Vec::with_capacity(len);
+        for _ in 0..len {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            weights.push((state % 12) as u8);
+        }
+
+        let adaptive = encoded_weight_table_bytes(&weights);
+        let fixed_six = encode_weight_table_fse_bytes(&weights, 6);
+        let fixed_five = encode_weight_table_fse_bytes(&weights, 5);
+
+        assert_eq!(adaptive.len(), fixed_five.len().min(fixed_six.len()));
+        saw_smaller_five |= fixed_five.len() < fixed_six.len();
+    }
+
+    assert!(saw_smaller_five);
 }
 
 #[test]
