@@ -27,14 +27,13 @@ mod frequency;
 mod reservoir;
 
 use crate::dictionary::reservoir::create_sample;
-use alloc::vec;
 use core::cmp::Reverse;
 use cover::*;
 use std::{
     boxed::Box,
     collections::{BinaryHeap, HashMap},
     fs::{self, File},
-    io::{self, BufReader, Read},
+    io::{self, Read},
     path::{Path, PathBuf},
     vec::Vec,
 };
@@ -123,9 +122,10 @@ pub fn create_raw_dict_from_dir<P: AsRef<Path>, W: io::Write>(
 /// - `dict_size` determines how large the complete dictionary should be. The completed
 ///   dictionary will be this size or smaller.
 ///
-/// This function uses `BufRead` internally, the provided reader need not be buffered.
+/// This function buffers the training source internally so sampling and epoch scoring
+/// can both inspect the same training data.
 pub fn create_raw_dict_from_source<R: io::Read, W: io::Write>(
-    source: R,
+    mut source: R,
     source_size: usize,
     output: &mut W,
     dict_size: usize,
@@ -140,21 +140,35 @@ pub fn create_raw_dict_from_source<R: io::Read, W: io::Write>(
         return;
     }
     vprintln!("create_dict: creating {dict_size} byte dict from {source_size} byte source");
-    let mut buffered_source = BufReader::with_capacity(128_000, source);
+    if dict_size == 0 {
+        return;
+    }
 
-    let params = DictParams {
-        segment_size: u32::min(2048, source_size as u32),
-    };
-    let num_segments = source_size / params.segment_size as usize;
+    let mut source_data = Vec::with_capacity(source_size);
+    source
+        .read_to_end(&mut source_data)
+        .expect("can read input");
+    if source_data.is_empty() {
+        return;
+    }
+
+    if source_data.len() < K {
+        output
+            .write_all(&source_data[..usize::min(dict_size, source_data.len())])
+            .expect("can write to output");
+        return;
+    }
+
+    let params = DictParams { segment_size: 2048 };
+    let segment_size = params.segment_size as usize;
+    let num_segments = usize::max(1, source_data.len().div_ceil(segment_size));
     // According to 4. Experiments - Varying Reservoir Sampler Thresholds,
     // setting reservoir size to collection size / min{collection size / (2 * number of segments),
     // 256} was effective
-    let sample_size = usize::max(
-        16,
-        source_size / usize::min(source_size / (2 * num_segments), 256),
-    );
+    let sample_divisor = usize::min(usize::max(1, source_data.len() / (2 * num_segments)), 256);
+    let sample_size = usize::max(K, source_data.len() / sample_divisor);
     vprintln!("create_dict: creating {sample_size} byte sample of collection");
-    let collection_sample = create_sample(&mut buffered_source, sample_size);
+    let collection_sample = create_sample(&mut source_data.as_slice(), sample_size);
 
     // A collection of segments to be used in the final dictionary.
     //
@@ -162,26 +176,25 @@ pub fn create_raw_dict_from_source<R: io::Read, W: io::Write>(
     // Reverse is used because we want a min heap, where
     // the lowest scoring items come first
     let mut pool: BinaryHeap<Reverse<Segment>> = BinaryHeap::new();
-    let (_, epoch_size) = compute_epoch_info(&params, dict_size, source_size / K);
-    let num_epochs = source_size / epoch_size;
+    let (_, epoch_kmers) = compute_epoch_info(&params, dict_size, source_data.len() / K);
+    let epoch_size = usize::min(source_data.len(), usize::max(K, epoch_kmers * K));
+    let num_epochs = source_data.len().div_ceil(epoch_size);
     vprintln!("create_dict: computed epoch info, using {num_epochs} epochs of {epoch_size} bytes");
-    //let mut current_epoch = vec![0; epoch_size];
-    let mut current_epoch = vec![0; 100];
-    let mut epoch_counter = 0;
     let mut ctx = Context {
         frequencies: HashMap::with_capacity(epoch_size / K),
     };
     // Score each segment in the epoch and select the highest scoring segment
     // for the pool
-    while buffered_source
-        .read(&mut current_epoch)
-        .expect("can read input")
-        != 0
-    {
-        epoch_counter += 1;
-        let best_segment = pick_best_segment(&params, &mut ctx, &collection_sample);
+    for (epoch_index, current_epoch) in source_data.chunks(epoch_size).enumerate() {
+        let Some(best_segment) =
+            pick_best_segment(&params, &mut ctx, current_epoch, &collection_sample)
+        else {
+            continue;
+        };
         vprintln!(
-            "\tcreate_dict: epoch {epoch_counter}/{num_epochs} has best segment score {}",
+            "\tcreate_dict: epoch {}/{} has best segment score {}",
+            epoch_index + 1,
+            num_epochs,
             best_segment.score
         );
         pool.push(Reverse(best_segment));
@@ -189,15 +202,52 @@ pub fn create_raw_dict_from_source<R: io::Read, W: io::Write>(
         ctx.frequencies.clear();
     }
     vprintln!(
-        "create_dict: {epoch_counter} epochs written, writing {} segments",
+        "create_dict: {num_epochs} epochs written, writing {} segments",
         pool.len()
     );
     // Write the dictionary with the highest scoring segment last because
     // closer items can be represented with a smaller offset
+    let mut remaining = dict_size;
     while let Some(segment) = pool.pop() {
+        if remaining == 0 {
+            break;
+        }
+        let bytes_to_write = usize::min(remaining, segment.0.raw.len());
         output
-            .write_all(&segment.0.raw)
+            .write_all(&segment.0.raw[..bytes_to_write])
             .expect("can write to output");
+        remaining -= bytes_to_write;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::create_raw_dict_from_source;
+    use std::vec::Vec;
+
+    #[test]
+    fn raw_dict_builder_scores_epochs_after_sampling() {
+        let mut source = Vec::new();
+        for _ in 0..512 {
+            source.extend_from_slice(b"aaaaaaaaaaaaaaaabbbbbbbbbbbbbbbb");
+            source.extend_from_slice(b"ccccccccccccccccdddddddddddddddd");
+        }
+        let mut dictionary = Vec::new();
+
+        create_raw_dict_from_source(source.as_slice(), source.len(), &mut dictionary, 1024);
+
+        assert!(!dictionary.is_empty());
+        assert!(dictionary.len() <= 1024);
+    }
+
+    #[test]
+    fn raw_dict_builder_handles_tiny_sources() {
+        let source = b"tiny";
+        let mut dictionary = Vec::new();
+
+        create_raw_dict_from_source(source.as_slice(), source.len(), &mut dictionary, 1024);
+
+        assert_eq!(dictionary, source);
     }
 }
 
