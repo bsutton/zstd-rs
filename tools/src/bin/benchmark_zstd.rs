@@ -47,6 +47,10 @@ fn main() -> io::Result<()> {
 
 fn parse_args() -> io::Result<Args> {
     let raw = env::args().skip(1).collect::<Vec<_>>();
+    if has_flag(&raw, "--help") || has_flag(&raw, "-h") {
+        print_help();
+        std::process::exit(0);
+    }
     let repo = repo_root();
     let tmp = benchmark_tmp();
     Ok(Args {
@@ -98,6 +102,12 @@ fn parse_args() -> io::Result<Args> {
         commentary: parse_value(&raw, "--commentary", ""),
         no_sync: has_flag(&raw, "--no-sync"),
     })
+}
+
+fn print_help() {
+    println!(
+        "Usage: benchmark_zstd [--fixtures DIR] [--output-dir DIR] [--current-bin PATH] \\\n    [--upstream-bin PATH] [--c-zstd-bin PATH] [-l LEVEL] [--runs N] \\\n    [--csv-output PATH] [--md-output PATH] [--commentary TEXT] [--no-sync]\n\nOptions:\n  --fixtures DIR       Directory containing input fixture files.\n  --output-dir DIR     Temporary directory for compressed outputs.\n  --current-bin PATH   Path to the current ruzstd-cli binary.\n  --upstream-bin PATH  Path to the upstream/baseline ruzstd-cli binary.\n  --c-zstd-bin PATH    Path to the C zstd binary.\n  -l, --level LEVEL    Compression level.\n  --runs N             Timed runs per fixture.\n  --csv-output PATH    CSV output path.\n  --md-output PATH     Markdown output path.\n  --commentary TEXT    Short note for the Markdown output.\n  --no-sync            Skip sync before timed runs.\n  -h, --help           Show this help message."
+    );
 }
 
 fn encoder_commands(args: &Args, input: &Path, output: &Path) -> Vec<(&'static str, Command)> {

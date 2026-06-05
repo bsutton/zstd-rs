@@ -1,12 +1,16 @@
 use std::{env, io, path::PathBuf};
 
 use zstd_rs_tools::{
-    benchmark_tmp, cross_block_repetition, json_logs, parse_value, repeated_text, write_fixture,
-    xorshift,
+    benchmark_tmp, cross_block_repetition, has_flag, json_logs, parse_value, repeated_text,
+    write_fixture, xorshift,
 };
 
 fn main() -> io::Result<()> {
     let args = env::args().skip(1).collect::<Vec<_>>();
+    if has_flag(&args, "--help") || has_flag(&args, "-h") {
+        print_help();
+        return Ok(());
+    }
     let output_dir = PathBuf::from(parse_value(
         &args,
         "--output-dir",
@@ -38,4 +42,10 @@ fn main() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+fn print_help() {
+    println!(
+        "Usage: generate_zstd_fixtures [--output-dir DIR]\n\nOptions:\n  --output-dir DIR  Directory to write generated fixtures into.\n  -h, --help        Show this help message."
+    );
 }

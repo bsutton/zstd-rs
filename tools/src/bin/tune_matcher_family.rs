@@ -9,7 +9,7 @@ use std::{
 };
 
 use zstd_rs_tools::{
-    benchmark_tmp, csv_escape, parse_value, repo_root, require_value, run_command_silent,
+    benchmark_tmp, csv_escape, has_flag, parse_value, repo_root, require_value, run_command_silent,
     verify_decoded_matches, write_all,
 };
 
@@ -40,6 +40,10 @@ struct RunContext<'a> {
 
 fn main() -> io::Result<()> {
     let args = env::args().skip(1).collect::<Vec<_>>();
+    if has_flag(&args, "--help") || has_flag(&args, "-h") {
+        print_help();
+        return Ok(());
+    }
     let family = require_value(&args, "--family")?;
     let preset = preset(&family)?;
     let repo = repo_root();
@@ -117,6 +121,12 @@ fn main() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+fn print_help() {
+    println!(
+        "Usage: tune_matcher_family --family FAMILY [--fixtures-root DIR] [--level LEVEL] \\\n    [--runs N] [--top N] [--csv-output PATH] [--md-output PATH]\n\nOptions:\n  --family FAMILY      Focused family preset to tune.\n  --fixtures-root DIR  Fixture suite root.\n  --level LEVEL        Compression level.\n  --runs N             Timed runs per fixture for each candidate.\n  --top N              How many top candidates to print and save.\n  --csv-output PATH    Optional CSV output path.\n  --md-output PATH     Optional Markdown output path.\n  -h, --help           Show this help message."
+    );
 }
 
 fn optional_path(args: &[String], name: &str) -> Option<PathBuf> {
