@@ -217,19 +217,19 @@ pub(crate) fn compress_prepared_block(
             FseTableMode::Encoded(table) => fse_tables.ll_previous = Some(table),
             FseTableMode::Predefined(_) => fse_tables.ll_previous = None,
             FseTableMode::Rle(_) => fse_tables.ll_previous = None,
-            FseTableMode::RepeateLast(_) => {}
+            FseTableMode::RepeatLast(_) => {}
         }
         match ml_mode {
             FseTableMode::Encoded(table) => fse_tables.ml_previous = Some(table),
             FseTableMode::Predefined(_) => fse_tables.ml_previous = None,
             FseTableMode::Rle(_) => fse_tables.ml_previous = None,
-            FseTableMode::RepeateLast(_) => {}
+            FseTableMode::RepeatLast(_) => {}
         }
         match of_mode {
             FseTableMode::Encoded(table) => fse_tables.of_previous = Some(table),
             FseTableMode::Predefined(_) => fse_tables.of_previous = None,
             FseTableMode::Rle(_) => fse_tables.of_previous = None,
-            FseTableMode::RepeateLast(_) => {}
+            FseTableMode::RepeatLast(_) => {}
         }
     }
     writer.flush();

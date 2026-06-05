@@ -1053,7 +1053,7 @@ fn choose_table_repeats_previous_table_for_small_blocks_when_valid() {
             64,
             16,
         ),
-        FseTableMode::RepeateLast(_)
+        FseTableMode::RepeatLast(_)
     ));
 }
 

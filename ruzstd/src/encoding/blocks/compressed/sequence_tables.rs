@@ -16,14 +16,14 @@ pub(super) enum FseTableMode<'a> {
     Predefined(&'a FSETable),
     Rle(u8),
     Encoded(FSETable),
-    RepeateLast(&'a FSETable),
+    RepeatLast(&'a FSETable),
 }
 
 impl FseTableMode<'_> {
     pub(super) fn table(&self) -> Option<&FSETable> {
         match self {
             Self::Predefined(t) => Some(t),
-            Self::RepeateLast(t) => Some(t),
+            Self::RepeatLast(t) => Some(t),
             Self::Encoded(t) => Some(t),
             Self::Rle(_) => None,
         }
@@ -89,7 +89,7 @@ pub(super) fn choose_table<'a>(
                 .iter()
                 .all(|sequence| previous.can_encode_symbol(code(sequence)))
         {
-            return FseTableMode::RepeateLast(previous);
+            return FseTableMode::RepeatLast(previous);
         }
     }
 
@@ -138,7 +138,7 @@ fn candidate_table_modes<'a>(
                 .iter()
                 .all(|sequence| previous.can_encode_symbol(code(sequence)))
         {
-            candidates.push(FseTableMode::RepeateLast(previous));
+            candidates.push(FseTableMode::RepeatLast(previous));
         }
     }
 
@@ -268,7 +268,7 @@ pub(super) fn encode_table(mode: &FseTableMode<'_>, writer: &mut BitWriter<&mut 
     match mode {
         FseTableMode::Predefined(_) => {}
         FseTableMode::Rle(symbol) => writer.write_bits(*symbol, 8),
-        FseTableMode::RepeateLast(_) => {}
+        FseTableMode::RepeatLast(_) => {}
         FseTableMode::Encoded(table) => table.write_table(writer),
     }
 }
@@ -283,7 +283,7 @@ pub(super) fn encode_fse_table_modes(
             FseTableMode::Predefined(_) => 0,
             FseTableMode::Rle(_) => 1,
             FseTableMode::Encoded(_) => 2,
-            FseTableMode::RepeateLast(_) => 3,
+            FseTableMode::RepeatLast(_) => 3,
         }
     }
     mode_to_bits(ll_mode) << 6 | mode_to_bits(of_mode) << 4 | mode_to_bits(ml_mode) << 2
