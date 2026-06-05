@@ -1,5 +1,0 @@
-running 1 test
-FRAME path=/home/bsutton/git/zstd-rs/benchmarks/archive/tmp/archive-inspect/current/decodecorpus_z000079.no_repeat_earlyexit.l1.zst compressed_bytes=7344 window_size=524288 content_size=0 checksum=true single_segment=false
-TOTAL blocks=4 compressed_blocks=3 raw_blocks=0 rle_blocks=1 compressed_block_bytes=7321 raw_block_input_bytes=0 rle_block_output_bytes=46735 decompressed_block_bytes=439951 literal_section_bytes=823 sequence_payload_bytes=6480 decoded_literals=1455 sequences=2804 match_bytes=391761
-.
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 218 filtered out; finished in 0.01s

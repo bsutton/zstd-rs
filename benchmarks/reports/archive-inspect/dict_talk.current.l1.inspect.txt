@@ -1,8 +1,0 @@
-
-running 1 test
-FRAME path=/home/bsutton/git/zstd-rs/benchmarks/archive/tmp/archive-inspect/current/dict_talk.current.l1.zst compressed_bytes=160 window_size=524288 content_size=0 checksum=true single_segment=false
-BLOCK idx=0 type=compressed compressed_bytes=147 decompressed_bytes=177 literals_type=compressed literals_regen=152 literals_payload=130 literals_streams=1 sequence_count=4 sequence_payload=12 ll_mode=predefined of_mode=predefined ml_mode=predefined match_bytes=25 max_offset=76 ll_extra_bits=10 ml_extra_bits=0 of_extra_bits=18
-TOTAL blocks=1 compressed_blocks=1 raw_blocks=0 rle_blocks=0 compressed_block_bytes=147 raw_block_input_bytes=0 rle_block_output_bytes=0 decompressed_block_bytes=177 literal_section_bytes=130 sequence_payload_bytes=12 decoded_literals=152 sequences=4 match_bytes=25
-.
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 232 filtered out; finished in 0.00s
-

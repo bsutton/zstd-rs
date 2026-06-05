@@ -1,7 +1,0 @@
-fixture,encoder,bytes,elapsed,cpu,rss
-decodecorpus_pack.bin,upstream,5323478,0.23,0.23,5752
-decodecorpus_pack.bin,current,5323478,0.23,0.22,6592
-decodecorpus_pack.bin,c_zstd,5385951,0.02,0.07,22336
-json_logs_32m.jsonl,upstream,690084,0.18,0.18,5068
-json_logs_32m.jsonl,current,690084,0.18,0.18,5624
-json_logs_32m.jsonl,c_zstd,1138701,0.01,0.05,19196
