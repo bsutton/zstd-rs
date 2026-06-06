@@ -4,12 +4,15 @@
 //! built out and checked against the C reference. Keep C-derived behavior here
 //! until it has enough parity coverage to replace the current strategy code.
 
+mod dfast;
 mod fast;
 mod fast_block;
 mod fast_frame;
 mod params;
 mod sequence_store;
 
+#[cfg(test)]
+mod dfast_tests;
 #[cfg(test)]
 mod fast_tests;
 #[cfg(test)]
