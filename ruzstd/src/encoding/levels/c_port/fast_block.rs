@@ -3,7 +3,9 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use super::block_policy::{compressed_block_is_worthwhile, BlockEncodingPolicy};
+use super::block_policy::{
+    compressed_block_is_worthwhile, should_skip_sequence_build, BlockEncodingPolicy,
+};
 use super::fast::{
     compress_block_fast_no_dict, compress_block_fast_no_dict_with_state, FastBlockOutput,
     FastMatchState,
@@ -115,6 +117,14 @@ pub(crate) fn encode_block_fast_no_dict_with_policy(
             new_huffman_table: None,
         };
     }
+    if should_skip_sequence_build(src.len()) {
+        write_raw_block(last_block, src.len() as u32, src, &mut bytes);
+        return FastEncodedBlock {
+            bytes,
+            repeat_offsets,
+            new_huffman_table: None,
+        };
+    }
     if policy.allows_rle() {
         if let Some(rle_byte) = rle_byte(src) {
             write_rle_block(last_block, src.len() as u32, rle_byte, &mut bytes);
@@ -206,6 +216,14 @@ pub(crate) fn encode_block_fast_no_dict_with_state_and_policy(
 
     if block.is_empty() {
         write_raw_block(last_block, 0, block, &mut bytes);
+        return FastEncodedBlock {
+            bytes,
+            repeat_offsets,
+            new_huffman_table: None,
+        };
+    }
+    if should_skip_sequence_build(block.len()) {
+        write_raw_block(last_block, block.len() as u32, block, &mut bytes);
         return FastEncodedBlock {
             bytes,
             repeat_offsets,

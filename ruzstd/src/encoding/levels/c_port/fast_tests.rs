@@ -235,6 +235,32 @@ fn fast_no_dict_hidden_block_emits_rle_for_single_byte_run() {
 }
 
 #[test]
+fn fast_no_dict_hidden_tiny_rle_candidate_stays_raw_like_c() {
+    let data = [0x5A; 6];
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_block_fast_no_dict(
+        &data,
+        true,
+        level1_params(data.len()),
+        BlockCompressionConfig::for_level(CompressionLevel::Fastest),
+        RepeatOffsets::new(),
+        FastBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(last_block);
+    assert_eq!(block_type, BlockType::Raw);
+    assert_eq!(block_size as usize, data.len());
+    assert_eq!(&encoded.bytes[3..], data);
+}
+
+#[test]
 fn fast_no_dict_hidden_frame_round_trips_compressed_block() {
     let data = b"abcdeabcdeabcde-tail";
     let encoded = encode_single_block_frame_fast_no_dict(data, 1);

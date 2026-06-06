@@ -3,7 +3,9 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use super::block_policy::{compressed_block_is_worthwhile, BlockEncodingPolicy};
+use super::block_policy::{
+    compressed_block_is_worthwhile, should_skip_sequence_build, BlockEncodingPolicy,
+};
 use super::dfast::{
     compress_block_double_fast_no_dict, compress_block_double_fast_no_dict_with_state,
     DFastBlockOutput, DFastMatchState,
@@ -298,6 +300,15 @@ fn encode_special_block(
 ) -> Option<DFastEncodedBlock> {
     if block.is_empty() {
         write_raw_block(last_block, 0, block, bytes);
+        return Some(DFastEncodedBlock {
+            bytes: core::mem::take(bytes),
+            repeat_offsets,
+            new_huffman_table: None,
+        });
+    }
+
+    if should_skip_sequence_build(block.len()) {
+        write_raw_block(last_block, block.len() as u32, block, bytes);
         return Some(DFastEncodedBlock {
             bytes: core::mem::take(bytes),
             repeat_offsets,

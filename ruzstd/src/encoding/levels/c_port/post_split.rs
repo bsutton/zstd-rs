@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 
 use super::{
-    block_policy::compressed_block_is_worthwhile,
+    block_policy::{compressed_block_is_worthwhile, should_skip_sequence_build},
     greedy_block::{GreedyBlockEncodeContext, GreedyEncodedBlock, GreedyPreparedBlock},
     params::Strategy,
     sequence_store::RepeatOffsets,
@@ -240,6 +240,14 @@ fn encode_partition(
 
     if block.is_empty() {
         write_raw_block(last_block, 0, block, &mut bytes);
+        return GreedyEncodedBlock {
+            bytes,
+            repeat_offsets,
+            new_huffman_table: None,
+        };
+    }
+    if should_skip_sequence_build(block.len()) {
+        write_raw_block(last_block, block.len() as u32, block, &mut bytes);
         return GreedyEncodedBlock {
             bytes,
             repeat_offsets,

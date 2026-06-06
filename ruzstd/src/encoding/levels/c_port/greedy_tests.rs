@@ -345,6 +345,33 @@ fn greedy_hidden_block_emits_rle_for_single_byte_run() {
     assert_eq!(encoded.repeat_offsets, RepeatOffsets::new());
 }
 
+#[test]
+fn greedy_hidden_tiny_rle_candidate_stays_raw_like_c() {
+    let data = [0x6D; 6];
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_block_hash_chain_no_dict(
+        &data,
+        true,
+        greedy_params(data.len()),
+        BlockCompressionConfig::for_level(CompressionLevel::Default),
+        RepeatOffsets::new(),
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        LazyBlockStrategy::Greedy,
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(last_block);
+    assert_eq!(block_type, BlockType::Raw);
+    assert_eq!(block_size as usize, data.len());
+    assert_eq!(&encoded.bytes[3..], data);
+}
+
 fn parse_block_header(bytes: &[u8]) -> (bool, BlockType, u32) {
     assert!(bytes.len() >= 3);
     let raw = u32::from(bytes[0]) | (u32::from(bytes[1]) << 8) | (u32::from(bytes[2]) << 16);

@@ -2,6 +2,8 @@
 
 use super::params::Strategy;
 
+pub(super) const MIN_SEQUENCE_BUILD_SRC_SIZE: usize = 7;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct BlockEncodingPolicy {
     allow_rle: bool,
@@ -39,6 +41,10 @@ pub(super) const fn compressed_block_is_worthwhile(
     compressed_size < max_compressed_size
 }
 
+pub(super) const fn should_skip_sequence_build(src_size: usize) -> bool {
+    src_size < MIN_SEQUENCE_BUILD_SRC_SIZE
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,5 +70,12 @@ mod tests {
             src_size - 2051,
             Strategy::Fast
         ));
+    }
+
+    #[test]
+    fn tiny_blocks_skip_sequence_build_like_c() {
+        assert!(should_skip_sequence_build(0));
+        assert!(should_skip_sequence_build(6));
+        assert!(!should_skip_sequence_build(7));
     }
 }
