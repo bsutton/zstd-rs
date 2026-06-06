@@ -105,6 +105,39 @@ impl BlockCompressionTuningOverrides {
 }
 
 impl BlockCompressionConfig {
+    pub(crate) fn for_c_strategy(strategy: u8) -> Self {
+        let fastish = strategy < 4;
+        if !fastish {
+            // C uses a cost model for lazy and stronger strategies. Keep the
+            // existing bounded search until that model is ported.
+            return Self {
+                huffman_table_search: HuffmanTableSearch::FileTypeSmall,
+                repeat_table_max_sequences: 64,
+                offset_table_max_log: 8,
+                offset_predefined_max_sequences: 16,
+                exact_sequence_mode_search: false,
+                file_type_small_sequence_predefined_llml_max_sequences: None,
+                file_type_single_stream_huffman_max_literals: None,
+            };
+        }
+
+        let multiplier = 10usize.saturating_sub(strategy as usize);
+        let llml_predefined_max_sequences = ((1usize << 6) * multiplier) >> 3;
+        let offset_predefined_max_sequences = ((1usize << 5) * multiplier) >> 3;
+
+        Self {
+            huffman_table_search: HuffmanTableSearch::Heuristic,
+            repeat_table_max_sequences: 1000,
+            offset_table_max_log: 8,
+            offset_predefined_max_sequences,
+            exact_sequence_mode_search: false,
+            file_type_small_sequence_predefined_llml_max_sequences: Some(
+                llml_predefined_max_sequences,
+            ),
+            file_type_single_stream_huffman_max_literals: None,
+        }
+    }
+
     pub(crate) fn for_level(level: CompressionLevel) -> Self {
         Self::for_level_and_file_type(level, CompressionFileType::Unknown)
     }

@@ -18,7 +18,6 @@ use crate::{
         blocks::BlockCompressionConfig,
         frame_compressor::{FseTables, OffsetHistory},
         frame_header::FrameHeader,
-        CompressionLevel,
     },
 };
 
@@ -60,6 +59,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
     let mut last_huff_table = None;
     let mut repeat_offsets = RepeatOffsets::new();
     let params = CompressionParameters::for_level(level, src.len() as u64, 0);
+    let block_config = BlockCompressionConfig::for_c_strategy(params.strategy as u8);
 
     if src.is_empty() {
         let encoded_block = encode_block_opt_no_dict_with_state(
@@ -69,7 +69,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
             },
             true,
             params,
-            BlockCompressionConfig::for_level(CompressionLevel::Default),
+            block_config,
             repeat_offsets,
             &mut opt_state,
             GreedyBlockEncodeContext {
@@ -100,7 +100,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
             },
             block_end == src.len(),
             params,
-            BlockCompressionConfig::for_level(CompressionLevel::Default),
+            block_config,
             repeat_offsets,
             &mut opt_state,
             GreedyBlockEncodeContext {
