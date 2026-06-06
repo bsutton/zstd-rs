@@ -1,6 +1,8 @@
 use alloc::vec::Vec;
 
-use super::fast::compress_block_fast_no_dict;
+use super::fast::{
+    compress_block_fast_no_dict, compress_block_fast_no_dict_with_state, FastMatchState,
+};
 use super::fast_block::{
     encode_block_fast_no_dict, prepare_block_fast_no_dict, FastBlockEncodeContext,
 };
@@ -71,6 +73,41 @@ fn fast_no_dict_extends_offset_match_before_immediate_repcode_probe() {
         [StoredSequence::new(4, OffBase::Offset(4), 16)]
     );
     assert_eq!(output.last_literals, 0);
+}
+
+#[test]
+fn fast_no_dict_state_finds_previous_block_prefix_match() {
+    let marker = b"cross-block-stateful-marker:0123456789abcdef";
+    let mut data = deterministic_bytes(MAX_BLOCK_SIZE as usize);
+    for pos in [1024, 8192, MAX_BLOCK_SIZE as usize - 512] {
+        data[pos..pos + marker.len()].copy_from_slice(marker);
+    }
+    let second_block_start = data.len();
+    data.extend_from_slice(marker);
+    data.extend_from_slice(&deterministic_bytes(256));
+
+    let params = level1_params(data.len());
+    let mut state = FastMatchState::new();
+    let first = compress_block_fast_no_dict_with_state(
+        &data,
+        0..second_block_start,
+        params,
+        RepeatOffsets::new(),
+        &mut state,
+    );
+    let second = compress_block_fast_no_dict_with_state(
+        &data,
+        second_block_start..data.len(),
+        params,
+        first.repeat_offsets,
+        &mut state,
+    );
+
+    assert!(second.sequences.iter().any(|sequence| matches!(
+        sequence.off_base,
+        OffBase::Offset(offset) if sequence.lit_len == 0
+            && offset as usize >= marker.len()
+    )));
 }
 
 #[test]
@@ -239,4 +276,16 @@ fn count_frame_blocks(encoded: &[u8]) -> usize {
             break blocks;
         }
     }
+}
+
+fn deterministic_bytes(len: usize) -> Vec<u8> {
+    let mut state = 0x1234_5678_u32;
+    let mut bytes = Vec::with_capacity(len);
+    for _ in 0..len {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        bytes.push(state as u8);
+    }
+    bytes
 }

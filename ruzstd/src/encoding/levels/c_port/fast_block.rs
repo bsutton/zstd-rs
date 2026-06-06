@@ -1,8 +1,12 @@
 //! Adapters from C fast sequences to the existing Rust block encoder.
 
 use alloc::vec::Vec;
+use core::ops::Range;
 
-use super::fast::{compress_block_fast_no_dict, FastBlockOutput};
+use super::fast::{
+    compress_block_fast_no_dict, compress_block_fast_no_dict_with_state, FastBlockOutput,
+    FastMatchState,
+};
 use super::params::CompressionParameters;
 use super::sequence_store::RepeatOffsets;
 use crate::{
@@ -34,6 +38,11 @@ pub(crate) struct FastBlockEncodeContext<'a, 'table> {
     pub(crate) offset_history: &'a mut OffsetHistory,
 }
 
+pub(crate) struct FastBlockSource<'a> {
+    pub(crate) src: &'a [u8],
+    pub(crate) block_range: Range<usize>,
+}
+
 pub(crate) fn prepare_block_fast_no_dict(
     src: &[u8],
     params: CompressionParameters,
@@ -41,6 +50,24 @@ pub(crate) fn prepare_block_fast_no_dict(
 ) -> FastPreparedBlock {
     let output = compress_block_fast_no_dict(src, params, repeat_offsets);
     let prepared = prepare_from_fast_output(src, repeat_offsets, &output);
+
+    FastPreparedBlock {
+        prepared,
+        repeat_offsets: output.repeat_offsets,
+    }
+}
+
+pub(crate) fn prepare_block_fast_no_dict_with_state(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut FastMatchState,
+) -> FastPreparedBlock {
+    let block = &src[block_range.clone()];
+    let output =
+        compress_block_fast_no_dict_with_state(src, block_range, params, repeat_offsets, state);
+    let prepared = prepare_from_fast_output(block, repeat_offsets, &output);
 
     FastPreparedBlock {
         prepared,
@@ -88,6 +115,74 @@ pub(crate) fn encode_block_fast_no_dict(
         *context.fse_tables = previous_fse;
         *context.offset_history = previous_offsets;
         write_raw_block(last_block, src.len() as u32, src, &mut bytes);
+        FastEncodedBlock {
+            bytes,
+            repeat_offsets,
+            new_huffman_table: None,
+        }
+    } else {
+        let header = BlockHeader {
+            last_block,
+            block_type: crate::blocks::block::BlockType::Compressed,
+            block_size: compressed_size as u32,
+        };
+        bytes[block_start..compressed_start].copy_from_slice(&header.serialize_to_bytes());
+        FastEncodedBlock {
+            bytes,
+            repeat_offsets: prepared.repeat_offsets,
+            new_huffman_table,
+        }
+    }
+}
+
+pub(crate) fn encode_block_fast_no_dict_with_state(
+    source: FastBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut FastMatchState,
+    context: FastBlockEncodeContext<'_, '_>,
+) -> FastEncodedBlock {
+    let block = &source.src[source.block_range.clone()];
+    let previous_fse = context.fse_tables.clone();
+    let previous_offsets = *context.offset_history;
+    let prepared = prepare_block_fast_no_dict_with_state(
+        source.src,
+        source.block_range,
+        params,
+        repeat_offsets,
+        match_state,
+    );
+    let mut bytes = Vec::new();
+
+    if block.is_empty() {
+        write_raw_block(last_block, 0, block, &mut bytes);
+        return FastEncodedBlock {
+            bytes,
+            repeat_offsets,
+            new_huffman_table: None,
+        };
+    }
+
+    let block_start = bytes.len();
+    bytes.extend_from_slice(&[0; 3]);
+    let compressed_start = bytes.len();
+    let new_huffman_table = compress_prepared_block(
+        &mut bytes,
+        config,
+        prepared.prepared.as_ref(),
+        context.fse_tables,
+        context.offset_history,
+        context.previous_huff_table,
+    );
+    let compressed_size = bytes.len() - compressed_start;
+
+    if compressed_size >= block.len() || compressed_size > MAX_BLOCK_SIZE as usize {
+        bytes.truncate(block_start);
+        *context.fse_tables = previous_fse;
+        *context.offset_history = previous_offsets;
+        write_raw_block(last_block, block.len() as u32, block, &mut bytes);
         FastEncodedBlock {
             bytes,
             repeat_offsets,
