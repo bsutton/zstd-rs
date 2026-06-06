@@ -1,10 +1,14 @@
+use alloc::vec::Vec;
+
 use super::fast::compress_block_fast_no_dict;
 use super::fast_block::{
     encode_block_fast_no_dict, prepare_block_fast_no_dict, FastBlockEncodeContext,
 };
+use super::fast_frame::encode_single_block_frame_fast_no_dict;
 use super::params::CompressionParameters;
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 use crate::blocks::block::BlockType;
+use crate::decoding::FrameDecoder;
 use crate::encoding::blocks::BlockCompressionConfig;
 use crate::encoding::frame_compressor::{FseTables, OffsetHistory};
 use crate::encoding::CompressionLevel;
@@ -165,6 +169,22 @@ fn fast_no_dict_hidden_block_falls_back_to_raw_when_not_smaller() {
     assert_eq!(encoded.repeat_offsets, RepeatOffsets::new());
 }
 
+#[test]
+fn fast_no_dict_hidden_frame_round_trips_compressed_block() {
+    let data = b"abcdeabcdeabcde-tail";
+    let encoded = encode_single_block_frame_fast_no_dict(data, 1);
+
+    assert_round_trips(&encoded, data);
+}
+
+#[test]
+fn fast_no_dict_hidden_frame_round_trips_raw_fallback_block() {
+    let data = b"abcdefgh";
+    let encoded = encode_single_block_frame_fast_no_dict(data, 1);
+
+    assert_round_trips(&encoded, data);
+}
+
 fn parse_block_header(bytes: &[u8]) -> (bool, BlockType, u32) {
     assert!(bytes.len() >= 3);
     let raw = u32::from(bytes[0]) | (u32::from(bytes[1]) << 8) | (u32::from(bytes[2]) << 16);
@@ -175,4 +195,13 @@ fn parse_block_header(bytes: &[u8]) -> (bool, BlockType, u32) {
         _ => BlockType::Reserved,
     };
     (raw & 1 != 0, block_type, raw >> 3)
+}
+
+fn assert_round_trips(encoded: &[u8], expected: &[u8]) {
+    let mut decoded = Vec::with_capacity(expected.len());
+    FrameDecoder::new()
+        .decode_all_to_vec(encoded, &mut decoded)
+        .unwrap();
+
+    assert_eq!(decoded, expected);
 }

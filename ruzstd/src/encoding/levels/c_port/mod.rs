@@ -6,6 +6,7 @@
 
 mod fast;
 mod fast_block;
+mod fast_frame;
 mod params;
 mod sequence_store;
 
