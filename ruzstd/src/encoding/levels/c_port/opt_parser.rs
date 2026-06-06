@@ -2,81 +2,26 @@
 
 use alloc::{vec, vec::Vec};
 use core::convert::TryFrom;
-use core::ops::Range;
 
 use super::{
-    greedy::{GreedyBlockOutput, GreedyMatchState},
+    greedy::GreedyBlockOutput,
     hash_chain_match::lowest_prefix_index,
     opt_match::{bt_get_all_matches_no_dict, BtMatchRequest, OptMatch},
     opt_price::{OptLevel, OptPriceState, BITCOST_MULTIPLIER, ZSTD_MAX_PRICE},
+    opt_state::{
+        ForwardResult, OptBlockState, OptParserStrategy, Optimal, HASH_READ_SIZE, ZSTD_OPT_NUM,
+    },
     params::CompressionParameters,
     sequence_store::{OffBase, RepeatOffsets, StoredSequence},
 };
 
-const HASH_READ_SIZE: usize = 8;
-const ZSTD_OPT_NUM: usize = 1 << 12;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Optimal {
-    price: i32,
-    off: u32,
-    mlen: u32,
-    litlen: u32,
-    rep: [u32; 3],
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ForwardResult {
-    last_pos: usize,
-    last_stretch: Option<Optimal>,
-}
-
-impl Default for Optimal {
-    fn default() -> Self {
-        Self {
-            price: ZSTD_MAX_PRICE,
-            off: 0,
-            mlen: 0,
-            litlen: 0,
-            rep: RepeatOffsets::new().as_offsets(),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct OptBlockState {
-    match_state: GreedyMatchState,
-    price_state: OptPriceState,
-    matches: Vec<OptMatch>,
-    opt: Vec<Optimal>,
-}
-
-impl OptBlockState {
-    pub(crate) fn new() -> Self {
-        Self {
-            match_state: GreedyMatchState::new(),
-            price_state: OptPriceState::new(),
-            matches: Vec::new(),
-            opt: vec![Optimal::default(); ZSTD_OPT_NUM + 4],
-        }
-    }
-}
-
-pub(crate) fn compress_block_btopt_no_dict(
+pub(crate) fn compress_block_opt_no_dict_with_state(
     src: &[u8],
-    params: CompressionParameters,
-    repeat_offsets: RepeatOffsets,
-) -> GreedyBlockOutput {
-    let mut state = OptBlockState::new();
-    compress_block_btopt_no_dict_with_state(src, 0..src.len(), params, repeat_offsets, &mut state)
-}
-
-pub(crate) fn compress_block_btopt_no_dict_with_state(
-    src: &[u8],
-    block_range: Range<usize>,
+    block_range: core::ops::Range<usize>,
     params: CompressionParameters,
     repeat_offsets: RepeatOffsets,
     state: &mut OptBlockState,
+    strategy: OptParserStrategy,
 ) -> GreedyBlockOutput {
     debug_assert!(block_range.start <= block_range.end);
     debug_assert!(block_range.end <= src.len());
@@ -96,9 +41,10 @@ pub(crate) fn compress_block_btopt_no_dict_with_state(
 
     state.match_state.ensure_tables(params);
     state.match_state.lazy_skipping = false;
+    let opt_level = strategy.opt_level();
     state
         .price_state
-        .rescale_freqs(&src[block_range], OptLevel::BtOpt);
+        .rescale_freqs(&src[block_range], opt_level);
 
     let prefix_lowest = lowest_prefix_index(block_end, params.window_log);
     let ilimit = block_end - HASH_READ_SIZE;
@@ -127,7 +73,7 @@ pub(crate) fn compress_block_btopt_no_dict_with_state(
         }
 
         let longest = state.matches[match_count - 1];
-        seed_parser_root(ip, anchor, rep, state);
+        seed_parser_root(ip, anchor, rep, opt_level, state);
         let path = if longest.len > sufficient_len {
             let litlen = (ip - anchor) as u32;
             rep = update_reps(rep, longest.off_base, litlen == 0);
@@ -139,7 +85,7 @@ pub(crate) fn compress_block_btopt_no_dict_with_state(
                 rep,
             }]
         } else {
-            seed_match_prices(min_match, match_count, state);
+            seed_match_prices(min_match, match_count, opt_level, state);
             let result = forward_pass(
                 src,
                 ip,
@@ -148,6 +94,7 @@ pub(crate) fn compress_block_btopt_no_dict_with_state(
                 min_match,
                 sufficient_len,
                 params,
+                opt_level,
                 state,
             );
 
@@ -185,7 +132,7 @@ pub(crate) fn compress_block_btopt_no_dict_with_state(
             ip = anchor;
         }
 
-        state.price_state.refresh_base_prices(OptLevel::BtOpt);
+        state.price_state.refresh_base_prices(opt_level);
     }
 
     GreedyBlockOutput {
@@ -222,10 +169,16 @@ fn collect_matches(
     state.matches.len()
 }
 
-fn seed_parser_root(ip: usize, anchor: usize, rep: [u32; 3], state: &mut OptBlockState) {
+fn seed_parser_root(
+    ip: usize,
+    anchor: usize,
+    rep: [u32; 3],
+    opt_level: OptLevel,
+    state: &mut OptBlockState,
+) {
     let litlen = (ip - anchor) as u32;
     state.opt[0] = Optimal {
-        price: price_i32(state.price_state.lit_length_price(litlen, OptLevel::BtOpt)),
+        price: price_i32(state.price_state.lit_length_price(litlen, opt_level)),
         off: 0,
         mlen: 0,
         litlen,
@@ -233,7 +186,12 @@ fn seed_parser_root(ip: usize, anchor: usize, rep: [u32; 3], state: &mut OptBloc
     };
 }
 
-fn seed_match_prices(min_match: u32, match_count: usize, state: &mut OptBlockState) {
+fn seed_match_prices(
+    min_match: u32,
+    match_count: usize,
+    opt_level: OptLevel,
+    state: &mut OptBlockState,
+) {
     let litlen = state.opt[0].litlen;
     let rep = state.opt[0].rep;
     for pos in 1..min_match as usize {
@@ -252,12 +210,8 @@ fn seed_match_prices(min_match: u32, match_count: usize, state: &mut OptBlockSta
         for pos in last_len..=len {
             state.opt[pos as usize] = Optimal {
                 price: state.opt[0].price
-                    + price_i32(
-                        state
-                            .price_state
-                            .match_price(off_base, pos, OptLevel::BtOpt),
-                    )
-                    + price_i32(state.price_state.lit_length_price(0, OptLevel::BtOpt)),
+                    + price_i32(state.price_state.match_price(off_base, pos, opt_level))
+                    + price_i32(state.price_state.lit_length_price(0, opt_level)),
                 off: off_base,
                 mlen: pos,
                 litlen: 0,
@@ -280,6 +234,7 @@ fn forward_pass(
     min_match: u32,
     sufficient_len: u32,
     params: CompressionParameters,
+    opt_level: OptLevel,
     state: &mut OptBlockState,
 ) -> ForwardResult {
     let mut last_pos = seeded_last_pos(state);
@@ -287,7 +242,7 @@ fn forward_pass(
     let mut cur = 1_usize;
 
     while cur <= last_pos {
-        update_literal_price(src, ip, cur, state);
+        update_literal_price(src, ip, block_end, cur, &mut last_pos, opt_level, state);
         refresh_node_reps(cur, state);
 
         let inr = ip + cur;
@@ -297,7 +252,9 @@ fn forward_pass(
         if cur == last_pos {
             break;
         }
-        if state.opt[cur + 1].price <= state.opt[cur].price + price_i32(BITCOST_MULTIPLIER / 2) {
+        if opt_level == OptLevel::BtOpt
+            && state.opt[cur + 1].price <= state.opt[cur].price + price_i32(BITCOST_MULTIPLIER / 2)
+        {
             cur += 1;
             continue;
         }
@@ -326,7 +283,7 @@ fn forward_pass(
             break;
         }
 
-        update_match_prices(cur, min_match, match_count, state);
+        update_match_prices(cur, min_match, match_count, &mut last_pos, opt_level, state);
         cur += 1;
     }
 
@@ -336,23 +293,68 @@ fn forward_pass(
     }
 }
 
-fn update_literal_price(src: &[u8], ip: usize, cur: usize, state: &mut OptBlockState) {
+fn update_literal_price(
+    src: &[u8],
+    ip: usize,
+    block_end: usize,
+    cur: usize,
+    last_pos: &mut usize,
+    opt_level: OptLevel,
+    state: &mut OptBlockState,
+) {
     let previous = state.opt[cur - 1];
     let litlen = previous.litlen + 1;
     let price = previous.price
         + price_i32(
             state
                 .price_state
-                .raw_literals_cost(&src[ip + cur - 1..ip + cur], OptLevel::BtOpt),
+                .raw_literals_cost(&src[ip + cur - 1..ip + cur], opt_level),
         )
-        + ll_increment_price(litlen, &state.price_state);
+        + ll_increment_price(litlen, opt_level, &state.price_state);
 
     if price <= state.opt[cur].price {
+        let prev_match = state.opt[cur];
         state.opt[cur] = Optimal {
             price,
             litlen,
             ..previous
         };
+
+        if opt_level == OptLevel::BtUltra
+            && prev_match.litlen == 0
+            && ll_increment_price(1, opt_level, &state.price_state) < 0
+            && ip + cur < block_end
+        {
+            let with_one_literal = prev_match.price
+                + price_i32(
+                    state
+                        .price_state
+                        .raw_literals_cost(&src[ip + cur..ip + cur + 1], opt_level),
+                )
+                + ll_increment_price(1, opt_level, &state.price_state);
+            let with_more_literals = price
+                + price_i32(
+                    state
+                        .price_state
+                        .raw_literals_cost(&src[ip + cur..ip + cur + 1], opt_level),
+                )
+                + ll_increment_price(litlen + 1, opt_level, &state.price_state);
+            if with_one_literal < with_more_literals && with_one_literal < state.opt[cur + 1].price
+            {
+                let prev = cur - prev_match.mlen as usize;
+                state.opt[cur + 1] = Optimal {
+                    price: with_one_literal,
+                    litlen: 1,
+                    rep: update_reps(
+                        state.opt[prev].rep,
+                        prev_match.off,
+                        state.opt[prev].litlen == 0,
+                    ),
+                    ..prev_match
+                };
+                *last_pos = (*last_pos).max(cur + 1);
+            }
+        }
     }
 }
 
@@ -369,13 +371,16 @@ fn refresh_node_reps(cur: usize, state: &mut OptBlockState) {
     );
 }
 
-fn update_match_prices(cur: usize, min_match: u32, match_count: usize, state: &mut OptBlockState) {
-    let base_price = state.opt[cur].price
-        + price_i32(
-            state
-                .price_state
-                .lit_length_price(state.opt[cur].litlen, OptLevel::BtOpt),
-        );
+fn update_match_prices(
+    cur: usize,
+    min_match: u32,
+    match_count: usize,
+    last_pos: &mut usize,
+    opt_level: OptLevel,
+    state: &mut OptBlockState,
+) {
+    let base_price =
+        state.opt[cur].price + price_i32(state.price_state.lit_length_price(0, opt_level));
     let mut previous_len = min_match;
 
     for match_index in 0..match_count {
@@ -388,10 +393,18 @@ fn update_match_prices(cur: usize, min_match: u32, match_count: usize, state: &m
                 + price_i32(
                     state
                         .price_state
-                        .match_price(off_base, match_len, OptLevel::BtOpt),
+                        .match_price(off_base, match_len, opt_level),
                 );
 
-            if price < state.opt[pos].price {
+            if pos > *last_pos || price < state.opt[pos].price {
+                while *last_pos < pos {
+                    *last_pos += 1;
+                    state.opt[*last_pos] = Optimal {
+                        price: ZSTD_MAX_PRICE,
+                        litlen: u32::MAX,
+                        ..Optimal::default()
+                    };
+                }
                 state.opt[pos] = Optimal {
                     price,
                     off: off_base,
@@ -400,7 +413,9 @@ fn update_match_prices(cur: usize, min_match: u32, match_count: usize, state: &m
                     rep: state.opt[cur].rep,
                 };
             } else {
-                break;
+                if opt_level == OptLevel::BtOpt {
+                    break;
+                }
             }
 
             if match_len == start_len {
@@ -464,9 +479,9 @@ fn update_reps(rep: [u32; 3], off_base: u32, previous_litlen_zero: bool) -> [u32
     repeat_offsets.as_offsets()
 }
 
-fn ll_increment_price(litlen: u32, price_state: &OptPriceState) -> i32 {
-    price_i32(price_state.lit_length_price(litlen, OptLevel::BtOpt))
-        - price_i32(price_state.lit_length_price(litlen - 1, OptLevel::BtOpt))
+fn ll_increment_price(litlen: u32, opt_level: OptLevel, price_state: &OptPriceState) -> i32 {
+    price_i32(price_state.lit_length_price(litlen, opt_level))
+        - price_i32(price_state.lit_length_price(litlen - 1, opt_level))
 }
 
 fn price_i32(price: u32) -> i32 {

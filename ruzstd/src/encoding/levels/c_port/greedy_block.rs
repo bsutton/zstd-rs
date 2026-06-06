@@ -8,7 +8,8 @@ use super::greedy::{
     compress_block_lazy2_no_dict_with_state, compress_block_lazy_no_dict_with_state,
     GreedyBlockOutput, GreedyMatchState,
 };
-use super::opt_parser::{compress_block_btopt_no_dict_with_state, OptBlockState};
+use super::opt_parser::compress_block_opt_no_dict_with_state;
+use super::opt_state::{OptBlockState, OptParserStrategy};
 use super::params::CompressionParameters;
 use super::sequence_store::RepeatOffsets;
 use crate::{
@@ -234,6 +235,51 @@ pub(crate) fn encode_block_btopt_no_dict_with_state(
     opt_state: &mut OptBlockState,
     context: GreedyBlockEncodeContext<'_, '_>,
 ) -> GreedyEncodedBlock {
+    encode_block_opt_no_dict_with_state(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        opt_state,
+        context,
+        OptParserStrategy::BtOpt,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_btultra_no_dict_with_state(
+    source: GreedyBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    opt_state: &mut OptBlockState,
+    context: GreedyBlockEncodeContext<'_, '_>,
+) -> GreedyEncodedBlock {
+    encode_block_opt_no_dict_with_state(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        opt_state,
+        context,
+        OptParserStrategy::BtUltra,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn encode_block_opt_no_dict_with_state(
+    source: GreedyBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    opt_state: &mut OptBlockState,
+    context: GreedyBlockEncodeContext<'_, '_>,
+    strategy: OptParserStrategy,
+) -> GreedyEncodedBlock {
     let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
 
@@ -243,12 +289,13 @@ pub(crate) fn encode_block_btopt_no_dict_with_state(
 
     let previous_fse = context.fse_tables.clone();
     let previous_offsets = *context.offset_history;
-    let output = compress_block_btopt_no_dict_with_state(
+    let output = compress_block_opt_no_dict_with_state(
         source.src,
         source.block_range,
         params,
         repeat_offsets,
         opt_state,
+        strategy,
     );
     let prepared = prepare_from_greedy_output(block, repeat_offsets, &output);
     let prepared = GreedyPreparedBlock {

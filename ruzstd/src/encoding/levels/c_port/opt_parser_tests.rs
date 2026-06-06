@@ -1,5 +1,6 @@
 use super::{
-    opt_parser::{compress_block_btopt_no_dict, OptBlockState},
+    opt_block::{compress_block_btopt_no_dict, compress_block_btultra_no_dict},
+    opt_state::OptBlockState,
     params::{CompressionParameters, Strategy},
     sequence_store::RepeatOffsets,
 };
@@ -13,6 +14,22 @@ fn btopt_parser_emits_sequences_for_repeated_data() {
 
     assert!(!output.sequences.is_empty());
     assert!(output.last_literals < data.len() as u32);
+}
+
+#[test]
+fn btultra_parser_emits_sequences_for_repeated_data() {
+    let data = b"alpha beta gamma alpha beta gamma alpha beta gamma";
+    let params = btultra_params(data.len());
+
+    let output = compress_block_btultra_no_dict(data, params, RepeatOffsets::new());
+    let covered = output
+        .sequences
+        .iter()
+        .map(|sequence| sequence.lit_len + sequence.match_len)
+        .sum::<u32>()
+        + output.last_literals;
+
+    assert_eq!(covered, data.len() as u32);
 }
 
 #[test]
@@ -38,14 +55,14 @@ fn btopt_parser_state_spans_blocks() {
     let split = data.len() / 2;
     let mut state = OptBlockState::new();
 
-    let first = super::opt_parser::compress_block_btopt_no_dict_with_state(
+    let first = super::opt_block::compress_block_btopt_no_dict_with_state(
         data,
         0..split,
         params,
         RepeatOffsets::new(),
         &mut state,
     );
-    let second = super::opt_parser::compress_block_btopt_no_dict_with_state(
+    let second = super::opt_block::compress_block_btopt_no_dict_with_state(
         data,
         split..data.len(),
         params,
@@ -76,5 +93,11 @@ fn btopt_parser_state_spans_blocks() {
 fn btopt_params(src_size: usize) -> CompressionParameters {
     let params = CompressionParameters::for_level(11, src_size as u64, 0);
     assert_eq!(params.strategy, Strategy::BtOpt);
+    params
+}
+
+fn btultra_params(src_size: usize) -> CompressionParameters {
+    let params = CompressionParameters::for_level(13, src_size as u64, 0);
+    assert_eq!(params.strategy, Strategy::BtUltra);
     params
 }
