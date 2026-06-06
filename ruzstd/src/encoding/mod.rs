@@ -102,6 +102,54 @@ pub fn compress_to_vec_c_level<R: Read>(source: R, level: i32) -> Vec<u8> {
     vec
 }
 
+/// Errors returned while preparing a C-level dictionary compression.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum CLevelDictionaryError {
+    WrongDictionary,
+    CorruptedDictionary,
+}
+
+/// Compress a full source into a target using the faithful C level table and
+/// C-style automatic dictionary parsing.
+pub fn compress_c_level_with_dictionary<R: Read, W: Write>(
+    mut source: R,
+    mut target: W,
+    level: i32,
+    dictionary: &[u8],
+) -> Result<(), CLevelDictionaryError> {
+    let mut input = Vec::new();
+    source.read_to_end(&mut input).unwrap();
+    let compressed = levels::c_port::encode_frame_with_dictionary(&input, level, dictionary)
+        .map_err(map_c_level_dictionary_error)?;
+    target.write_all(&compressed).unwrap();
+    Ok(())
+}
+
+/// Compress a full source into a Vec using the faithful C level table and
+/// C-style automatic dictionary parsing.
+pub fn compress_to_vec_c_level_with_dictionary<R: Read>(
+    source: R,
+    level: i32,
+    dictionary: &[u8],
+) -> Result<Vec<u8>, CLevelDictionaryError> {
+    let mut vec = Vec::new();
+    compress_c_level_with_dictionary(source, &mut vec, level, dictionary)?;
+    Ok(vec)
+}
+
+fn map_c_level_dictionary_error(
+    error: levels::c_port::DictionaryParseError,
+) -> CLevelDictionaryError {
+    match error {
+        levels::c_port::DictionaryParseError::WrongDictionary => {
+            CLevelDictionaryError::WrongDictionary
+        }
+        levels::c_port::DictionaryParseError::CorruptedDictionary => {
+            CLevelDictionaryError::CorruptedDictionary
+        }
+    }
+}
+
 /// Convenience function to compress some source into a Vec using a coarse file-type hint.
 pub fn compress_to_vec_with_file_type<R: Read>(
     source: R,
@@ -233,8 +281,11 @@ pub enum Sequence<'data> {
 
 #[cfg(test)]
 mod tests {
-    use super::{compress_c_level, compress_to_vec_c_level, CompressionLevel};
-    use crate::decoding::FrameDecoder;
+    use super::{
+        compress_c_level, compress_c_level_with_dictionary, compress_to_vec_c_level,
+        compress_to_vec_c_level_with_dictionary, CLevelDictionaryError, CompressionLevel,
+    };
+    use crate::decoding::{dictionary::Dictionary, FrameDecoder};
     use alloc::vec::Vec;
 
     #[test]
@@ -265,6 +316,42 @@ mod tests {
         assert_round_trips(&encoded, data);
     }
 
+    #[test]
+    fn c_level_dictionary_compression_round_trips_representative_strategies() {
+        let dict = full_dictionary_fixture();
+        let data = dictionary_payload();
+
+        for level in [1, 3, 5, 8, 13, 16, 18, 19] {
+            let encoded =
+                compress_to_vec_c_level_with_dictionary(data.as_slice(), level, &dict).unwrap();
+            assert_round_trips_with_dictionary(&encoded, &data, &dict);
+        }
+    }
+
+    #[test]
+    fn c_level_dictionary_compression_writes_to_target() {
+        let dict = full_dictionary_fixture();
+        let data = dictionary_payload();
+        let mut encoded = Vec::new();
+
+        compress_c_level_with_dictionary(data.as_slice(), &mut encoded, 13, &dict).unwrap();
+
+        assert_round_trips_with_dictionary(&encoded, &data, &dict);
+    }
+
+    #[test]
+    fn c_level_dictionary_compression_reports_corrupt_full_dictionary() {
+        let mut dict = full_dictionary_fixture();
+        let repeat_offset_start = dict.len() - dictionary_content().len() - 12;
+        dict[repeat_offset_start..repeat_offset_start + 4]
+            .copy_from_slice(&0x00AB_CDEF_u32.to_le_bytes());
+
+        let error = compress_to_vec_c_level_with_dictionary(b"data".as_slice(), 3, &dict)
+            .expect_err("invalid full dictionary offsets must be rejected");
+
+        assert_eq!(error, CLevelDictionaryError::CorruptedDictionary);
+    }
+
     fn assert_round_trips(encoded: &[u8], expected: &[u8]) {
         let mut decoded = Vec::with_capacity(expected.len());
         FrameDecoder::new()
@@ -272,5 +359,55 @@ mod tests {
             .unwrap();
 
         assert_eq!(decoded, expected);
+    }
+
+    fn assert_round_trips_with_dictionary(encoded: &[u8], expected: &[u8], dict: &[u8]) {
+        let mut decoded = Vec::with_capacity(expected.len());
+        let mut decoder = FrameDecoder::new();
+        decoder
+            .add_dict(Dictionary::decode_dict(dict).unwrap())
+            .unwrap();
+        decoder.decode_all_to_vec(encoded, &mut decoded).unwrap();
+
+        assert_eq!(decoded, expected);
+    }
+
+    fn dictionary_payload() -> Vec<u8> {
+        let mut data = Vec::new();
+        for _ in 0..10 {
+            data.extend_from_slice(dictionary_content());
+        }
+        data
+    }
+
+    const DICT_ID: u32 = 0x4723_2101;
+
+    fn full_dictionary_fixture() -> Vec<u8> {
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&crate::decoding::dictionary::MAGIC_NUM);
+        raw.extend_from_slice(&DICT_ID.to_le_bytes());
+        raw.extend_from_slice(dictionary_tables());
+        for offset in [3_u32, 10, 25] {
+            raw.extend_from_slice(&offset.to_le_bytes());
+        }
+        raw.extend_from_slice(dictionary_content());
+        raw
+    }
+
+    fn dictionary_tables() -> &'static [u8] {
+        &[
+            54, 16, 192, 155, 4, 0, 207, 59, 239, 121, 158, 116, 220, 93, 114, 229, 110, 41, 249,
+            95, 165, 255, 83, 202, 254, 68, 74, 159, 63, 161, 100, 151, 137, 21, 184, 183, 189,
+            100, 235, 209, 251, 174, 91, 75, 91, 185, 19, 39, 75, 146, 98, 177, 249, 14, 4, 35, 0,
+            0, 0, 40, 40, 20, 10, 12, 204, 37, 196, 1, 173, 122, 0, 4, 0, 128, 1, 2, 2, 25, 32, 27,
+            27, 22, 24, 26, 18, 12, 12, 15, 16, 11, 69, 37, 225, 48, 20, 12, 6, 2, 161, 80, 40, 20,
+            44, 137, 145, 204, 46, 0, 0, 0, 0, 0, 116, 253, 16, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0,
+        ]
+    }
+
+    fn dictionary_content() -> &'static [u8] {
+        b"method=GET path=/v1/projects/beta status=200 bytes=1847\n\
+          method=POST path=/v1/projects/beta status=202 bytes=932\n"
     }
 }

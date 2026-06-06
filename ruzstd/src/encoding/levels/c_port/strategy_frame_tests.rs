@@ -2,9 +2,14 @@ use alloc::vec::Vec;
 
 use super::{
     params::Strategy,
-    strategy_frame::{encode_frame_no_dict, strategy_for_level},
+    strategy_frame::{encode_frame_no_dict, encode_frame_with_dictionary, strategy_for_level},
+    test_dictionary::{dictionary_content, full_dictionary_fixture, DICT_ID},
 };
-use crate::{blocks::block::BlockType, common::MAX_BLOCK_SIZE, decoding::FrameDecoder};
+use crate::{
+    blocks::block::BlockType,
+    common::MAX_BLOCK_SIZE,
+    decoding::{dictionary::Dictionary, FrameDecoder},
+};
 
 #[test]
 fn strategy_frame_routes_level_one_to_fast() {
@@ -148,6 +153,32 @@ fn strategy_frame_does_not_emit_rle_first_block_like_c() {
     }
 }
 
+#[test]
+fn strategy_frame_routes_dictionary_levels_and_round_trips() {
+    let dict = full_dictionary_fixture();
+    let data = dictionary_payload();
+
+    for level in [1, 3, 5, 6, 8, 13, 16, 18, 19] {
+        let encoded = encode_frame_with_dictionary(&data, level, &dict).unwrap();
+        let (header, _) = crate::decoding::frame::read_frame_header(encoded.as_slice())
+            .expect("frame header should parse");
+
+        assert_eq!(header.dictionary_id(), Some(DICT_ID));
+        assert_round_trips_with_dictionary(&encoded, &data, &dict);
+    }
+}
+
+#[test]
+fn strategy_frame_short_auto_dictionary_falls_back_to_no_dict_like_c() {
+    let data = b"short-dict-fallback short-dict-fallback";
+    let encoded = encode_frame_with_dictionary(data, 3, b"short").unwrap();
+    let (header, _) = crate::decoding::frame::read_frame_header(encoded.as_slice())
+        .expect("frame header should parse");
+
+    assert_eq!(header.dictionary_id(), None);
+    assert_round_trips(&encoded, data);
+}
+
 fn assert_round_trips(encoded: &[u8], expected: &[u8]) {
     let mut decoded = Vec::with_capacity(expected.len());
     FrameDecoder::new()
@@ -155,6 +186,25 @@ fn assert_round_trips(encoded: &[u8], expected: &[u8]) {
         .unwrap();
 
     assert_eq!(decoded, expected);
+}
+
+fn assert_round_trips_with_dictionary(encoded: &[u8], expected: &[u8], dict: &[u8]) {
+    let mut decoded = Vec::with_capacity(expected.len());
+    let mut decoder = FrameDecoder::new();
+    decoder
+        .add_dict(Dictionary::decode_dict(dict).unwrap())
+        .unwrap();
+    decoder.decode_all_to_vec(encoded, &mut decoded).unwrap();
+
+    assert_eq!(decoded, expected);
+}
+
+fn dictionary_payload() -> Vec<u8> {
+    let mut data = Vec::new();
+    for _ in 0..10 {
+        data.extend_from_slice(dictionary_content());
+    }
+    data
 }
 
 fn count_frame_blocks(encoded: &[u8]) -> usize {

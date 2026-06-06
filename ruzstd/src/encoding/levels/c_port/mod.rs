@@ -37,6 +37,9 @@ mod sequence_store;
 mod strategy_frame;
 
 pub(crate) use strategy_frame::encode_frame_no_dict;
+pub(crate) use strategy_frame::encode_frame_with_dictionary;
+
+pub(crate) use dictionary::DictionaryParseError;
 
 #[cfg(test)]
 mod dfast_tests;
