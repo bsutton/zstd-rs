@@ -188,7 +188,7 @@ pub(super) fn row_match_finder_enabled(params: CompressionParameters) -> bool {
         super::params::Strategy::Greedy
             | super::params::Strategy::Lazy
             | super::params::Strategy::Lazy2
-    ) && params.window_log > 17
+    ) && params.window_log > 14
 }
 
 fn hash_ptr_salted(src: &[u8], pos: usize, h_bits: u32, min_match: u32, salt: u64) -> u32 {
@@ -265,10 +265,12 @@ mod tests {
     }
 
     #[test]
-    fn row_finder_uses_c_scalar_window_gate() {
+    fn row_finder_uses_c_userspace_window_gate() {
         let mut params = params();
         assert!(row_match_finder_enabled(params));
-        params.window_log = 17;
+        params.window_log = 15;
+        assert!(row_match_finder_enabled(params));
+        params.window_log = 14;
         assert!(!row_match_finder_enabled(params));
     }
 

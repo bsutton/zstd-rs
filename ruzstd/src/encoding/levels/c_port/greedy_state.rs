@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn hash_chain_match_finder_allocates_chain_table() {
         let mut params = row_params();
-        params.window_log = 17;
+        params.window_log = 14;
         let mut state = GreedyMatchState::new();
 
         state.ensure_tables(params);
