@@ -1,3 +1,5 @@
+#[allow(dead_code)]
+pub(crate) mod c_port;
 mod fastest;
 #[cfg(test)]
 mod fastest_tests;
