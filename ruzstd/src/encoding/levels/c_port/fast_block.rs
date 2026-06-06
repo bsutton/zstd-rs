@@ -83,9 +83,6 @@ pub(crate) fn encode_block_fast_no_dict(
     repeat_offsets: RepeatOffsets,
     context: FastBlockEncodeContext<'_, '_>,
 ) -> FastEncodedBlock {
-    let previous_fse = context.fse_tables.clone();
-    let previous_offsets = *context.offset_history;
-    let prepared = prepare_block_fast_no_dict(src, params, repeat_offsets);
     let mut bytes = Vec::new();
 
     if src.is_empty() {
@@ -96,7 +93,18 @@ pub(crate) fn encode_block_fast_no_dict(
             new_huffman_table: None,
         };
     }
+    if let Some(rle_byte) = rle_byte(src) {
+        write_rle_block(last_block, src.len() as u32, rle_byte, &mut bytes);
+        return FastEncodedBlock {
+            bytes,
+            repeat_offsets,
+            new_huffman_table: None,
+        };
+    }
 
+    let previous_fse = context.fse_tables.clone();
+    let previous_offsets = *context.offset_history;
+    let prepared = prepare_block_fast_no_dict(src, params, repeat_offsets);
     let block_start = bytes.len();
     bytes.extend_from_slice(&[0; 3]);
     let compressed_start = bytes.len();
@@ -145,15 +153,6 @@ pub(crate) fn encode_block_fast_no_dict_with_state(
     context: FastBlockEncodeContext<'_, '_>,
 ) -> FastEncodedBlock {
     let block = &source.src[source.block_range.clone()];
-    let previous_fse = context.fse_tables.clone();
-    let previous_offsets = *context.offset_history;
-    let prepared = prepare_block_fast_no_dict_with_state(
-        source.src,
-        source.block_range,
-        params,
-        repeat_offsets,
-        match_state,
-    );
     let mut bytes = Vec::new();
 
     if block.is_empty() {
@@ -164,7 +163,24 @@ pub(crate) fn encode_block_fast_no_dict_with_state(
             new_huffman_table: None,
         };
     }
+    if let Some(rle_byte) = rle_byte(block) {
+        write_rle_block(last_block, block.len() as u32, rle_byte, &mut bytes);
+        return FastEncodedBlock {
+            bytes,
+            repeat_offsets,
+            new_huffman_table: None,
+        };
+    }
 
+    let previous_fse = context.fse_tables.clone();
+    let previous_offsets = *context.offset_history;
+    let prepared = prepare_block_fast_no_dict_with_state(
+        source.src,
+        source.block_range,
+        params,
+        repeat_offsets,
+        match_state,
+    );
     let block_start = bytes.len();
     bytes.extend_from_slice(&[0; 3]);
     let compressed_start = bytes.len();
@@ -239,6 +255,21 @@ fn prepare_from_fast_output(
         literals,
         sequences,
     }
+}
+
+fn rle_byte(data: &[u8]) -> Option<u8> {
+    let first = *data.first()?;
+    data.iter().all(|byte| *byte == first).then_some(first)
+}
+
+fn write_rle_block(last_block: bool, block_size: u32, rle_byte: u8, output: &mut Vec<u8>) {
+    let header = BlockHeader {
+        last_block,
+        block_type: crate::blocks::block::BlockType::RLE,
+        block_size,
+    };
+    header.serialize(output);
+    output.push(rle_byte);
 }
 
 fn write_raw_block(last_block: bool, block_size: u32, data: &[u8], output: &mut Vec<u8>) {
