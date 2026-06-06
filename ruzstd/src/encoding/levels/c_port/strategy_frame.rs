@@ -9,6 +9,7 @@ use super::{
         encode_frame_btlazy2_no_dict, encode_frame_greedy_no_dict, encode_frame_lazy2_no_dict,
         encode_frame_lazy_no_dict,
     },
+    opt_frame::encode_frame_btopt_no_dict,
     params::{CompressionParameters, Strategy},
 };
 
@@ -29,6 +30,7 @@ pub(crate) fn encode_frame_no_dict(src: &[u8], level: i32) -> Result<Vec<u8>, Un
         Strategy::Lazy => Ok(encode_frame_lazy_no_dict(src, level)),
         Strategy::Lazy2 => Ok(encode_frame_lazy2_no_dict(src, level)),
         Strategy::BtLazy2 => Ok(encode_frame_btlazy2_no_dict(src, level)),
+        Strategy::BtOpt => Ok(encode_frame_btopt_no_dict(src, level)),
         strategy => Err(UnsupportedStrategy { strategy }),
     }
 }

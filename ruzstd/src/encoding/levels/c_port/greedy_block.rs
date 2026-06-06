@@ -8,6 +8,7 @@ use super::greedy::{
     compress_block_lazy2_no_dict_with_state, compress_block_lazy_no_dict_with_state,
     GreedyBlockOutput, GreedyMatchState,
 };
+use super::opt_parser::{compress_block_btopt_no_dict_with_state, OptBlockState};
 use super::params::CompressionParameters;
 use super::sequence_store::RepeatOffsets;
 use crate::{
@@ -220,6 +221,51 @@ pub(crate) fn encode_block_greedy_no_dict_with_state(
         match_state,
         context,
         LazyBlockStrategy::Greedy,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_btopt_no_dict_with_state(
+    source: GreedyBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    opt_state: &mut OptBlockState,
+    context: GreedyBlockEncodeContext<'_, '_>,
+) -> GreedyEncodedBlock {
+    let block = &source.src[source.block_range.clone()];
+    let mut bytes = Vec::new();
+
+    if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, &mut bytes) {
+        return encoded;
+    }
+
+    let previous_fse = context.fse_tables.clone();
+    let previous_offsets = *context.offset_history;
+    let output = compress_block_btopt_no_dict_with_state(
+        source.src,
+        source.block_range,
+        params,
+        repeat_offsets,
+        opt_state,
+    );
+    let prepared = prepare_from_greedy_output(block, repeat_offsets, &output);
+    let prepared = GreedyPreparedBlock {
+        prepared,
+        repeat_offsets: output.repeat_offsets,
+    };
+
+    encode_prepared_block(
+        block,
+        last_block,
+        config,
+        repeat_offsets,
+        prepared,
+        previous_fse,
+        previous_offsets,
+        context,
+        bytes,
     )
 }
 

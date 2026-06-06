@@ -87,6 +87,18 @@ fn strategy_frame_routes_btlazy2_levels_to_btlazy2() {
 }
 
 #[test]
+fn strategy_frame_routes_btopt_levels_to_btopt() {
+    let mut data = Vec::new();
+    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1024 {
+        data.extend_from_slice(b"strategy=btopt route=/archive status=200 bytes=1874\n");
+    }
+    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1024);
+
+    assert_eq!(strategy_for_level(16, data.len()), Strategy::BtOpt);
+    assert_round_trips(&encode_frame_no_dict(&data, 16).unwrap(), &data);
+}
+
+#[test]
 fn strategy_frame_round_trips_multiple_blocks() {
     let mut data = Vec::new();
     while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 2048 {
@@ -103,7 +115,7 @@ fn strategy_frame_round_trips_multiple_blocks() {
 #[test]
 fn strategy_frame_reports_unsupported_strategies() {
     let data = vec![0x5Au8; (MAX_BLOCK_SIZE as usize * 2) + 256];
-    let strategy = CompressionParameters::for_level(16, data.len() as u64, 0).strategy;
+    let strategy = CompressionParameters::for_level(18, data.len() as u64, 0).strategy;
 
     assert!(!matches!(
         strategy,
@@ -113,9 +125,10 @@ fn strategy_frame_reports_unsupported_strategies() {
             | Strategy::Lazy
             | Strategy::Lazy2
             | Strategy::BtLazy2
+            | Strategy::BtOpt
     ));
     assert_eq!(
-        encode_frame_no_dict(&data, 16),
+        encode_frame_no_dict(&data, 18),
         Err(UnsupportedStrategy { strategy })
     );
 }

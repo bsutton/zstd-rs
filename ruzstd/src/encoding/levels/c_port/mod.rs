@@ -15,7 +15,9 @@ mod greedy;
 mod greedy_block;
 mod greedy_frame;
 mod hash_chain_match;
+mod opt_frame;
 mod opt_match;
+mod opt_parser;
 mod opt_price;
 mod params;
 mod sequence_store;
@@ -29,6 +31,8 @@ mod fast_tests;
 mod greedy_tests;
 #[cfg(test)]
 mod opt_match_tests;
+#[cfg(test)]
+mod opt_parser_tests;
 #[cfg(test)]
 mod opt_price_tests;
 #[cfg(test)]
