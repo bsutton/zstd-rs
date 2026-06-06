@@ -4,10 +4,12 @@ use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::bt_match::bt_find_best_match;
+pub(crate) use super::greedy_state::GreedyMatchState;
 use super::hash_chain_match::{
     count_match, hc_find_best_match, highbit32, lowest_prefix_index, read32,
 };
 use super::params::CompressionParameters;
+use super::row_match::{row_find_best_match, row_match_finder_enabled};
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 
 const HASH_READ_SIZE: usize = 8;
@@ -21,81 +23,11 @@ pub(crate) struct GreedyBlockOutput {
     pub(crate) repeat_offsets: RepeatOffsets,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct GreedyMatchState {
-    pub(super) hash_table: Vec<u32>,
-    pub(super) hash_table3: Vec<u32>,
-    pub(super) chain_table: Vec<u32>,
-    pub(super) hash_log: u32,
-    pub(super) hash_log3: u32,
-    pub(super) chain_log: u32,
-    pub(super) next_to_update: usize,
-    pub(super) next_to_update3: usize,
-    pub(super) lazy_skipping: bool,
-}
-
-impl GreedyMatchState {
-    pub(crate) fn new() -> Self {
-        Self {
-            hash_table: Vec::new(),
-            hash_table3: Vec::new(),
-            chain_table: Vec::new(),
-            hash_log: 0,
-            hash_log3: 0,
-            chain_log: 0,
-            next_to_update: 0,
-            next_to_update3: 0,
-            lazy_skipping: false,
-        }
-    }
-
-    pub(super) fn ensure_tables(&mut self, params: CompressionParameters) {
-        if self.hash_log != params.hash_log {
-            self.hash_log = params.hash_log;
-            self.hash_table.clear();
-            self.next_to_update = 0;
-        }
-        let hash_log3 = if params.min_match == 3 {
-            params.window_log.min(17)
-        } else {
-            0
-        };
-        if self.hash_log3 != hash_log3 {
-            self.hash_log3 = hash_log3;
-            self.hash_table3.clear();
-            self.next_to_update3 = 0;
-        }
-        if self.chain_log != params.chain_log {
-            self.chain_log = params.chain_log;
-            self.chain_table.clear();
-            self.next_to_update = 0;
-        }
-
-        let hash_size = 1_usize << params.hash_log;
-        if self.hash_table.len() != hash_size {
-            self.hash_table.resize(hash_size, 0);
-        }
-
-        let hash3_size = if self.hash_log3 > 0 {
-            1_usize << self.hash_log3
-        } else {
-            0
-        };
-        if self.hash_table3.len() != hash3_size {
-            self.hash_table3.resize(hash3_size, 0);
-        }
-
-        let chain_size = 1_usize << params.chain_log;
-        if self.chain_table.len() != chain_size {
-            self.chain_table.resize(chain_size, 0);
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum LazySearch {
     HashChain,
     BinaryTree,
+    RowHash,
 }
 
 struct LazySearchContext<'a> {
@@ -122,7 +54,20 @@ pub(crate) fn compress_block_greedy_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
 ) -> GreedyBlockOutput {
-    compress_block_hash_chain_no_dict_with_state(src, block_range, params, repeat_offsets, state, 0)
+    let search = if row_match_finder_enabled(params) {
+        LazySearch::RowHash
+    } else {
+        LazySearch::HashChain
+    };
+    compress_block_lazy_generic_no_dict_with_state(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        0,
+        search,
+    )
 }
 
 pub(crate) fn compress_block_lazy_no_dict_with_state(
@@ -132,7 +77,20 @@ pub(crate) fn compress_block_lazy_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
 ) -> GreedyBlockOutput {
-    compress_block_hash_chain_no_dict_with_state(src, block_range, params, repeat_offsets, state, 1)
+    let search = if row_match_finder_enabled(params) {
+        LazySearch::RowHash
+    } else {
+        LazySearch::HashChain
+    };
+    compress_block_lazy_generic_no_dict_with_state(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        1,
+        search,
+    )
 }
 
 pub(crate) fn compress_block_lazy2_no_dict_with_state(
@@ -142,7 +100,20 @@ pub(crate) fn compress_block_lazy2_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
 ) -> GreedyBlockOutput {
-    compress_block_hash_chain_no_dict_with_state(src, block_range, params, repeat_offsets, state, 2)
+    let search = if row_match_finder_enabled(params) {
+        LazySearch::RowHash
+    } else {
+        LazySearch::HashChain
+    };
+    compress_block_lazy_generic_no_dict_with_state(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        2,
+        search,
+    )
 }
 
 pub(crate) fn compress_block_btlazy2_no_dict_with_state(
@@ -423,6 +394,15 @@ fn search_max(
 ) -> usize {
     match context.search {
         LazySearch::HashChain => hc_find_best_match(
+            context.src,
+            ip,
+            context.block_end,
+            off_base,
+            context.params,
+            context.min_match,
+            state,
+        ),
+        LazySearch::RowHash => row_find_best_match(
             context.src,
             ip,
             context.block_end,

@@ -9,17 +9,10 @@ use super::greedy_block::{
     encode_block_hash_chain_no_dict, prepare_block_greedy_no_dict, GreedyBlockEncodeContext,
     LazyBlockStrategy,
 };
-use super::greedy_frame::{
-    encode_frame_btlazy2_no_dict, encode_frame_greedy_no_dict, encode_frame_lazy2_no_dict,
-    encode_frame_lazy_no_dict, encode_single_block_frame_btlazy2_no_dict,
-    encode_single_block_frame_greedy_no_dict, encode_single_block_frame_lazy2_no_dict,
-    encode_single_block_frame_lazy_no_dict,
-};
 use super::params::{CompressionParameters, Strategy};
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 use crate::blocks::block::BlockType;
 use crate::common::MAX_BLOCK_SIZE;
-use crate::decoding::FrameDecoder;
 use crate::encoding::blocks::BlockCompressionConfig;
 use crate::encoding::frame_compressor::{FseTables, OffsetHistory};
 use crate::encoding::CompressionLevel;
@@ -45,6 +38,18 @@ fn greedy_level(src_len: usize) -> i32 {
         4
     } else {
         5
+    }
+}
+
+fn large_window_greedy_params() -> CompressionParameters {
+    CompressionParameters {
+        window_log: 18,
+        chain_log: 16,
+        hash_log: 16,
+        search_log: 5,
+        min_match: 4,
+        target_length: 0,
+        strategy: Strategy::Greedy,
     }
 }
 
@@ -115,6 +120,24 @@ fn greedy_no_dict_uses_hash_chain_match() {
         [StoredSequence::new(10, OffBase::Offset(10), 10)]
     );
     assert_eq!(output.last_literals, 5);
+    assert_eq!(output.repeat_offsets.as_offsets(), [10, 1, 8]);
+}
+
+#[test]
+fn greedy_no_dict_uses_row_matchfinder_when_window_is_large() {
+    let data = b"abcde12345abcde12345-tail";
+    let mut state = GreedyMatchState::new();
+
+    let output = compress_block_greedy_no_dict_with_state(
+        data,
+        0..data.len(),
+        large_window_greedy_params(),
+        RepeatOffsets::new(),
+        &mut state,
+    );
+
+    assert_eq!(output.sequences.len(), 1);
+    assert!(!state.tag_table.is_empty());
     assert_eq!(output.repeat_offsets.as_offsets(), [10, 1, 8]);
 }
 
@@ -297,105 +320,6 @@ fn greedy_hidden_block_emits_rle_for_single_byte_run() {
     assert_eq!(encoded.repeat_offsets, RepeatOffsets::new());
 }
 
-#[test]
-fn greedy_hidden_frame_round_trips_compressed_block() {
-    let data = b"abcde12345abcde12345-tail";
-    let encoded = encode_single_block_frame_greedy_no_dict(data, greedy_level(data.len()));
-
-    assert_round_trips(&encoded, data);
-}
-
-#[test]
-fn greedy_hidden_frame_round_trips_rle_block() {
-    let data = [0x42; 4096];
-    let encoded = encode_single_block_frame_greedy_no_dict(&data, greedy_level(data.len()));
-
-    assert_round_trips(&encoded, &data);
-}
-
-#[test]
-fn lazy_hidden_frame_round_trips_compressed_block() {
-    let data = b"abcde12345abcde12345-tail";
-    let encoded = encode_single_block_frame_lazy_no_dict(data, lazy_level(data.len()));
-
-    assert_round_trips(&encoded, data);
-}
-
-#[test]
-fn lazy2_hidden_frame_round_trips_compressed_block() {
-    let data = b"abcde12345abcde12345-tail";
-    let encoded = encode_single_block_frame_lazy2_no_dict(data, lazy2_level(data.len()));
-
-    assert_round_trips(&encoded, data);
-}
-
-#[test]
-fn btlazy2_hidden_frame_round_trips_compressed_block() {
-    let data = b"abcde12345abcde12345-tail";
-    let encoded = encode_single_block_frame_btlazy2_no_dict(data, btlazy2_level(data.len()));
-
-    assert_round_trips(&encoded, data);
-}
-
-#[test]
-fn greedy_hidden_frame_round_trips_multiple_blocks() {
-    let mut data = Vec::new();
-    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1536 {
-        data.extend_from_slice(b"tenant=gamma method=POST route=/v3/items status=201 bytes=244\n");
-    }
-    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1536);
-
-    let encoded = encode_frame_greedy_no_dict(&data, greedy_level(data.len()));
-
-    assert!(count_frame_blocks(&encoded) > 1);
-    assert_round_trips(&encoded, &data);
-}
-
-#[test]
-fn lazy_hidden_frame_round_trips_multiple_blocks() {
-    let mut data = Vec::new();
-    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1536 {
-        data.extend_from_slice(b"tenant=delta method=PATCH route=/v4/items status=204 bytes=99\n");
-    }
-    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1536);
-
-    assert_eq!(lazy_params(data.len()).strategy, Strategy::Lazy);
-    let encoded = encode_frame_lazy_no_dict(&data, lazy_level(data.len()));
-
-    assert!(count_frame_blocks(&encoded) > 1);
-    assert_round_trips(&encoded, &data);
-}
-
-#[test]
-fn lazy2_hidden_frame_round_trips_multiple_blocks() {
-    let mut data = Vec::new();
-    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1536 {
-        data.extend_from_slice(b"tenant=epsilon method=PUT route=/v5/items status=200 bytes=122\n");
-    }
-    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1536);
-
-    assert_eq!(lazy2_params(data.len()).strategy, Strategy::Lazy2);
-    let encoded = encode_frame_lazy2_no_dict(&data, lazy2_level(data.len()));
-
-    assert!(count_frame_blocks(&encoded) > 1);
-    assert_round_trips(&encoded, &data);
-}
-
-#[test]
-fn btlazy2_hidden_frame_round_trips_multiple_blocks() {
-    let mut data = Vec::new();
-    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1536 {
-        data.extend_from_slice(b"tenant=zeta method=PUT route=/v6/items status=200 bytes=355\n");
-    }
-    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1536);
-
-    assert_eq!(btlazy2_params(data.len()).strategy, Strategy::BtLazy2);
-    let encoded = encode_frame_btlazy2_no_dict(&data, btlazy2_level(data.len()));
-
-    assert!(count_frame_blocks(&encoded) > 1);
-    assert_round_trips(&encoded, &data);
-}
-
 fn parse_block_header(bytes: &[u8]) -> (bool, BlockType, u32) {
     assert!(bytes.len() >= 3);
     let raw = u32::from(bytes[0]) | (u32::from(bytes[1]) << 8) | (u32::from(bytes[2]) << 16);
@@ -406,35 +330,6 @@ fn parse_block_header(bytes: &[u8]) -> (bool, BlockType, u32) {
         _ => BlockType::Reserved,
     };
     (raw & 1 != 0, block_type, raw >> 3)
-}
-
-fn assert_round_trips(encoded: &[u8], expected: &[u8]) {
-    let mut decoded = Vec::with_capacity(expected.len());
-    FrameDecoder::new()
-        .decode_all_to_vec(encoded, &mut decoded)
-        .unwrap();
-
-    assert_eq!(decoded, expected);
-}
-
-fn count_frame_blocks(encoded: &[u8]) -> usize {
-    let (_, frame_header_size) =
-        crate::decoding::frame::read_frame_header(encoded).expect("frame header should parse");
-    let mut block_decoder = crate::decoding::block_decoder::new();
-    let mut offset = frame_header_size as usize;
-    let mut blocks = 0;
-
-    loop {
-        let (header, block_header_size) = block_decoder
-            .read_block_header(&encoded[offset..])
-            .expect("block header should parse");
-        offset += block_header_size as usize + header.content_size as usize;
-        blocks += 1;
-
-        if header.last_block {
-            break blocks;
-        }
-    }
 }
 
 fn lazy_output(data: &[u8]) -> GreedyBlockOutput {

@@ -14,6 +14,7 @@ mod fast_frame;
 mod greedy;
 mod greedy_block;
 mod greedy_frame;
+mod greedy_state;
 mod hash_chain_match;
 mod opt_block;
 mod opt_frame;
@@ -24,6 +25,7 @@ mod opt_state;
 mod params;
 mod post_split;
 mod pre_split;
+mod row_match;
 mod sequence_store;
 mod strategy_frame;
 
@@ -33,6 +35,8 @@ pub(crate) use strategy_frame::encode_frame_no_dict;
 mod dfast_tests;
 #[cfg(test)]
 mod fast_tests;
+#[cfg(test)]
+mod greedy_frame_tests;
 #[cfg(test)]
 mod greedy_tests;
 #[cfg(test)]
