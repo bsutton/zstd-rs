@@ -3,6 +3,7 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
+use super::block_policy::BlockEncodingPolicy;
 use super::dfast::{
     compress_block_double_fast_no_dict, compress_block_double_fast_no_dict_with_state,
     DFastBlockOutput, DFastMatchState,
@@ -88,9 +89,31 @@ pub(crate) fn encode_block_double_fast_no_dict(
     repeat_offsets: RepeatOffsets,
     context: DFastBlockEncodeContext<'_, '_>,
 ) -> DFastEncodedBlock {
+    encode_block_double_fast_no_dict_with_policy(
+        src,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        context,
+        BlockEncodingPolicy::normal(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_double_fast_no_dict_with_policy(
+    src: &[u8],
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    context: DFastBlockEncodeContext<'_, '_>,
+    policy: BlockEncodingPolicy,
+) -> DFastEncodedBlock {
     let mut bytes = Vec::new();
 
-    if let Some(encoded) = encode_special_block(src, last_block, repeat_offsets, &mut bytes) {
+    if let Some(encoded) = encode_special_block(src, last_block, repeat_offsets, policy, &mut bytes)
+    {
         return encoded;
     }
 
@@ -119,10 +142,35 @@ pub(crate) fn encode_block_double_fast_no_dict_with_state(
     match_state: &mut DFastMatchState,
     context: DFastBlockEncodeContext<'_, '_>,
 ) -> DFastEncodedBlock {
+    encode_block_double_fast_no_dict_with_state_and_policy(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        match_state,
+        context,
+        BlockEncodingPolicy::normal(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_double_fast_no_dict_with_state_and_policy(
+    source: DFastBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut DFastMatchState,
+    context: DFastBlockEncodeContext<'_, '_>,
+    policy: BlockEncodingPolicy,
+) -> DFastEncodedBlock {
     let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
 
-    if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, &mut bytes) {
+    if let Some(encoded) =
+        encode_special_block(block, last_block, repeat_offsets, policy, &mut bytes)
+    {
         return encoded;
     }
 
@@ -240,6 +288,7 @@ fn encode_special_block(
     block: &[u8],
     last_block: bool,
     repeat_offsets: RepeatOffsets,
+    policy: BlockEncodingPolicy,
     bytes: &mut Vec<u8>,
 ) -> Option<DFastEncodedBlock> {
     if block.is_empty() {
@@ -251,13 +300,15 @@ fn encode_special_block(
         });
     }
 
-    if let Some(rle_byte) = rle_byte(block) {
-        write_rle_block(last_block, block.len() as u32, rle_byte, bytes);
-        return Some(DFastEncodedBlock {
-            bytes: core::mem::take(bytes),
-            repeat_offsets,
-            new_huffman_table: None,
-        });
+    if policy.allows_rle() {
+        if let Some(rle_byte) = rle_byte(block) {
+            write_rle_block(last_block, block.len() as u32, rle_byte, bytes);
+            return Some(DFastEncodedBlock {
+                bytes: core::mem::take(bytes),
+                repeat_offsets,
+                new_huffman_table: None,
+            });
+        }
     }
 
     None

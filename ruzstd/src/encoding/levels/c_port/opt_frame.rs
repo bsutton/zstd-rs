@@ -3,12 +3,14 @@
 use alloc::vec::Vec;
 
 use super::{
+    block_policy::BlockEncodingPolicy,
     c_frame_header::write_frame_header_no_dict,
-    greedy_block::{
-        encode_block_btopt_no_dict_with_state, encode_block_btultra_no_dict_with_state,
-        GreedyBlockEncodeContext, GreedyBlockSource,
-    },
+    greedy_block::{GreedyBlockEncodeContext, GreedyBlockSource},
     opt_block::prime_btultra2_stats_no_dict,
+    opt_encode::{
+        encode_block_btopt_no_dict_with_state_and_policy,
+        encode_block_btultra_no_dict_with_state_and_policy,
+    },
     opt_state::OptBlockState,
     params::{CompressionParameters, Strategy},
     pre_split::FrameProgress,
@@ -69,6 +71,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
                 offset_history: &mut offset_history,
             },
             strategy,
+            BlockEncodingPolicy::frame_first_block(),
         );
         output.extend_from_slice(&encoded_block.bytes);
         return output;
@@ -102,6 +105,11 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
                 offset_history: &mut offset_history,
             },
             strategy,
+            if block_start == 0 {
+                BlockEncodingPolicy::frame_first_block()
+            } else {
+                BlockEncodingPolicy::normal()
+            },
         );
         repeat_offsets = encoded_block.repeat_offsets;
         last_huff_table = encoded_block.new_huffman_table;
@@ -123,9 +131,10 @@ fn encode_block_opt_no_dict_with_state(
     opt_state: &mut OptBlockState,
     context: GreedyBlockEncodeContext<'_, '_>,
     strategy: OptFrameStrategy,
+    policy: BlockEncodingPolicy,
 ) -> super::greedy_block::GreedyEncodedBlock {
     match strategy {
-        OptFrameStrategy::BtOpt => encode_block_btopt_no_dict_with_state(
+        OptFrameStrategy::BtOpt => encode_block_btopt_no_dict_with_state_and_policy(
             source,
             last_block,
             params,
@@ -133,13 +142,14 @@ fn encode_block_opt_no_dict_with_state(
             repeat_offsets,
             opt_state,
             context,
+            policy,
         ),
         OptFrameStrategy::BtUltra | OptFrameStrategy::BtUltra2 => {
             debug_assert!(matches!(
                 params.strategy,
                 Strategy::BtUltra | Strategy::BtUltra2
             ));
-            encode_block_btultra_no_dict_with_state(
+            encode_block_btultra_no_dict_with_state_and_policy(
                 source,
                 last_block,
                 params,
@@ -147,6 +157,7 @@ fn encode_block_opt_no_dict_with_state(
                 repeat_offsets,
                 opt_state,
                 context,
+                policy,
             )
         }
     }

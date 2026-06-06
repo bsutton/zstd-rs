@@ -3,10 +3,11 @@
 use alloc::vec::Vec;
 
 use super::{
+    block_policy::BlockEncodingPolicy,
     c_frame_header::write_frame_header_no_dict,
     greedy::GreedyMatchState,
     greedy_block::{
-        encode_block_hash_chain_no_dict, encode_block_hash_chain_no_dict_with_state,
+        encode_block_hash_chain_no_dict, encode_block_hash_chain_no_dict_with_state_and_policy,
         GreedyBlockEncodeContext, GreedyBlockSource, LazyBlockStrategy,
     },
     params::CompressionParameters,
@@ -92,7 +93,12 @@ fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrat
     while block_start < src.len() {
         let block_size = progress.next_block_size(&src[block_start..], params.strategy);
         let block_end = block_start + block_size;
-        let encoded_block = encode_block_hash_chain_no_dict_with_state(
+        let policy = if block_start == 0 {
+            BlockEncodingPolicy::frame_first_block()
+        } else {
+            BlockEncodingPolicy::normal()
+        };
+        let encoded_block = encode_block_hash_chain_no_dict_with_state_and_policy(
             GreedyBlockSource {
                 src,
                 block_range: block_start..block_end,
@@ -108,6 +114,7 @@ fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrat
                 offset_history: &mut offset_history,
             },
             depth,
+            policy,
         );
         repeat_offsets = encoded_block.repeat_offsets;
         last_huff_table = encoded_block.new_huffman_table;

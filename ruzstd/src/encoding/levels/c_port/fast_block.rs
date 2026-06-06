@@ -3,6 +3,7 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
+use super::block_policy::BlockEncodingPolicy;
 use super::fast::{
     compress_block_fast_no_dict, compress_block_fast_no_dict_with_state, FastBlockOutput,
     FastMatchState,
@@ -83,6 +84,27 @@ pub(crate) fn encode_block_fast_no_dict(
     repeat_offsets: RepeatOffsets,
     context: FastBlockEncodeContext<'_, '_>,
 ) -> FastEncodedBlock {
+    encode_block_fast_no_dict_with_policy(
+        src,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        context,
+        BlockEncodingPolicy::normal(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_fast_no_dict_with_policy(
+    src: &[u8],
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    context: FastBlockEncodeContext<'_, '_>,
+    policy: BlockEncodingPolicy,
+) -> FastEncodedBlock {
     let mut bytes = Vec::new();
 
     if src.is_empty() {
@@ -93,13 +115,15 @@ pub(crate) fn encode_block_fast_no_dict(
             new_huffman_table: None,
         };
     }
-    if let Some(rle_byte) = rle_byte(src) {
-        write_rle_block(last_block, src.len() as u32, rle_byte, &mut bytes);
-        return FastEncodedBlock {
-            bytes,
-            repeat_offsets,
-            new_huffman_table: None,
-        };
+    if policy.allows_rle() {
+        if let Some(rle_byte) = rle_byte(src) {
+            write_rle_block(last_block, src.len() as u32, rle_byte, &mut bytes);
+            return FastEncodedBlock {
+                bytes,
+                repeat_offsets,
+                new_huffman_table: None,
+            };
+        }
     }
 
     let previous_fse = context.fse_tables.clone();
@@ -152,6 +176,29 @@ pub(crate) fn encode_block_fast_no_dict_with_state(
     match_state: &mut FastMatchState,
     context: FastBlockEncodeContext<'_, '_>,
 ) -> FastEncodedBlock {
+    encode_block_fast_no_dict_with_state_and_policy(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        match_state,
+        context,
+        BlockEncodingPolicy::normal(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_fast_no_dict_with_state_and_policy(
+    source: FastBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut FastMatchState,
+    context: FastBlockEncodeContext<'_, '_>,
+    policy: BlockEncodingPolicy,
+) -> FastEncodedBlock {
     let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
 
@@ -163,13 +210,15 @@ pub(crate) fn encode_block_fast_no_dict_with_state(
             new_huffman_table: None,
         };
     }
-    if let Some(rle_byte) = rle_byte(block) {
-        write_rle_block(last_block, block.len() as u32, rle_byte, &mut bytes);
-        return FastEncodedBlock {
-            bytes,
-            repeat_offsets,
-            new_huffman_table: None,
-        };
+    if policy.allows_rle() {
+        if let Some(rle_byte) = rle_byte(block) {
+            write_rle_block(last_block, block.len() as u32, rle_byte, &mut bytes);
+            return FastEncodedBlock {
+                bytes,
+                repeat_offsets,
+                new_huffman_table: None,
+            };
+        }
     }
 
     let previous_fse = context.fse_tables.clone();

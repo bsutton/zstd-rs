@@ -3,11 +3,12 @@
 use alloc::vec::Vec;
 
 use super::{
+    block_policy::BlockEncodingPolicy,
     c_frame_header::write_frame_header_no_dict,
     fast::FastMatchState,
     fast_block::{
-        encode_block_fast_no_dict, encode_block_fast_no_dict_with_state, FastBlockEncodeContext,
-        FastBlockSource,
+        encode_block_fast_no_dict, encode_block_fast_no_dict_with_state_and_policy,
+        FastBlockEncodeContext, FastBlockSource,
     },
     params::CompressionParameters,
     pre_split::FrameProgress,
@@ -59,7 +60,12 @@ pub(crate) fn encode_frame_fast_no_dict(src: &[u8], level: i32) -> Vec<u8> {
     while block_start < src.len() {
         let block_size = progress.next_block_size(&src[block_start..], params.strategy);
         let block_end = block_start + block_size;
-        let encoded_block = encode_block_fast_no_dict_with_state(
+        let policy = if block_start == 0 {
+            BlockEncodingPolicy::frame_first_block()
+        } else {
+            BlockEncodingPolicy::normal()
+        };
+        let encoded_block = encode_block_fast_no_dict_with_state_and_policy(
             FastBlockSource {
                 src,
                 block_range: block_start..block_end,
@@ -74,6 +80,7 @@ pub(crate) fn encode_frame_fast_no_dict(src: &[u8], level: i32) -> Vec<u8> {
                 fse_tables: &mut fse_tables,
                 offset_history: &mut offset_history,
             },
+            policy,
         );
         repeat_offsets = encoded_block.repeat_offsets;
         last_huff_table = encoded_block.new_huffman_table;

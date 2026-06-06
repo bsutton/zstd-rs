@@ -3,15 +3,13 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
+use super::block_policy::BlockEncodingPolicy;
 use super::greedy::{
     compress_block_btlazy2_no_dict_with_state, compress_block_greedy_no_dict_with_state,
     compress_block_lazy2_no_dict_with_state, compress_block_lazy_no_dict_with_state,
     GreedyBlockOutput, GreedyMatchState,
 };
-use super::opt_parser::compress_block_opt_no_dict_with_state;
-use super::opt_state::{OptBlockState, OptParserStrategy};
-use super::params::{CompressionParameters, Strategy};
-use super::post_split::encode_split_block;
+use super::params::CompressionParameters;
 use super::sequence_store::RepeatOffsets;
 use crate::{
     common::MAX_BLOCK_SIZE,
@@ -164,9 +162,33 @@ pub(crate) fn encode_block_hash_chain_no_dict(
     context: GreedyBlockEncodeContext<'_, '_>,
     depth: LazyBlockStrategy,
 ) -> GreedyEncodedBlock {
+    encode_block_hash_chain_no_dict_with_policy(
+        src,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        context,
+        depth,
+        BlockEncodingPolicy::normal(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_hash_chain_no_dict_with_policy(
+    src: &[u8],
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    context: GreedyBlockEncodeContext<'_, '_>,
+    depth: LazyBlockStrategy,
+    policy: BlockEncodingPolicy,
+) -> GreedyEncodedBlock {
     let mut bytes = Vec::new();
 
-    if let Some(encoded) = encode_special_block(src, last_block, repeat_offsets, &mut bytes) {
+    if let Some(encoded) = encode_special_block(src, last_block, repeat_offsets, policy, &mut bytes)
+    {
         return encoded;
     }
 
@@ -195,7 +217,7 @@ pub(crate) fn encode_block_greedy_no_dict_with_state(
     match_state: &mut GreedyMatchState,
     context: GreedyBlockEncodeContext<'_, '_>,
 ) -> GreedyEncodedBlock {
-    encode_block_hash_chain_no_dict_with_state(
+    encode_block_hash_chain_no_dict_with_state_and_policy(
         source,
         last_block,
         params,
@@ -204,111 +226,7 @@ pub(crate) fn encode_block_greedy_no_dict_with_state(
         match_state,
         context,
         LazyBlockStrategy::Greedy,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn encode_block_btopt_no_dict_with_state(
-    source: GreedyBlockSource<'_>,
-    last_block: bool,
-    params: CompressionParameters,
-    config: BlockCompressionConfig,
-    repeat_offsets: RepeatOffsets,
-    opt_state: &mut OptBlockState,
-    context: GreedyBlockEncodeContext<'_, '_>,
-) -> GreedyEncodedBlock {
-    encode_block_opt_no_dict_with_state(
-        source,
-        last_block,
-        params,
-        config,
-        repeat_offsets,
-        opt_state,
-        context,
-        OptParserStrategy::BtOpt,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn encode_block_btultra_no_dict_with_state(
-    source: GreedyBlockSource<'_>,
-    last_block: bool,
-    params: CompressionParameters,
-    config: BlockCompressionConfig,
-    repeat_offsets: RepeatOffsets,
-    opt_state: &mut OptBlockState,
-    context: GreedyBlockEncodeContext<'_, '_>,
-) -> GreedyEncodedBlock {
-    encode_block_opt_no_dict_with_state(
-        source,
-        last_block,
-        params,
-        config,
-        repeat_offsets,
-        opt_state,
-        context,
-        OptParserStrategy::BtUltra,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn encode_block_opt_no_dict_with_state(
-    source: GreedyBlockSource<'_>,
-    last_block: bool,
-    params: CompressionParameters,
-    config: BlockCompressionConfig,
-    repeat_offsets: RepeatOffsets,
-    opt_state: &mut OptBlockState,
-    mut context: GreedyBlockEncodeContext<'_, '_>,
-    strategy: OptParserStrategy,
-) -> GreedyEncodedBlock {
-    let block = &source.src[source.block_range.clone()];
-    let mut bytes = Vec::new();
-
-    if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, &mut bytes) {
-        return encoded;
-    }
-
-    let previous_fse = context.fse_tables.clone();
-    let previous_offsets = *context.offset_history;
-    let output = compress_block_opt_no_dict_with_state(
-        source.src,
-        source.block_range,
-        params,
-        repeat_offsets,
-        opt_state,
-        strategy,
-    );
-    let prepared = prepare_from_greedy_output(block, repeat_offsets, &output);
-    let prepared = GreedyPreparedBlock {
-        prepared,
-        repeat_offsets: output.repeat_offsets,
-    };
-    if params.strategy >= Strategy::BtOpt && params.window_log >= 17 {
-        if let Some(encoded) = encode_split_block(
-            block,
-            last_block,
-            config,
-            repeat_offsets,
-            &prepared,
-            previous_fse.clone(),
-            previous_offsets,
-            &mut context,
-        ) {
-            return encoded;
-        }
-    }
-
-    encode_prepared_block(
-        block,
-        last_block,
-        config,
-        repeat_offsets,
-        prepared,
-        previous_fse,
-        previous_offsets,
-        context,
-        bytes,
+        BlockEncodingPolicy::normal(),
     )
 }
 
@@ -323,10 +241,37 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state(
     context: GreedyBlockEncodeContext<'_, '_>,
     depth: LazyBlockStrategy,
 ) -> GreedyEncodedBlock {
+    encode_block_hash_chain_no_dict_with_state_and_policy(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        match_state,
+        context,
+        depth,
+        BlockEncodingPolicy::normal(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy(
+    source: GreedyBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut GreedyMatchState,
+    context: GreedyBlockEncodeContext<'_, '_>,
+    depth: LazyBlockStrategy,
+    policy: BlockEncodingPolicy,
+) -> GreedyEncodedBlock {
     let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
 
-    if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, &mut bytes) {
+    if let Some(encoded) =
+        encode_special_block(block, last_block, repeat_offsets, policy, &mut bytes)
+    {
         return encoded;
     }
 
@@ -354,7 +299,7 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn encode_prepared_block(
+pub(super) fn encode_prepared_block(
     block: &[u8],
     last_block: bool,
     config: BlockCompressionConfig,
@@ -403,7 +348,7 @@ fn encode_prepared_block(
     }
 }
 
-fn prepare_from_greedy_output(
+pub(super) fn prepare_from_greedy_output(
     src: &[u8],
     initial_repeat_offsets: RepeatOffsets,
     output: &GreedyBlockOutput,
@@ -441,10 +386,11 @@ fn prepare_from_greedy_output(
     }
 }
 
-fn encode_special_block(
+pub(super) fn encode_special_block(
     block: &[u8],
     last_block: bool,
     repeat_offsets: RepeatOffsets,
+    policy: BlockEncodingPolicy,
     bytes: &mut Vec<u8>,
 ) -> Option<GreedyEncodedBlock> {
     if block.is_empty() {
@@ -456,13 +402,15 @@ fn encode_special_block(
         });
     }
 
-    if let Some(rle_byte) = rle_byte(block) {
-        write_rle_block(last_block, block.len() as u32, rle_byte, bytes);
-        return Some(GreedyEncodedBlock {
-            bytes: core::mem::take(bytes),
-            repeat_offsets,
-            new_huffman_table: None,
-        });
+    if policy.allows_rle() {
+        if let Some(rle_byte) = rle_byte(block) {
+            write_rle_block(last_block, block.len() as u32, rle_byte, bytes);
+            return Some(GreedyEncodedBlock {
+                bytes: core::mem::take(bytes),
+                repeat_offsets,
+                new_huffman_table: None,
+            });
+        }
     }
 
     None

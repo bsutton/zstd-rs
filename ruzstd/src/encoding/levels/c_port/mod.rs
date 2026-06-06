@@ -4,6 +4,7 @@
 //! built out and checked against the C reference. Keep C-derived behavior here
 //! until it has enough parity coverage to replace the current strategy code.
 
+mod block_policy;
 mod bt_match;
 mod c_frame_header;
 mod dfast;
@@ -18,6 +19,7 @@ mod greedy_frame;
 mod greedy_state;
 mod hash_chain_match;
 mod opt_block;
+mod opt_encode;
 mod opt_frame;
 mod opt_match;
 mod opt_parser;

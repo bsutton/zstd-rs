@@ -4,7 +4,7 @@ use super::{
     params::Strategy,
     strategy_frame::{encode_frame_no_dict, strategy_for_level},
 };
-use crate::{common::MAX_BLOCK_SIZE, decoding::FrameDecoder};
+use crate::{blocks::block::BlockType, common::MAX_BLOCK_SIZE, decoding::FrameDecoder};
 
 #[test]
 fn strategy_frame_routes_level_one_to_fast() {
@@ -136,6 +136,18 @@ fn strategy_frame_round_trips_multiple_blocks() {
     assert_round_trips(&encoded, &data);
 }
 
+#[test]
+fn strategy_frame_does_not_emit_rle_first_block_like_c() {
+    let data = [0x61; 4096];
+
+    for level in [1, 3, 5, 6, 8, 13, 16, 18, 19] {
+        let encoded = encode_frame_no_dict(&data, level);
+
+        assert_ne!(first_frame_block_type(&encoded), BlockType::RLE);
+        assert_round_trips(&encoded, &data);
+    }
+}
+
 fn assert_round_trips(encoded: &[u8], expected: &[u8]) {
     let mut decoded = Vec::with_capacity(expected.len());
     FrameDecoder::new()
@@ -163,4 +175,15 @@ fn count_frame_blocks(encoded: &[u8]) -> usize {
             break blocks;
         }
     }
+}
+
+fn first_frame_block_type(encoded: &[u8]) -> BlockType {
+    let (_, frame_header_size) =
+        crate::decoding::frame::read_frame_header(encoded).expect("frame header should parse");
+    let mut block_decoder = crate::decoding::block_decoder::new();
+    let (header, _) = block_decoder
+        .read_block_header(&encoded[frame_header_size as usize..])
+        .expect("block header should parse");
+
+    header.block_type
 }
