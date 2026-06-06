@@ -3,6 +3,7 @@
 use alloc::vec::Vec;
 
 use super::{
+    c_frame_header::write_frame_header_no_dict,
     greedy_block::{
         encode_block_btopt_no_dict_with_state, encode_block_btultra_no_dict_with_state,
         GreedyBlockEncodeContext, GreedyBlockSource,
@@ -16,7 +17,6 @@ use super::{
 use crate::encoding::{
     blocks::BlockCompressionConfig,
     frame_compressor::{FseTables, OffsetHistory},
-    frame_header::FrameHeader,
 };
 
 const ZSTD_PREDEF_THRESHOLD: usize = 8;
@@ -42,21 +42,13 @@ enum OptFrameStrategy {
 
 fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) -> Vec<u8> {
     let mut output = Vec::new();
-    FrameHeader {
-        frame_content_size: Some(src.len() as u64),
-        single_segment: true,
-        content_checksum: false,
-        dictionary_id: None,
-        window_size: None,
-    }
-    .serialize(&mut output);
-
+    let params = CompressionParameters::for_level(level, src.len() as u64, 0);
+    write_frame_header_no_dict(&mut output, src.len(), params);
     let mut fse_tables = FseTables::new();
     let mut offset_history = OffsetHistory::new();
     let mut opt_state = OptBlockState::new();
     let mut last_huff_table = None;
     let mut repeat_offsets = RepeatOffsets::new();
-    let params = CompressionParameters::for_level(level, src.len() as u64, 0);
     opt_state.reset_for_frame(params);
     let block_config = BlockCompressionConfig::for_c_strategy(params.strategy as u8);
 

@@ -45,7 +45,7 @@ impl FrameHeader {
         if !self.single_segment {
             if let Some(window_size) = self.window_size {
                 let log = window_size.next_power_of_two().ilog2();
-                let exponent = if log > 10 { log - 10 } else { 1 } as u8;
+                let exponent = log.saturating_sub(10) as u8;
                 output.push(exponent << 3);
             }
         }

@@ -5,6 +5,7 @@
 //! until it has enough parity coverage to replace the current strategy code.
 
 mod bt_match;
+mod c_frame_header;
 mod dfast;
 mod dfast_block;
 mod dfast_frame;
