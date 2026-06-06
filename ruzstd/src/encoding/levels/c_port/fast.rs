@@ -6,6 +6,7 @@ use core::convert::TryInto;
 
 use super::params::CompressionParameters;
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
+use crate::encoding::blocks::{PreparedBlock, PreparedSequence};
 
 const HASH_READ_SIZE: usize = 8;
 const SEARCH_STRENGTH: usize = 8;
@@ -15,6 +16,25 @@ pub(crate) struct FastBlockOutput {
     pub(crate) sequences: Vec<StoredSequence>,
     pub(crate) last_literals: u32,
     pub(crate) repeat_offsets: RepeatOffsets,
+}
+
+pub(crate) struct FastPreparedBlock {
+    pub(crate) prepared: PreparedBlock,
+    pub(crate) repeat_offsets: RepeatOffsets,
+}
+
+pub(crate) fn prepare_block_fast_no_dict(
+    src: &[u8],
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+) -> FastPreparedBlock {
+    let output = compress_block_fast_no_dict(src, params, repeat_offsets);
+    let prepared = prepare_from_fast_output(src, repeat_offsets, &output);
+
+    FastPreparedBlock {
+        prepared,
+        repeat_offsets: output.repeat_offsets,
+    }
 }
 
 pub(crate) fn compress_block_fast_no_dict(
@@ -236,6 +256,44 @@ pub(crate) fn compress_block_fast_no_dict(
         sequences,
         last_literals: (src.len() - anchor) as u32,
         repeat_offsets: RepeatOffsets::from_offsets(rep[0], rep[1], rep[2]),
+    }
+}
+
+fn prepare_from_fast_output(
+    src: &[u8],
+    initial_repeat_offsets: RepeatOffsets,
+    output: &FastBlockOutput,
+) -> PreparedBlock {
+    let mut literals = Vec::new();
+    let mut sequences = Vec::with_capacity(output.sequences.len());
+    let mut repeat_offsets = initial_repeat_offsets;
+    let mut anchor = 0_usize;
+
+    for sequence in &output.sequences {
+        let lit_len = sequence.lit_len as usize;
+        let match_len = sequence.match_len as usize;
+        let lit_end = anchor + lit_len;
+        debug_assert!(lit_end <= src.len());
+        literals.extend_from_slice(&src[anchor..lit_end]);
+
+        let raw_offset = repeat_offsets.resolve(sequence.off_base, sequence.lit_len);
+        sequences.push(PreparedSequence {
+            ll: sequence.lit_len,
+            ml: sequence.match_len,
+            raw_offset,
+        });
+        repeat_offsets.update(sequence.off_base, sequence.lit_len);
+        anchor = lit_end + match_len;
+        debug_assert!(anchor <= src.len());
+    }
+
+    let tail_end = anchor + output.last_literals as usize;
+    debug_assert_eq!(tail_end, src.len());
+    literals.extend_from_slice(&src[anchor..tail_end]);
+
+    PreparedBlock {
+        literals,
+        sequences,
     }
 }
 
