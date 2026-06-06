@@ -43,6 +43,30 @@ impl FastMatchState {
 
         &mut self.hash_table
     }
+
+    pub(crate) fn load_prefix(
+        &mut self,
+        src: &[u8],
+        prefix_len: usize,
+        params: CompressionParameters,
+    ) {
+        debug_assert!(prefix_len <= src.len());
+        if prefix_len <= HASH_READ_SIZE {
+            return;
+        }
+
+        let hlog = params.hash_log;
+        let min_match = params.min_match;
+        let hash_table = self.table_for(hlog);
+        let iend = prefix_len - HASH_READ_SIZE;
+        let mut ip = 0_usize;
+
+        while ip + 3 < iend + 2 {
+            let hash = hash_ptr(src, ip, hlog, min_match);
+            hash_table[hash] = ip as u32;
+            ip += 3;
+        }
+    }
 }
 
 pub(crate) fn compress_block_fast_no_dict(

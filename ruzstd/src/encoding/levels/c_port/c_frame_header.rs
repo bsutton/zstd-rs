@@ -1,4 +1,4 @@
-//! C-style frame header selection for no-dictionary compression.
+//! C-style frame header selection for compression.
 
 use alloc::vec::Vec;
 
@@ -10,6 +10,15 @@ pub(super) fn write_frame_header_no_dict(
     pledged_src_size: usize,
     params: CompressionParameters,
 ) {
+    write_frame_header(output, pledged_src_size, params, None);
+}
+
+pub(super) fn write_frame_header(
+    output: &mut Vec<u8>,
+    pledged_src_size: usize,
+    params: CompressionParameters,
+    dictionary_id: Option<u32>,
+) {
     let window_size = 1_u64 << params.window_log;
     let pledged_src_size = pledged_src_size as u64;
     let single_segment = window_size >= pledged_src_size;
@@ -18,7 +27,7 @@ pub(super) fn write_frame_header_no_dict(
         frame_content_size: Some(pledged_src_size),
         single_segment,
         content_checksum: false,
-        dictionary_id: None,
+        dictionary_id: dictionary_id.map(u64::from),
         window_size: (!single_segment).then_some(window_size),
     }
     .serialize(output);
@@ -64,6 +73,17 @@ mod tests {
         assert!(!header.descriptor.single_segment_flag());
         assert_eq!(header.frame_content_size(), 128 * 1024 + 1);
         assert_eq!(header.window_size().unwrap(), 128 * 1024);
+        assert_eq!(header_size, output.len() as u8);
+    }
+
+    #[test]
+    fn frame_header_writes_dictionary_id_when_present() {
+        let mut output = Vec::new();
+
+        write_frame_header(&mut output, 128 * 1024, params(17), Some(0x1234));
+        let (header, header_size) = read_frame_header(output.as_slice()).unwrap();
+
+        assert_eq!(header.dictionary_id(), Some(0x1234));
         assert_eq!(header_size, output.len() as u8);
     }
 }
