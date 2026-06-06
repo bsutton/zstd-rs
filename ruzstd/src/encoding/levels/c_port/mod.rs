@@ -9,6 +9,7 @@ mod bt_match;
 mod c_frame_header;
 mod dfast;
 mod dfast_block;
+mod dfast_dict;
 mod dfast_frame;
 mod dictionary;
 mod fast;

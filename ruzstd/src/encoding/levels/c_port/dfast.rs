@@ -6,7 +6,7 @@ use core::{convert::TryInto, ops::Range};
 use super::params::CompressionParameters;
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 
-const HASH_READ_SIZE: usize = 8;
+pub(super) const HASH_READ_SIZE: usize = 8;
 const SEARCH_STRENGTH: usize = 8;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -18,10 +18,10 @@ pub(crate) struct DFastBlockOutput {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DFastMatchState {
-    hash_long: Vec<u32>,
-    hash_small: Vec<u32>,
-    hash_log: u32,
-    chain_log: u32,
+    pub(super) hash_long: Vec<u32>,
+    pub(super) hash_small: Vec<u32>,
+    pub(super) hash_log: u32,
+    pub(super) chain_log: u32,
 }
 
 impl DFastMatchState {
@@ -34,7 +34,7 @@ impl DFastMatchState {
         }
     }
 
-    fn ensure_tables(&mut self, params: CompressionParameters) {
+    pub(super) fn ensure_tables(&mut self, params: CompressionParameters) {
         if self.hash_log != params.hash_log {
             self.hash_log = params.hash_log;
             self.hash_long.clear();
@@ -438,7 +438,7 @@ fn lowest_prefix_index(end_index: usize, window_log: u32) -> usize {
     end_index.saturating_sub(window_size)
 }
 
-fn hash_ptr(src: &[u8], pos: usize, h_bits: u32, min_match: u32) -> usize {
+pub(super) fn hash_ptr(src: &[u8], pos: usize, h_bits: u32, min_match: u32) -> usize {
     debug_assert!(h_bits <= 32);
     debug_assert!(pos + HASH_READ_SIZE <= src.len());
 

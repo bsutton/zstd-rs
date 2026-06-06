@@ -8,12 +8,15 @@ use super::dfast_block::{
     encode_block_double_fast_no_dict, prepare_block_double_fast_no_dict, DFastBlockEncodeContext,
 };
 use super::dfast_frame::{
-    encode_frame_double_fast_no_dict, encode_single_block_frame_double_fast_no_dict,
+    encode_frame_double_fast_no_dict, encode_frame_double_fast_with_dictionary,
+    encode_single_block_frame_double_fast_no_dict,
 };
+use super::dictionary::{parse_dictionary, DictionaryContentType};
 use super::params::CompressionParameters;
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 use crate::blocks::block::BlockType;
 use crate::common::MAX_BLOCK_SIZE;
+use crate::decoding::dictionary::{Dictionary, MAGIC_NUM};
 use crate::decoding::FrameDecoder;
 use crate::encoding::blocks::BlockCompressionConfig;
 use crate::encoding::frame_compressor::{FseTables, OffsetHistory};
@@ -256,6 +259,26 @@ fn double_fast_hidden_frame_round_trips_multiple_blocks() {
     assert_round_trips(&encoded, &data);
 }
 
+#[test]
+fn double_fast_frame_with_dictionary_writes_dict_id_and_round_trips() {
+    let dict_bytes = full_dictionary_fixture();
+    let parsed = parse_dictionary(&dict_bytes, DictionaryContentType::Auto, false)
+        .unwrap()
+        .expect("full dictionary");
+    let mut data = Vec::new();
+    for _ in 0..8 {
+        data.extend_from_slice(dictionary_content());
+    }
+
+    let encoded = encode_frame_double_fast_with_dictionary(&data, 3, parsed);
+    let (header, _) =
+        crate::decoding::frame::read_frame_header(encoded.as_slice()).expect("frame header");
+
+    assert_eq!(header.dictionary_id(), Some(DICT_ID));
+    assert_eq!(first_frame_block_type(&encoded), BlockType::Compressed);
+    assert_round_trips_with_dictionary(&encoded, &data, &dict_bytes);
+}
+
 fn parse_block_header(bytes: &[u8]) -> (bool, BlockType, u32) {
     assert!(bytes.len() >= 3);
     let raw = u32::from(bytes[0]) | (u32::from(bytes[1]) << 8) | (u32::from(bytes[2]) << 16);
@@ -273,6 +296,17 @@ fn assert_round_trips(encoded: &[u8], expected: &[u8]) {
     FrameDecoder::new()
         .decode_all_to_vec(encoded, &mut decoded)
         .unwrap();
+
+    assert_eq!(decoded, expected);
+}
+
+fn assert_round_trips_with_dictionary(encoded: &[u8], expected: &[u8], dict: &[u8]) {
+    let mut decoded = Vec::with_capacity(expected.len());
+    let mut decoder = FrameDecoder::new();
+    decoder
+        .add_dict(Dictionary::decode_dict(dict).unwrap())
+        .unwrap();
+    decoder.decode_all_to_vec(encoded, &mut decoded).unwrap();
 
     assert_eq!(decoded, expected);
 }
@@ -297,6 +331,17 @@ fn count_frame_blocks(encoded: &[u8]) -> usize {
     }
 }
 
+fn first_frame_block_type(encoded: &[u8]) -> BlockType {
+    let (_, frame_header_size) =
+        crate::decoding::frame::read_frame_header(encoded).expect("frame header should parse");
+    let mut block_decoder = crate::decoding::block_decoder::new();
+    let (header, _) = block_decoder
+        .read_block_header(&encoded[frame_header_size as usize..])
+        .expect("block header should parse");
+
+    header.block_type
+}
+
 fn deterministic_bytes(len: usize) -> Vec<u8> {
     let mut state = 0x9E37_79B9_u32;
     let mut bytes = Vec::with_capacity(len);
@@ -307,4 +352,34 @@ fn deterministic_bytes(len: usize) -> Vec<u8> {
         bytes.push(state as u8);
     }
     bytes
+}
+
+const DICT_ID: u32 = 0x4723_2101;
+
+fn full_dictionary_fixture() -> Vec<u8> {
+    let mut raw = Vec::new();
+    raw.extend_from_slice(&MAGIC_NUM);
+    raw.extend_from_slice(&DICT_ID.to_le_bytes());
+    raw.extend_from_slice(dictionary_tables());
+    for offset in [3_u32, 10, 25] {
+        raw.extend_from_slice(&offset.to_le_bytes());
+    }
+    raw.extend_from_slice(dictionary_content());
+    raw
+}
+
+fn dictionary_tables() -> &'static [u8] {
+    &[
+        54, 16, 192, 155, 4, 0, 207, 59, 239, 121, 158, 116, 220, 93, 114, 229, 110, 41, 249, 95,
+        165, 255, 83, 202, 254, 68, 74, 159, 63, 161, 100, 151, 137, 21, 184, 183, 189, 100, 235,
+        209, 251, 174, 91, 75, 91, 185, 19, 39, 75, 146, 98, 177, 249, 14, 4, 35, 0, 0, 0, 40, 40,
+        20, 10, 12, 204, 37, 196, 1, 173, 122, 0, 4, 0, 128, 1, 2, 2, 25, 32, 27, 27, 22, 24, 26,
+        18, 12, 12, 15, 16, 11, 69, 37, 225, 48, 20, 12, 6, 2, 161, 80, 40, 20, 44, 137, 145, 204,
+        46, 0, 0, 0, 0, 0, 116, 253, 16, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ]
+}
+
+fn dictionary_content() -> &'static [u8] {
+    b"method=GET path=/v1/projects/beta status=200 bytes=1847\n\
+      method=POST path=/v1/projects/beta status=202 bytes=932\n"
 }
