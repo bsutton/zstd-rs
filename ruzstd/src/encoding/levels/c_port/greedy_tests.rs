@@ -1,14 +1,16 @@
 use alloc::vec::Vec;
 
 use super::greedy::{
-    compress_block_greedy_no_dict, compress_block_greedy_no_dict_with_state,
-    compress_block_lazy2_no_dict, compress_block_lazy_no_dict, GreedyMatchState,
+    compress_block_btlazy2_no_dict_with_state, compress_block_greedy_no_dict,
+    compress_block_greedy_no_dict_with_state, compress_block_lazy2_no_dict_with_state,
+    compress_block_lazy_no_dict_with_state, GreedyBlockOutput, GreedyMatchState,
 };
 use super::greedy_block::{
     encode_block_greedy_no_dict, prepare_block_greedy_no_dict, GreedyBlockEncodeContext,
 };
 use super::greedy_frame::{
-    encode_frame_greedy_no_dict, encode_frame_lazy2_no_dict, encode_frame_lazy_no_dict,
+    encode_frame_btlazy2_no_dict, encode_frame_greedy_no_dict, encode_frame_lazy2_no_dict,
+    encode_frame_lazy_no_dict, encode_single_block_frame_btlazy2_no_dict,
     encode_single_block_frame_greedy_no_dict, encode_single_block_frame_lazy2_no_dict,
     encode_single_block_frame_lazy_no_dict,
 };
@@ -33,6 +35,10 @@ fn lazy2_params(src_len: usize) -> CompressionParameters {
     CompressionParameters::for_level(lazy2_level(src_len), src_len as u64, 0)
 }
 
+fn btlazy2_params(src_len: usize) -> CompressionParameters {
+    CompressionParameters::for_level(btlazy2_level(src_len), src_len as u64, 0)
+}
+
 fn greedy_level(src_len: usize) -> i32 {
     if src_len <= 16 * 1024 {
         4
@@ -54,6 +60,14 @@ fn lazy2_level(src_len: usize) -> i32 {
         6
     } else {
         8
+    }
+}
+
+fn btlazy2_level(src_len: usize) -> i32 {
+    if src_len <= 16 * 1024 {
+        9
+    } else {
+        13
     }
 }
 
@@ -108,7 +122,7 @@ fn lazy_no_dict_uses_hash_chain_match() {
     let data = b"abcde12345abcde12345-tail";
 
     assert_eq!(lazy_params(data.len()).strategy, Strategy::Lazy);
-    let output = compress_block_lazy_no_dict(data, lazy_params(data.len()), RepeatOffsets::new());
+    let output = lazy_output(data);
 
     assert_eq!(
         output.sequences,
@@ -123,7 +137,22 @@ fn lazy2_no_dict_uses_hash_chain_match() {
     let data = b"abcde12345abcde12345-tail";
 
     assert_eq!(lazy2_params(data.len()).strategy, Strategy::Lazy2);
-    let output = compress_block_lazy2_no_dict(data, lazy2_params(data.len()), RepeatOffsets::new());
+    let output = lazy2_output(data);
+
+    assert_eq!(
+        output.sequences,
+        [StoredSequence::new(10, OffBase::Offset(10), 10)]
+    );
+    assert_eq!(output.last_literals, 5);
+    assert_eq!(output.repeat_offsets.as_offsets(), [10, 1, 8]);
+}
+
+#[test]
+fn btlazy2_no_dict_uses_binary_tree_match() {
+    let data = b"abcde12345abcde12345-tail";
+
+    assert_eq!(btlazy2_params(data.len()).strategy, Strategy::BtLazy2);
+    let output = btlazy2_output(data);
 
     assert_eq!(
         output.sequences,
@@ -297,6 +326,14 @@ fn lazy2_hidden_frame_round_trips_compressed_block() {
 }
 
 #[test]
+fn btlazy2_hidden_frame_round_trips_compressed_block() {
+    let data = b"abcde12345abcde12345-tail";
+    let encoded = encode_single_block_frame_btlazy2_no_dict(data, btlazy2_level(data.len()));
+
+    assert_round_trips(&encoded, data);
+}
+
+#[test]
 fn greedy_hidden_frame_round_trips_multiple_blocks() {
     let mut data = Vec::new();
     while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1536 {
@@ -335,6 +372,21 @@ fn lazy2_hidden_frame_round_trips_multiple_blocks() {
 
     assert_eq!(lazy2_params(data.len()).strategy, Strategy::Lazy2);
     let encoded = encode_frame_lazy2_no_dict(&data, lazy2_level(data.len()));
+
+    assert!(count_frame_blocks(&encoded) > 1);
+    assert_round_trips(&encoded, &data);
+}
+
+#[test]
+fn btlazy2_hidden_frame_round_trips_multiple_blocks() {
+    let mut data = Vec::new();
+    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1536 {
+        data.extend_from_slice(b"tenant=zeta method=PUT route=/v6/items status=200 bytes=355\n");
+    }
+    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1536);
+
+    assert_eq!(btlazy2_params(data.len()).strategy, Strategy::BtLazy2);
+    let encoded = encode_frame_btlazy2_no_dict(&data, btlazy2_level(data.len()));
 
     assert!(count_frame_blocks(&encoded) > 1);
     assert_round_trips(&encoded, &data);
@@ -379,6 +431,39 @@ fn count_frame_blocks(encoded: &[u8]) -> usize {
             break blocks;
         }
     }
+}
+
+fn lazy_output(data: &[u8]) -> GreedyBlockOutput {
+    let mut state = GreedyMatchState::new();
+    compress_block_lazy_no_dict_with_state(
+        data,
+        0..data.len(),
+        lazy_params(data.len()),
+        RepeatOffsets::new(),
+        &mut state,
+    )
+}
+
+fn lazy2_output(data: &[u8]) -> GreedyBlockOutput {
+    let mut state = GreedyMatchState::new();
+    compress_block_lazy2_no_dict_with_state(
+        data,
+        0..data.len(),
+        lazy2_params(data.len()),
+        RepeatOffsets::new(),
+        &mut state,
+    )
+}
+
+fn btlazy2_output(data: &[u8]) -> GreedyBlockOutput {
+    let mut state = GreedyMatchState::new();
+    compress_block_btlazy2_no_dict_with_state(
+        data,
+        0..data.len(),
+        btlazy2_params(data.len()),
+        RepeatOffsets::new(),
+        &mut state,
+    )
 }
 
 fn deterministic_bytes(len: usize) -> Vec<u8> {

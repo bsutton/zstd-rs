@@ -3,7 +3,10 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use super::hash_chain_match::{count_match, hash_ptr, highbit32, lowest_prefix_index, read32};
+use super::bt_match::bt_find_best_match;
+use super::hash_chain_match::{
+    count_match, hc_find_best_match, highbit32, lowest_prefix_index, read32,
+};
 use super::params::CompressionParameters;
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 
@@ -20,12 +23,12 @@ pub(crate) struct GreedyBlockOutput {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GreedyMatchState {
-    hash_table: Vec<u32>,
-    chain_table: Vec<u32>,
-    hash_log: u32,
-    chain_log: u32,
-    next_to_update: usize,
-    lazy_skipping: bool,
+    pub(super) hash_table: Vec<u32>,
+    pub(super) chain_table: Vec<u32>,
+    pub(super) hash_log: u32,
+    pub(super) chain_log: u32,
+    pub(super) next_to_update: usize,
+    pub(super) lazy_skipping: bool,
 }
 
 impl GreedyMatchState {
@@ -64,6 +67,20 @@ impl GreedyMatchState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LazySearch {
+    HashChain,
+    BinaryTree,
+}
+
+struct LazySearchContext<'a> {
+    search: LazySearch,
+    src: &'a [u8],
+    block_end: usize,
+    params: CompressionParameters,
+    min_match: u32,
+}
+
 pub(crate) fn compress_block_greedy_no_dict(
     src: &[u8],
     params: CompressionParameters,
@@ -71,38 +88,6 @@ pub(crate) fn compress_block_greedy_no_dict(
 ) -> GreedyBlockOutput {
     let mut state = GreedyMatchState::new();
     compress_block_greedy_no_dict_with_state(src, 0..src.len(), params, repeat_offsets, &mut state)
-}
-
-pub(crate) fn compress_block_lazy_no_dict(
-    src: &[u8],
-    params: CompressionParameters,
-    repeat_offsets: RepeatOffsets,
-) -> GreedyBlockOutput {
-    let mut state = GreedyMatchState::new();
-    compress_block_hash_chain_no_dict_with_state(
-        src,
-        0..src.len(),
-        params,
-        repeat_offsets,
-        &mut state,
-        1,
-    )
-}
-
-pub(crate) fn compress_block_lazy2_no_dict(
-    src: &[u8],
-    params: CompressionParameters,
-    repeat_offsets: RepeatOffsets,
-) -> GreedyBlockOutput {
-    let mut state = GreedyMatchState::new();
-    compress_block_hash_chain_no_dict_with_state(
-        src,
-        0..src.len(),
-        params,
-        repeat_offsets,
-        &mut state,
-        2,
-    )
 }
 
 pub(crate) fn compress_block_greedy_no_dict_with_state(
@@ -135,6 +120,24 @@ pub(crate) fn compress_block_lazy2_no_dict_with_state(
     compress_block_hash_chain_no_dict_with_state(src, block_range, params, repeat_offsets, state, 2)
 }
 
+pub(crate) fn compress_block_btlazy2_no_dict_with_state(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut GreedyMatchState,
+) -> GreedyBlockOutput {
+    compress_block_lazy_generic_no_dict_with_state(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        2,
+        LazySearch::BinaryTree,
+    )
+}
+
 fn compress_block_hash_chain_no_dict_with_state(
     src: &[u8],
     block_range: Range<usize>,
@@ -142,6 +145,26 @@ fn compress_block_hash_chain_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
     depth: u32,
+) -> GreedyBlockOutput {
+    compress_block_lazy_generic_no_dict_with_state(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        depth,
+        LazySearch::HashChain,
+    )
+}
+
+fn compress_block_lazy_generic_no_dict_with_state(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut GreedyMatchState,
+    depth: u32,
+    search: LazySearch,
 ) -> GreedyBlockOutput {
     debug_assert!(block_range.start <= block_range.end);
     debug_assert!(block_range.end <= src.len());
@@ -166,6 +189,13 @@ fn compress_block_hash_chain_no_dict_with_state(
     let min_match = params.min_match.clamp(4, 6);
     let prefix_lowest = lowest_prefix_index(block_end, params.window_log);
     let ilimit = block_end - HASH_READ_SIZE;
+    let search_context = LazySearchContext {
+        search,
+        src,
+        block_end,
+        params,
+        min_match,
+    };
     let mut ip = block_start + usize::from(block_start == prefix_lowest);
     let mut anchor = block_start;
 
@@ -218,15 +248,7 @@ fn compress_block_hash_chain_no_dict_with_state(
             }
         } else {
             let mut offbase_found = 999_999_999_u32;
-            let ml2 = hc_find_best_match(
-                src,
-                ip,
-                block_end,
-                &mut offbase_found,
-                params,
-                min_match,
-                state,
-            );
+            let ml2 = search_max(&search_context, ip, &mut offbase_found, state);
             if ml2 > match_length {
                 match_length = ml2;
                 start = ip;
@@ -260,15 +282,7 @@ fn compress_block_hash_chain_no_dict_with_state(
                 }
 
                 let mut ofb_candidate = 999_999_999_u32;
-                let ml2 = hc_find_best_match(
-                    src,
-                    ip,
-                    block_end,
-                    &mut ofb_candidate,
-                    params,
-                    min_match,
-                    state,
-                );
+                let ml2 = search_max(&search_context, ip, &mut ofb_candidate, state);
                 let gain2 = (ml2 * 4) as i32 - highbit32(ofb_candidate) as i32;
                 let gain1 = (match_length * 4) as i32 - highbit32(off_base) as i32 + 4;
                 if ml2 >= 4 && gain2 > gain1 {
@@ -298,15 +312,7 @@ fn compress_block_hash_chain_no_dict_with_state(
                     }
 
                     let mut ofb_candidate = 999_999_999_u32;
-                    let ml2 = hc_find_best_match(
-                        src,
-                        ip,
-                        block_end,
-                        &mut ofb_candidate,
-                        params,
-                        min_match,
-                        state,
-                    );
+                    let ml2 = search_max(&search_context, ip, &mut ofb_candidate, state);
                     let gain2 = (ml2 * 4) as i32 - highbit32(ofb_candidate) as i32;
                     let gain1 = (match_length * 4) as i32 - highbit32(off_base) as i32 + 7;
                     if ml2 >= 4 && gain2 > gain1 {
@@ -384,6 +390,34 @@ fn compress_block_hash_chain_no_dict_with_state(
     }
 }
 
+fn search_max(
+    context: &LazySearchContext<'_>,
+    ip: usize,
+    off_base: &mut u32,
+    state: &mut GreedyMatchState,
+) -> usize {
+    match context.search {
+        LazySearch::HashChain => hc_find_best_match(
+            context.src,
+            ip,
+            context.block_end,
+            off_base,
+            context.params,
+            context.min_match,
+            state,
+        ),
+        LazySearch::BinaryTree => bt_find_best_match(
+            context.src,
+            ip,
+            context.block_end,
+            off_base,
+            context.params,
+            context.min_match,
+            state,
+        ),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn continue_immediate_repcodes(
     src: &[u8],
@@ -408,76 +442,6 @@ fn continue_immediate_repcodes(
             repeat_length,
         );
     }
-}
-
-fn hc_find_best_match(
-    src: &[u8],
-    ip: usize,
-    block_end: usize,
-    off_base: &mut u32,
-    params: CompressionParameters,
-    min_match: u32,
-    state: &mut GreedyMatchState,
-) -> usize {
-    let chain_size = 1_usize << params.chain_log;
-    let chain_mask = chain_size - 1;
-    let curr = ip;
-    let max_distance = 1_usize << params.window_log;
-    let low_limit = curr.saturating_sub(max_distance);
-    let min_chain = curr.saturating_sub(chain_size);
-    let mut attempts = 1_usize << params.search_log;
-    let mut ml = 3_usize;
-    let mut match_index = insert_and_find_first_index(src, ip, params, min_match, state);
-
-    while match_index >= low_limit && attempts > 0 {
-        attempts -= 1;
-        let current_ml = if read32(src, match_index + ml - 3) == read32(src, ip + ml - 3) {
-            count_match(src, ip, match_index, block_end)
-        } else {
-            0
-        };
-
-        if current_ml > ml {
-            ml = current_ml;
-            *off_base = OffBase::from_offset((curr - match_index) as u32)
-                .expect("hash-chain match has non-zero offset")
-                .to_c_value();
-            if ip + current_ml == block_end {
-                break;
-            }
-        }
-
-        if match_index <= min_chain {
-            break;
-        }
-        match_index = state.chain_table[match_index & chain_mask] as usize;
-    }
-
-    ml
-}
-
-fn insert_and_find_first_index(
-    src: &[u8],
-    ip: usize,
-    params: CompressionParameters,
-    min_match: u32,
-    state: &mut GreedyMatchState,
-) -> usize {
-    let chain_mask = (1_usize << params.chain_log) - 1;
-    let mut idx = state.next_to_update;
-
-    while idx < ip {
-        let hash = hash_ptr(src, idx, params.hash_log, min_match);
-        state.chain_table[idx & chain_mask] = state.hash_table[hash];
-        state.hash_table[hash] = idx as u32;
-        idx += 1;
-        if state.lazy_skipping {
-            break;
-        }
-    }
-
-    state.next_to_update = ip;
-    state.hash_table[hash_ptr(src, ip, params.hash_log, min_match)] as usize
 }
 
 fn store_sequence(

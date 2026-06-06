@@ -2,6 +2,78 @@
 
 use core::convert::TryInto;
 
+use super::{greedy::GreedyMatchState, params::CompressionParameters, sequence_store::OffBase};
+
+pub(super) fn hc_find_best_match(
+    src: &[u8],
+    ip: usize,
+    block_end: usize,
+    off_base: &mut u32,
+    params: CompressionParameters,
+    min_match: u32,
+    state: &mut GreedyMatchState,
+) -> usize {
+    let chain_size = 1_usize << params.chain_log;
+    let chain_mask = chain_size - 1;
+    let curr = ip;
+    let max_distance = 1_usize << params.window_log;
+    let low_limit = curr.saturating_sub(max_distance);
+    let min_chain = curr.saturating_sub(chain_size);
+    let mut attempts = 1_usize << params.search_log;
+    let mut ml = 3_usize;
+    let mut match_index = insert_and_find_first_index(src, ip, params, min_match, state);
+
+    while match_index >= low_limit && attempts > 0 {
+        attempts -= 1;
+        let current_ml = if read32(src, match_index + ml - 3) == read32(src, ip + ml - 3) {
+            count_match(src, ip, match_index, block_end)
+        } else {
+            0
+        };
+
+        if current_ml > ml {
+            ml = current_ml;
+            *off_base = OffBase::from_offset((curr - match_index) as u32)
+                .expect("hash-chain match has non-zero offset")
+                .to_c_value();
+            if ip + current_ml == block_end {
+                break;
+            }
+        }
+
+        if match_index <= min_chain {
+            break;
+        }
+        match_index = state.chain_table[match_index & chain_mask] as usize;
+    }
+
+    ml
+}
+
+fn insert_and_find_first_index(
+    src: &[u8],
+    ip: usize,
+    params: CompressionParameters,
+    min_match: u32,
+    state: &mut GreedyMatchState,
+) -> usize {
+    let chain_mask = (1_usize << params.chain_log) - 1;
+    let mut idx = state.next_to_update;
+
+    while idx < ip {
+        let hash = hash_ptr(src, idx, params.hash_log, min_match);
+        state.chain_table[idx & chain_mask] = state.hash_table[hash];
+        state.hash_table[hash] = idx as u32;
+        idx += 1;
+        if state.lazy_skipping {
+            break;
+        }
+    }
+
+    state.next_to_update = ip;
+    state.hash_table[hash_ptr(src, ip, params.hash_log, min_match)] as usize
+}
+
 pub(super) fn count_match(
     src: &[u8],
     mut pos: usize,

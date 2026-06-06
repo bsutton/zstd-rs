@@ -6,7 +6,7 @@ use super::{
     greedy::GreedyMatchState,
     greedy_block::{
         encode_block_hash_chain_no_dict, encode_block_hash_chain_no_dict_with_state,
-        GreedyBlockEncodeContext, GreedyBlockSource, HashChainDepth,
+        GreedyBlockEncodeContext, GreedyBlockSource, LazyBlockStrategy,
     },
     params::CompressionParameters,
     sequence_store::RepeatOffsets,
@@ -27,7 +27,7 @@ pub(crate) fn encode_single_block_frame_greedy_no_dict(src: &[u8], level: i32) -
 }
 
 pub(crate) fn encode_frame_greedy_no_dict(src: &[u8], level: i32) -> Vec<u8> {
-    encode_frame_hash_chain_no_dict(src, level, HashChainDepth::Greedy)
+    encode_frame_hash_chain_no_dict(src, level, LazyBlockStrategy::Greedy)
 }
 
 pub(crate) fn encode_single_block_frame_lazy_no_dict(src: &[u8], level: i32) -> Vec<u8> {
@@ -36,7 +36,7 @@ pub(crate) fn encode_single_block_frame_lazy_no_dict(src: &[u8], level: i32) -> 
 }
 
 pub(crate) fn encode_frame_lazy_no_dict(src: &[u8], level: i32) -> Vec<u8> {
-    encode_frame_hash_chain_no_dict(src, level, HashChainDepth::Lazy)
+    encode_frame_hash_chain_no_dict(src, level, LazyBlockStrategy::Lazy)
 }
 
 pub(crate) fn encode_single_block_frame_lazy2_no_dict(src: &[u8], level: i32) -> Vec<u8> {
@@ -45,10 +45,19 @@ pub(crate) fn encode_single_block_frame_lazy2_no_dict(src: &[u8], level: i32) ->
 }
 
 pub(crate) fn encode_frame_lazy2_no_dict(src: &[u8], level: i32) -> Vec<u8> {
-    encode_frame_hash_chain_no_dict(src, level, HashChainDepth::Lazy2)
+    encode_frame_hash_chain_no_dict(src, level, LazyBlockStrategy::Lazy2)
 }
 
-fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: HashChainDepth) -> Vec<u8> {
+pub(crate) fn encode_single_block_frame_btlazy2_no_dict(src: &[u8], level: i32) -> Vec<u8> {
+    debug_assert!(src.len() <= MAX_BLOCK_SIZE as usize);
+    encode_frame_btlazy2_no_dict(src, level)
+}
+
+pub(crate) fn encode_frame_btlazy2_no_dict(src: &[u8], level: i32) -> Vec<u8> {
+    encode_frame_hash_chain_no_dict(src, level, LazyBlockStrategy::BtLazy2)
+}
+
+fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrategy) -> Vec<u8> {
     let mut output = Vec::new();
     FrameHeader {
         frame_content_size: Some(src.len() as u64),

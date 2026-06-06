@@ -4,6 +4,7 @@
 //! built out and checked against the C reference. Keep C-derived behavior here
 //! until it has enough parity coverage to replace the current strategy code.
 
+mod bt_match;
 mod dfast;
 mod dfast_block;
 mod dfast_frame;
