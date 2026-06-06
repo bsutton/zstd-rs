@@ -42,6 +42,7 @@ pub(super) struct SequenceModeSearchConfig<'a> {
     pub(super) of_predefined_max_sequences: usize,
     pub(super) of_max_log: u8,
     pub(super) exact_sequence_mode_search: bool,
+    pub(super) c_fast_heuristics: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -50,8 +51,16 @@ struct TableModeCandidateConfig {
     repeat_table_max_sequences: usize,
     predefined_max_sequences: usize,
     exact_sequence_mode_search: bool,
+    selection_policy: TableSelectionPolicy,
 }
 
+#[derive(Clone, Copy)]
+enum TableSelectionPolicy {
+    Legacy,
+    CFast { default_norm_log: u8 },
+}
+
+#[cfg(test)]
 pub(super) fn choose_table<'a>(
     previous: Option<&'a FSETable>,
     default_table: &'a FSETable,
@@ -61,11 +70,49 @@ pub(super) fn choose_table<'a>(
     repeat_table_max_sequences: usize,
     predefined_max_sequences: usize,
 ) -> FseTableMode<'a> {
+    choose_table_with_policy(
+        previous,
+        default_table,
+        sequences,
+        code,
+        max_log,
+        repeat_table_max_sequences,
+        predefined_max_sequences,
+        TableSelectionPolicy::Legacy,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn choose_table_with_policy<'a>(
+    previous: Option<&'a FSETable>,
+    default_table: &'a FSETable,
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    code: impl Fn(&crate::blocks::sequence_section::Sequence) -> u8 + Copy,
+    max_log: u8,
+    repeat_table_max_sequences: usize,
+    predefined_max_sequences: usize,
+    selection_policy: TableSelectionPolicy,
+) -> FseTableMode<'a> {
     let first_code = code(&sequences[0]);
     let all_same_code = sequences
         .iter()
         .skip(1)
         .all(|sequence| code(sequence) == first_code);
+
+    if let TableSelectionPolicy::CFast { default_norm_log } = selection_policy {
+        return choose_c_fast_table(
+            previous,
+            default_table,
+            sequences,
+            code,
+            max_log,
+            repeat_table_max_sequences,
+            predefined_max_sequences,
+            default_norm_log,
+            first_code,
+            all_same_code,
+        );
+    }
 
     if all_same_code && sequences.len() > 2 {
         return FseTableMode::Rle(first_code);
@@ -100,6 +147,68 @@ pub(super) fn choose_table<'a>(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
+fn choose_c_fast_table<'a>(
+    previous: Option<&'a FSETable>,
+    default_table: &'a FSETable,
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    code: impl Fn(&crate::blocks::sequence_section::Sequence) -> u8 + Copy,
+    max_log: u8,
+    repeat_table_max_sequences: usize,
+    predefined_max_sequences: usize,
+    default_norm_log: u8,
+    first_code: u8,
+    all_same_code: bool,
+) -> FseTableMode<'a> {
+    let default_allowed = sequences
+        .iter()
+        .all(|sequence| default_table.can_encode_symbol(code(sequence)));
+
+    if all_same_code {
+        return if default_allowed && sequences.len() <= 2 {
+            FseTableMode::Predefined(default_table)
+        } else {
+            FseTableMode::Rle(first_code)
+        };
+    }
+
+    if default_allowed {
+        if let Some(previous) = previous {
+            if sequences.len() < repeat_table_max_sequences
+                && sequences
+                    .iter()
+                    .all(|sequence| previous.can_encode_symbol(code(sequence)))
+            {
+                return FseTableMode::RepeatLast(previous);
+            }
+        }
+
+        if sequences.len() < predefined_max_sequences
+            || most_frequent_code_count(sequences, code)
+                < (sequences.len() >> (usize::from(default_norm_log) - 1))
+        {
+            return FseTableMode::Predefined(default_table);
+        }
+    }
+
+    FseTableMode::Encoded(build_table_from_data(
+        sequences.iter().map(code),
+        max_log,
+        true,
+    ))
+}
+
+fn most_frequent_code_count(
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    code: impl Fn(&crate::blocks::sequence_section::Sequence) -> u8 + Copy,
+) -> usize {
+    let mut counts = [0usize; 256];
+    for sequence in sequences {
+        counts[usize::from(code(sequence))] += 1;
+    }
+    counts.iter().copied().max().unwrap_or(0)
+}
+
 fn candidate_table_modes<'a>(
     previous: Option<&'a FSETable>,
     default_table: &'a FSETable,
@@ -107,7 +216,7 @@ fn candidate_table_modes<'a>(
     code: impl Fn(&crate::blocks::sequence_section::Sequence) -> u8 + Copy,
     config: TableModeCandidateConfig,
 ) -> Vec<FseTableMode<'a>> {
-    let heuristic = choose_table(
+    let heuristic = choose_table_with_policy(
         previous,
         default_table,
         sequences,
@@ -115,6 +224,7 @@ fn candidate_table_modes<'a>(
         config.max_log,
         config.repeat_table_max_sequences,
         config.predefined_max_sequences,
+        config.selection_policy,
     );
 
     let mut candidates = vec![heuristic];
@@ -178,6 +288,13 @@ pub(super) fn choose_sequence_table_modes<'a>(
             repeat_table_max_sequences: config.repeat_table_max_sequences,
             predefined_max_sequences: config.llml_predefined_max_sequences,
             exact_sequence_mode_search: config.exact_sequence_mode_search,
+            selection_policy: if config.c_fast_heuristics {
+                TableSelectionPolicy::CFast {
+                    default_norm_log: 6,
+                }
+            } else {
+                TableSelectionPolicy::Legacy
+            },
         },
     );
     let ml_candidates = candidate_table_modes(
@@ -190,6 +307,13 @@ pub(super) fn choose_sequence_table_modes<'a>(
             repeat_table_max_sequences: config.repeat_table_max_sequences,
             predefined_max_sequences: config.llml_predefined_max_sequences,
             exact_sequence_mode_search: config.exact_sequence_mode_search,
+            selection_policy: if config.c_fast_heuristics {
+                TableSelectionPolicy::CFast {
+                    default_norm_log: 6,
+                }
+            } else {
+                TableSelectionPolicy::Legacy
+            },
         },
     );
     let of_candidates = candidate_table_modes(
@@ -202,6 +326,13 @@ pub(super) fn choose_sequence_table_modes<'a>(
             repeat_table_max_sequences: config.repeat_table_max_sequences,
             predefined_max_sequences: config.of_predefined_max_sequences,
             exact_sequence_mode_search: config.exact_sequence_mode_search,
+            selection_policy: if config.c_fast_heuristics {
+                TableSelectionPolicy::CFast {
+                    default_norm_log: 5,
+                }
+            } else {
+                TableSelectionPolicy::Legacy
+            },
         },
     );
 

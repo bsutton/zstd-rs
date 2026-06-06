@@ -202,6 +202,7 @@ pub(crate) fn compress_prepared_block(
                 of_predefined_max_sequences: config.offset_predefined_max_sequences,
                 of_max_log: config.offset_table_max_log,
                 exact_sequence_mode_search: config.exact_sequence_mode_search,
+                c_fast_heuristics: config.c_fast_sequence_table_heuristics,
             },
         );
 

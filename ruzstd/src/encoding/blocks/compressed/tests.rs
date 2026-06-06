@@ -1058,6 +1058,96 @@ fn choose_table_repeats_previous_table_for_small_blocks_when_valid() {
 }
 
 #[test]
+fn c_fast_sequence_heuristic_repeats_previous_table_before_default() {
+    let ll_default = default_ll_table();
+    let ml_default = default_ml_table();
+    let of_default = default_of_table();
+    let ll_previous = build_table_from_data([0u8, 2, 4].iter().copied(), 9, true);
+    let sequences = [
+        crate::blocks::sequence_section::Sequence {
+            ll: 0,
+            ml: 3,
+            of: 1,
+        },
+        crate::blocks::sequence_section::Sequence {
+            ll: 2,
+            ml: 3,
+            of: 1,
+        },
+        crate::blocks::sequence_section::Sequence {
+            ll: 4,
+            ml: 3,
+            of: 1,
+        },
+    ];
+
+    let (ll_mode, _, _) = choose_sequence_table_modes(
+        &sequences,
+        SequenceModeSearchConfig {
+            ll_previous: Some(&ll_previous),
+            ll_default: &ll_default,
+            ml_previous: None,
+            ml_default: &ml_default,
+            of_previous: None,
+            of_default: &of_default,
+            repeat_table_max_sequences: 1000,
+            llml_predefined_max_sequences: 56,
+            of_predefined_max_sequences: 28,
+            of_max_log: 8,
+            exact_sequence_mode_search: false,
+            c_fast_heuristics: true,
+        },
+    );
+
+    assert!(matches!(ll_mode, FseTableMode::RepeatLast(_)));
+}
+
+#[test]
+fn c_fast_sequence_heuristic_requires_default_table_before_repeat() {
+    let ll_default = default_ll_table();
+    let ml_default = default_ml_table();
+    let of_default = default_of_table();
+    let of_previous = build_table_from_data([29u8, 30, 30].iter().copied(), 8, true);
+    let sequences = [
+        crate::blocks::sequence_section::Sequence {
+            ll: 0,
+            ml: 3,
+            of: 1 << 29,
+        },
+        crate::blocks::sequence_section::Sequence {
+            ll: 0,
+            ml: 3,
+            of: 1 << 30,
+        },
+        crate::blocks::sequence_section::Sequence {
+            ll: 0,
+            ml: 3,
+            of: 1 << 30,
+        },
+    ];
+
+    let (_, _, of_mode) = choose_sequence_table_modes(
+        &sequences,
+        SequenceModeSearchConfig {
+            ll_previous: None,
+            ll_default: &ll_default,
+            ml_previous: None,
+            ml_default: &ml_default,
+            of_previous: Some(&of_previous),
+            of_default: &of_default,
+            repeat_table_max_sequences: 1000,
+            llml_predefined_max_sequences: 56,
+            of_predefined_max_sequences: 28,
+            of_max_log: 8,
+            exact_sequence_mode_search: false,
+            c_fast_heuristics: true,
+        },
+    );
+
+    assert!(matches!(of_mode, FseTableMode::Encoded(_)));
+}
+
+#[test]
 fn exact_sequence_mode_search_never_worsens_threshold_choice() {
     let ll_default = default_ll_table();
     let ml_default = default_ml_table();
@@ -1130,6 +1220,7 @@ fn exact_sequence_mode_search_never_worsens_threshold_choice() {
                             of_predefined_max_sequences: 16,
                             of_max_log: 8,
                             exact_sequence_mode_search: true,
+                            c_fast_heuristics: false,
                         },
                     );
                     let heuristic_size = exact_sequence_section_size(
