@@ -4,10 +4,11 @@ use super::fast::compress_block_fast_no_dict;
 use super::fast_block::{
     encode_block_fast_no_dict, prepare_block_fast_no_dict, FastBlockEncodeContext,
 };
-use super::fast_frame::encode_single_block_frame_fast_no_dict;
+use super::fast_frame::{encode_frame_fast_no_dict, encode_single_block_frame_fast_no_dict};
 use super::params::CompressionParameters;
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 use crate::blocks::block::BlockType;
+use crate::common::MAX_BLOCK_SIZE;
 use crate::decoding::FrameDecoder;
 use crate::encoding::blocks::BlockCompressionConfig;
 use crate::encoding::frame_compressor::{FseTables, OffsetHistory};
@@ -185,6 +186,20 @@ fn fast_no_dict_hidden_frame_round_trips_raw_fallback_block() {
     assert_round_trips(&encoded, data);
 }
 
+#[test]
+fn fast_no_dict_hidden_frame_round_trips_multiple_blocks() {
+    let mut data = Vec::new();
+    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 777 {
+        data.extend_from_slice(b"tenant=alpha route=/archive status=200 bytes=4812\n");
+    }
+    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 777);
+
+    let encoded = encode_frame_fast_no_dict(&data, 1);
+
+    assert!(count_frame_blocks(&encoded) > 1);
+    assert_round_trips(&encoded, &data);
+}
+
 fn parse_block_header(bytes: &[u8]) -> (bool, BlockType, u32) {
     assert!(bytes.len() >= 3);
     let raw = u32::from(bytes[0]) | (u32::from(bytes[1]) << 8) | (u32::from(bytes[2]) << 16);
@@ -204,4 +219,24 @@ fn assert_round_trips(encoded: &[u8], expected: &[u8]) {
         .unwrap();
 
     assert_eq!(decoded, expected);
+}
+
+fn count_frame_blocks(encoded: &[u8]) -> usize {
+    let (_, frame_header_size) =
+        crate::decoding::frame::read_frame_header(encoded).expect("frame header should parse");
+    let mut block_decoder = crate::decoding::block_decoder::new();
+    let mut offset = frame_header_size as usize;
+    let mut blocks = 0;
+
+    loop {
+        let (header, block_header_size) = block_decoder
+            .read_block_header(&encoded[offset..])
+            .expect("block header should parse");
+        offset += block_header_size as usize + header.content_size as usize;
+        blocks += 1;
+
+        if header.last_block {
+            break blocks;
+        }
+    }
 }
