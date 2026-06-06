@@ -25,6 +25,8 @@ mod params;
 mod sequence_store;
 mod strategy_frame;
 
+pub(crate) use strategy_frame::encode_frame_no_dict;
+
 #[cfg(test)]
 mod dfast_tests;
 #[cfg(test)]

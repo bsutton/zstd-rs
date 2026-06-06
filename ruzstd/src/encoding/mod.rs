@@ -83,6 +83,25 @@ pub fn compress_to_vec<R: Read>(source: R, level: CompressionLevel) -> Vec<u8> {
     vec
 }
 
+/// Compress a full source into a target using the faithful C no-dictionary level table.
+///
+/// This entry point accepts the same numeric level range as upstream zstd. It currently
+/// targets the no-dictionary path and buffers the complete source so that the C-port
+/// frame encoder can choose block strategies from the full content size.
+pub fn compress_c_level<R: Read, W: Write>(mut source: R, mut target: W, level: i32) {
+    let mut input = Vec::new();
+    source.read_to_end(&mut input).unwrap();
+    let compressed = levels::c_port::encode_frame_no_dict(&input, level);
+    target.write_all(&compressed).unwrap();
+}
+
+/// Compress a full source into a Vec using the faithful C no-dictionary level table.
+pub fn compress_to_vec_c_level<R: Read>(source: R, level: i32) -> Vec<u8> {
+    let mut vec = Vec::new();
+    compress_c_level(source, &mut vec, level);
+    vec
+}
+
 /// Convenience function to compress some source into a Vec using a coarse file-type hint.
 pub fn compress_to_vec_with_file_type<R: Read>(
     source: R,
@@ -214,10 +233,44 @@ pub enum Sequence<'data> {
 
 #[cfg(test)]
 mod tests {
-    use super::CompressionLevel;
+    use super::{compress_c_level, compress_to_vec_c_level, CompressionLevel};
+    use crate::decoding::FrameDecoder;
+    use alloc::vec::Vec;
 
     #[test]
     fn compression_level_equality_is_available_for_api_comparisons() {
         assert_eq!(CompressionLevel::Fastest, CompressionLevel::Fastest);
+    }
+
+    #[test]
+    fn c_level_compression_round_trips_representative_strategies() {
+        let mut data = Vec::new();
+        while data.len() < (crate::common::MAX_BLOCK_SIZE as usize * 2) + 2048 {
+            data.extend_from_slice(b"public-c-level route=/archive status=200 bytes=1874\n");
+        }
+
+        for level in [1, 3, 5, 8, 13, 16, 18, 19, 22] {
+            let encoded = compress_to_vec_c_level(data.as_slice(), level);
+            assert_round_trips(&encoded, &data);
+        }
+    }
+
+    #[test]
+    fn c_level_compression_writes_to_target() {
+        let data = b"public-c-level-writer public-c-level-writer";
+        let mut encoded = Vec::new();
+
+        compress_c_level(data.as_slice(), &mut encoded, 16);
+
+        assert_round_trips(&encoded, data);
+    }
+
+    fn assert_round_trips(encoded: &[u8], expected: &[u8]) {
+        let mut decoded = Vec::with_capacity(expected.len());
+        FrameDecoder::new()
+            .decode_all_to_vec(encoded, &mut decoded)
+            .unwrap();
+
+        assert_eq!(decoded, expected);
     }
 }
