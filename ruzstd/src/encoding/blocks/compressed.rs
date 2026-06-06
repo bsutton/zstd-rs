@@ -4,6 +4,7 @@ use core::convert::TryFrom;
 mod config;
 mod literals;
 mod sequence_codes;
+mod sequence_cost;
 mod sequence_tables;
 
 pub(crate) use config::BlockCompressionConfig;
@@ -203,6 +204,7 @@ pub(crate) fn compress_prepared_block(
                 of_max_log: config.offset_table_max_log,
                 exact_sequence_mode_search: config.exact_sequence_mode_search,
                 c_fast_heuristics: config.c_fast_sequence_table_heuristics,
+                c_cost_model: config.c_cost_sequence_table_selection,
             },
         );
 

@@ -18,6 +18,7 @@ pub(crate) struct BlockCompressionConfig {
     pub(super) file_type_small_sequence_predefined_llml_max_sequences: Option<usize>,
     pub(super) file_type_single_stream_huffman_max_literals: Option<usize>,
     pub(super) c_fast_sequence_table_heuristics: bool,
+    pub(super) c_cost_sequence_table_selection: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -120,6 +121,7 @@ impl BlockCompressionConfig {
                 file_type_small_sequence_predefined_llml_max_sequences: None,
                 file_type_single_stream_huffman_max_literals: None,
                 c_fast_sequence_table_heuristics: false,
+                c_cost_sequence_table_selection: true,
             };
         }
 
@@ -138,6 +140,7 @@ impl BlockCompressionConfig {
             ),
             file_type_single_stream_huffman_max_literals: None,
             c_fast_sequence_table_heuristics: true,
+            c_cost_sequence_table_selection: false,
         }
     }
 
@@ -221,6 +224,7 @@ impl BlockCompressionConfig {
                 None
             },
             c_fast_sequence_table_heuristics: false,
+            c_cost_sequence_table_selection: false,
         };
         #[cfg(feature = "std")]
         config.apply_tuning_overrides();

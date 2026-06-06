@@ -1096,6 +1096,7 @@ fn c_fast_sequence_heuristic_repeats_previous_table_before_default() {
             of_max_log: 8,
             exact_sequence_mode_search: false,
             c_fast_heuristics: true,
+            c_cost_model: false,
         },
     );
 
@@ -1141,10 +1142,102 @@ fn c_fast_sequence_heuristic_requires_default_table_before_repeat() {
             of_max_log: 8,
             exact_sequence_mode_search: false,
             c_fast_heuristics: true,
+            c_cost_model: false,
         },
     );
 
     assert!(matches!(of_mode, FseTableMode::Encoded(_)));
+}
+
+#[test]
+fn c_cost_sequence_model_uses_basic_when_default_is_cheapest() {
+    let ll_default = default_ll_table();
+    let ml_default = default_ml_table();
+    let of_default = default_of_table();
+    let sequences = sequences_for_literal_lengths([0, 2, 4, 6, 8, 10, 12, 14]);
+
+    let (ll_mode, _, _) = choose_sequence_table_modes(
+        &sequences,
+        c_cost_config(&ll_default, None, &ml_default, &of_default, None),
+    );
+
+    assert!(matches!(ll_mode, FseTableMode::Predefined(_)));
+}
+
+#[test]
+fn c_cost_sequence_model_repeats_previous_table_when_cheapest() {
+    let ll_default = default_ll_table();
+    let ml_default = default_ml_table();
+    let of_default = default_of_table();
+    let mut lengths = Vec::new();
+    lengths.extend(core::iter::repeat_n(0, 160));
+    lengths.extend(core::iter::repeat_n(15, 40));
+    let sequences = sequences_for_literal_lengths(lengths.iter().copied());
+    let previous = build_table_from_data(
+        sequences
+            .iter()
+            .map(|sequence| encode_literal_length(sequence.ll).0),
+        9,
+        true,
+    );
+
+    let (ll_mode, _, _) = choose_sequence_table_modes(
+        &sequences,
+        c_cost_config(&ll_default, Some(&previous), &ml_default, &of_default, None),
+    );
+
+    assert!(matches!(ll_mode, FseTableMode::RepeatLast(_)));
+}
+
+#[test]
+fn c_cost_sequence_model_encodes_new_table_when_cheapest() {
+    let ll_default = default_ll_table();
+    let ml_default = default_ml_table();
+    let of_default = default_of_table();
+    let mut lengths = Vec::new();
+    lengths.extend(core::iter::repeat_n(60, 120));
+    lengths.extend(core::iter::repeat_n(1024, 80));
+    let sequences = sequences_for_literal_lengths(lengths.iter().copied());
+
+    let (ll_mode, _, _) = choose_sequence_table_modes(
+        &sequences,
+        c_cost_config(&ll_default, None, &ml_default, &of_default, None),
+    );
+
+    assert!(matches!(ll_mode, FseTableMode::Encoded(_)));
+}
+
+fn c_cost_config<'a>(
+    ll_default: &'a crate::fse::fse_encoder::FSETable,
+    ll_previous: Option<&'a crate::fse::fse_encoder::FSETable>,
+    ml_default: &'a crate::fse::fse_encoder::FSETable,
+    of_default: &'a crate::fse::fse_encoder::FSETable,
+    of_previous: Option<&'a crate::fse::fse_encoder::FSETable>,
+) -> SequenceModeSearchConfig<'a> {
+    SequenceModeSearchConfig {
+        ll_previous,
+        ll_default,
+        ml_previous: None,
+        ml_default,
+        of_previous,
+        of_default,
+        repeat_table_max_sequences: 1000,
+        llml_predefined_max_sequences: 56,
+        of_predefined_max_sequences: 28,
+        of_max_log: 8,
+        exact_sequence_mode_search: false,
+        c_fast_heuristics: false,
+        c_cost_model: true,
+    }
+}
+
+fn sequences_for_literal_lengths(
+    lengths: impl IntoIterator<Item = u32>,
+) -> Vec<crate::blocks::sequence_section::Sequence> {
+    lengths
+        .into_iter()
+        .map(|ll| crate::blocks::sequence_section::Sequence { ll, ml: 3, of: 1 })
+        .collect()
 }
 
 #[test]
@@ -1221,6 +1314,7 @@ fn exact_sequence_mode_search_never_worsens_threshold_choice() {
                             of_max_log: 8,
                             exact_sequence_mode_search: true,
                             c_fast_heuristics: false,
+                            c_cost_model: false,
                         },
                     );
                     let heuristic_size = exact_sequence_section_size(

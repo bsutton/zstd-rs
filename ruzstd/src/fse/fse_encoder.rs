@@ -148,8 +148,47 @@ impl FSETable {
         !self.states[symbol as usize].states.is_empty()
     }
 
+    pub(crate) fn bit_cost(&self, symbol: u8, accuracy_log: u8) -> Option<usize> {
+        if !self.can_encode_symbol(symbol) {
+            return None;
+        }
+
+        let table_log = self.acc_log;
+        let table_size = 1usize << table_log;
+        let delta_nb_bits = self.delta_nb_bits(symbol) as usize;
+        let min_nb_bits = delta_nb_bits >> 16;
+        let threshold = (min_nb_bits + 1) << 16;
+        let delta_from_threshold = threshold.checked_sub(delta_nb_bits + table_size)?;
+        let normalized_delta_from_threshold = (delta_from_threshold << accuracy_log) >> table_log;
+        let bit_multiplier = 1usize << accuracy_log;
+
+        Some((min_nb_bits + 1) * bit_multiplier - normalized_delta_from_threshold)
+    }
+
     pub fn acc_log(&self) -> u8 {
         self.acc_log
+    }
+
+    pub(crate) fn normalized_probability(&self, symbol: u8) -> i32 {
+        self.states[symbol as usize].probability
+    }
+
+    fn delta_nb_bits(&self, symbol: u8) -> u32 {
+        let table_log = u32::from(self.acc_log);
+        let table_size = 1u32 << table_log;
+        let probability = self.normalized_probability(symbol);
+
+        match probability {
+            0 => ((table_log + 1) << 16) - table_size,
+            -1 | 1 => (table_log << 16) - table_size,
+            probability => {
+                debug_assert!(probability > 1);
+                let probability = probability as u32;
+                let max_bits_out = table_log - highbit32(probability - 1);
+                let min_state_plus = probability << max_bits_out;
+                (max_bits_out << 16) - min_state_plus
+            }
+        }
     }
 
     pub(crate) fn write_table<V: AsMut<Vec<u8>>>(&self, writer: &mut BitWriter<V>) {
@@ -195,6 +234,10 @@ impl FSETable {
         }
         writer.write_bits(0u8, writer.misaligned());
     }
+}
+
+fn highbit32(value: u32) -> u32 {
+    u32::BITS - 1 - value.leading_zeros()
 }
 
 #[derive(Debug, Clone)]

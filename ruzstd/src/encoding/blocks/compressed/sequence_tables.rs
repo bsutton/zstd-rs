@@ -7,6 +7,7 @@ use crate::{
 
 use super::{
     encode_literal_length, encode_match_len, encode_offset, encode_sequences,
+    sequence_cost::{compressed_table_cost, cross_entropy_cost, repeat_table_cost, CodeCounts},
     EXACT_SEQUENCE_TABLE_MIN_LOG,
 };
 
@@ -43,6 +44,7 @@ pub(super) struct SequenceModeSearchConfig<'a> {
     pub(super) of_max_log: u8,
     pub(super) exact_sequence_mode_search: bool,
     pub(super) c_fast_heuristics: bool,
+    pub(super) c_cost_model: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -58,6 +60,7 @@ struct TableModeCandidateConfig {
 enum TableSelectionPolicy {
     Legacy,
     CFast { default_norm_log: u8 },
+    CCost,
 }
 
 #[cfg(test)]
@@ -99,19 +102,33 @@ fn choose_table_with_policy<'a>(
         .skip(1)
         .all(|sequence| code(sequence) == first_code);
 
-    if let TableSelectionPolicy::CFast { default_norm_log } = selection_policy {
-        return choose_c_fast_table(
-            previous,
-            default_table,
-            sequences,
-            code,
-            max_log,
-            repeat_table_max_sequences,
-            predefined_max_sequences,
-            default_norm_log,
-            first_code,
-            all_same_code,
-        );
+    match selection_policy {
+        TableSelectionPolicy::CFast { default_norm_log } => {
+            return choose_c_fast_table(
+                previous,
+                default_table,
+                sequences,
+                code,
+                max_log,
+                repeat_table_max_sequences,
+                predefined_max_sequences,
+                default_norm_log,
+                first_code,
+                all_same_code,
+            );
+        }
+        TableSelectionPolicy::CCost => {
+            return choose_c_cost_table(
+                previous,
+                default_table,
+                sequences,
+                code,
+                max_log,
+                first_code,
+                all_same_code,
+            );
+        }
+        TableSelectionPolicy::Legacy => {}
     }
 
     if all_same_code && sequences.len() > 2 {
@@ -196,6 +213,48 @@ fn choose_c_fast_table<'a>(
         max_log,
         true,
     ))
+}
+
+fn choose_c_cost_table<'a>(
+    previous: Option<&'a FSETable>,
+    default_table: &'a FSETable,
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    code: impl Fn(&crate::blocks::sequence_section::Sequence) -> u8 + Copy,
+    max_log: u8,
+    first_code: u8,
+    all_same_code: bool,
+) -> FseTableMode<'a> {
+    let counts = CodeCounts::from_codes(sequences.iter().map(code));
+    let default_allowed = counts.default_allowed(default_table);
+
+    if all_same_code {
+        return if default_allowed && sequences.len() <= 2 {
+            FseTableMode::Predefined(default_table)
+        } else {
+            FseTableMode::Rle(first_code)
+        };
+    }
+
+    let encoded_table = build_table_from_data(sequences.iter().map(code), max_log, true);
+    let compressed_cost = compressed_table_cost(&encoded_table, &counts);
+    let basic_cost = default_allowed
+        .then(|| cross_entropy_cost(default_table, &counts))
+        .flatten();
+    let repeat_cost = previous.and_then(|previous| repeat_table_cost(previous, &counts));
+
+    if basic_cost.is_some_and(|basic_cost| {
+        basic_cost <= repeat_cost.unwrap_or(usize::MAX) && basic_cost <= compressed_cost
+    }) {
+        return FseTableMode::Predefined(default_table);
+    }
+
+    if let Some(previous) = previous {
+        if repeat_cost.is_some_and(|repeat_cost| repeat_cost <= compressed_cost) {
+            return FseTableMode::RepeatLast(previous);
+        }
+    }
+
+    FseTableMode::Encoded(encoded_table)
 }
 
 fn most_frequent_code_count(
@@ -292,6 +351,8 @@ pub(super) fn choose_sequence_table_modes<'a>(
                 TableSelectionPolicy::CFast {
                     default_norm_log: 6,
                 }
+            } else if config.c_cost_model {
+                TableSelectionPolicy::CCost
             } else {
                 TableSelectionPolicy::Legacy
             },
@@ -311,6 +372,8 @@ pub(super) fn choose_sequence_table_modes<'a>(
                 TableSelectionPolicy::CFast {
                     default_norm_log: 6,
                 }
+            } else if config.c_cost_model {
+                TableSelectionPolicy::CCost
             } else {
                 TableSelectionPolicy::Legacy
             },
@@ -330,6 +393,8 @@ pub(super) fn choose_sequence_table_modes<'a>(
                 TableSelectionPolicy::CFast {
                     default_norm_log: 5,
                 }
+            } else if config.c_cost_model {
+                TableSelectionPolicy::CCost
             } else {
                 TableSelectionPolicy::Legacy
             },
