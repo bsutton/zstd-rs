@@ -10,15 +10,13 @@ use super::{
     opt_block::prime_btultra2_stats_no_dict,
     opt_state::OptBlockState,
     params::{CompressionParameters, Strategy},
+    pre_split::FrameProgress,
     sequence_store::RepeatOffsets,
 };
-use crate::{
-    common::MAX_BLOCK_SIZE,
-    encoding::{
-        blocks::BlockCompressionConfig,
-        frame_compressor::{FseTables, OffsetHistory},
-        frame_header::FrameHeader,
-    },
+use crate::encoding::{
+    blocks::BlockCompressionConfig,
+    frame_compressor::{FseTables, OffsetHistory},
+    frame_header::FrameHeader,
 };
 
 const ZSTD_PREDEF_THRESHOLD: usize = 8;
@@ -84,8 +82,10 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
     }
 
     let mut block_start = 0;
+    let mut progress = FrameProgress::new(output.len());
     while block_start < src.len() {
-        let block_end = (block_start + MAX_BLOCK_SIZE as usize).min(src.len());
+        let block_size = progress.next_block_size(&src[block_start..], params.strategy);
+        let block_end = block_start + block_size;
         if block_start == 0
             && strategy == OptFrameStrategy::BtUltra2
             && src[block_start..block_end].len() > ZSTD_PREDEF_THRESHOLD
@@ -112,6 +112,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
         );
         repeat_offsets = encoded_block.repeat_offsets;
         last_huff_table = encoded_block.new_huffman_table;
+        progress.record_block(block_size, encoded_block.bytes.len());
         output.extend_from_slice(&encoded_block.bytes);
         block_start = block_end;
     }

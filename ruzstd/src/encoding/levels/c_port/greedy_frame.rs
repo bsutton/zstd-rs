@@ -9,6 +9,7 @@ use super::{
         GreedyBlockEncodeContext, GreedyBlockSource, LazyBlockStrategy,
     },
     params::CompressionParameters,
+    pre_split::FrameProgress,
     sequence_store::RepeatOffsets,
 };
 use crate::{
@@ -94,8 +95,10 @@ fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrat
     }
 
     let mut block_start = 0;
+    let mut progress = FrameProgress::new(output.len());
     while block_start < src.len() {
-        let block_end = (block_start + MAX_BLOCK_SIZE as usize).min(src.len());
+        let block_size = progress.next_block_size(&src[block_start..], params.strategy);
+        let block_end = block_start + block_size;
         let encoded_block = encode_block_hash_chain_no_dict_with_state(
             GreedyBlockSource {
                 src,
@@ -115,6 +118,7 @@ fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrat
         );
         repeat_offsets = encoded_block.repeat_offsets;
         last_huff_table = encoded_block.new_huffman_table;
+        progress.record_block(block_size, encoded_block.bytes.len());
         output.extend_from_slice(&encoded_block.bytes);
         block_start = block_end;
     }
