@@ -5,6 +5,8 @@
 //! until it has enough parity coverage to replace the current strategy code.
 
 mod dfast;
+mod dfast_block;
+mod dfast_frame;
 mod fast;
 mod fast_block;
 mod fast_frame;
