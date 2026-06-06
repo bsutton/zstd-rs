@@ -17,6 +17,7 @@ mod fast_block;
 mod fast_frame;
 mod greedy;
 mod greedy_block;
+mod greedy_dict;
 mod greedy_frame;
 mod greedy_state;
 mod hash_chain_match;
@@ -56,6 +57,8 @@ mod params_tests;
 mod sequence_store_tests;
 #[cfg(test)]
 mod strategy_frame_tests;
+#[cfg(test)]
+mod test_dictionary;
 
 #[cfg(test)]
 pub(crate) use params::{

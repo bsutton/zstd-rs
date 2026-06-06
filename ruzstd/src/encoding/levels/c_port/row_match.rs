@@ -109,12 +109,33 @@ fn update_rows(
     min_match: u32,
     state: &mut GreedyMatchState,
 ) {
+    update_rows_internal(src, target, params, min_match, state, true);
+}
+
+pub(super) fn load_dictionary_rows(
+    src: &[u8],
+    target: usize,
+    params: CompressionParameters,
+    min_match: u32,
+    state: &mut GreedyMatchState,
+) {
+    update_rows_internal(src, target, params, min_match, state, false);
+}
+
+fn update_rows_internal(
+    src: &[u8],
+    target: usize,
+    params: CompressionParameters,
+    min_match: u32,
+    state: &mut GreedyMatchState,
+    use_cache_skip: bool,
+) {
     let row_log = row_log(params);
     let row_mask = (1usize << row_log) - 1;
     let row_hash_log = params.hash_log - row_log;
     let mut idx = state.next_to_update;
 
-    if target.saturating_sub(idx) > SKIP_THRESHOLD {
+    if use_cache_skip && target.saturating_sub(idx) > SKIP_THRESHOLD {
         let start_bound = idx + MAX_MATCH_START_POSITIONS_TO_UPDATE;
         update_rows_range(
             src,

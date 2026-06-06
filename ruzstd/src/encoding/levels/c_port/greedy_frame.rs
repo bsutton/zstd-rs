@@ -4,12 +4,14 @@ use alloc::vec::Vec;
 
 use super::{
     block_policy::BlockEncodingPolicy,
-    c_frame_header::write_frame_header_no_dict,
+    c_frame_header::{write_frame_header, write_frame_header_no_dict},
+    dictionary::ParsedDictionary,
     greedy::GreedyMatchState,
     greedy_block::{
         encode_block_hash_chain_no_dict, encode_block_hash_chain_no_dict_with_state_and_policy,
         GreedyBlockEncodeContext, GreedyBlockSource, LazyBlockStrategy,
     },
+    greedy_dict::load_prefix,
     params::CompressionParameters,
     pre_split::FrameProgress,
     sequence_store::RepeatOffsets,
@@ -47,6 +49,30 @@ pub(crate) fn encode_single_block_frame_lazy2_no_dict(src: &[u8], level: i32) ->
 
 pub(crate) fn encode_frame_lazy2_no_dict(src: &[u8], level: i32) -> Vec<u8> {
     encode_frame_hash_chain_no_dict(src, level, LazyBlockStrategy::Lazy2)
+}
+
+pub(crate) fn encode_frame_greedy_with_dictionary(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+) -> Vec<u8> {
+    encode_frame_hash_chain_with_dictionary(src, level, dictionary, LazyBlockStrategy::Greedy)
+}
+
+pub(crate) fn encode_frame_lazy_with_dictionary(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+) -> Vec<u8> {
+    encode_frame_hash_chain_with_dictionary(src, level, dictionary, LazyBlockStrategy::Lazy)
+}
+
+pub(crate) fn encode_frame_lazy2_with_dictionary(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+) -> Vec<u8> {
+    encode_frame_hash_chain_with_dictionary(src, level, dictionary, LazyBlockStrategy::Lazy2)
 }
 
 pub(crate) fn encode_single_block_frame_btlazy2_no_dict(src: &[u8], level: i32) -> Vec<u8> {
@@ -104,6 +130,89 @@ fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrat
                 block_range: block_start..block_end,
             },
             block_end == src.len(),
+            params,
+            block_config,
+            repeat_offsets,
+            &mut match_state,
+            GreedyBlockEncodeContext {
+                previous_huff_table: last_huff_table.as_ref(),
+                fse_tables: &mut fse_tables,
+                offset_history: &mut offset_history,
+            },
+            depth,
+            policy,
+        );
+        repeat_offsets = encoded_block.repeat_offsets;
+        last_huff_table = encoded_block.new_huffman_table;
+        progress.record_block(block_size, encoded_block.bytes.len());
+        output.extend_from_slice(&encoded_block.bytes);
+        block_start = block_end;
+    }
+
+    output
+}
+
+fn encode_frame_hash_chain_with_dictionary(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+    depth: LazyBlockStrategy,
+) -> Vec<u8> {
+    let mut combined = Vec::with_capacity(dictionary.content.len() + src.len());
+    combined.extend_from_slice(dictionary.content);
+    combined.extend_from_slice(src);
+
+    let dict_len = dictionary.content.len();
+    let params = CompressionParameters::for_level(level, src.len() as u64, dict_len);
+    let mut output = Vec::new();
+    let dictionary_id = (dictionary.dict_id != 0).then_some(dictionary.dict_id);
+    write_frame_header(&mut output, src.len(), params, dictionary_id);
+
+    let mut fse_tables = FseTables::new();
+    let offsets = dictionary.repeat_offsets.as_offsets();
+    let mut offset_history = OffsetHistory::from_offsets(offsets[0], offsets[1], offsets[2]);
+    let mut match_state = GreedyMatchState::new();
+    match_state.reset_for_frame(params);
+    load_prefix(&mut match_state, &combined, dict_len, params);
+    let mut last_huff_table = None;
+    let mut repeat_offsets = dictionary.repeat_offsets;
+    let block_config = BlockCompressionConfig::for_c_strategy(params.strategy as u8);
+
+    if src.is_empty() {
+        let encoded_block = encode_block_hash_chain_no_dict(
+            src,
+            true,
+            params,
+            block_config,
+            repeat_offsets,
+            GreedyBlockEncodeContext {
+                previous_huff_table: None,
+                fse_tables: &mut fse_tables,
+                offset_history: &mut offset_history,
+            },
+            depth,
+        );
+        output.extend_from_slice(&encoded_block.bytes);
+        return output;
+    }
+
+    let mut block_start = dict_len;
+    let src_end = combined.len();
+    let mut progress = FrameProgress::new(output.len());
+    while block_start < src_end {
+        let block_size = progress.next_block_size(&combined[block_start..src_end], params.strategy);
+        let block_end = block_start + block_size;
+        let policy = if block_start == dict_len {
+            BlockEncodingPolicy::frame_first_block()
+        } else {
+            BlockEncodingPolicy::normal()
+        };
+        let encoded_block = encode_block_hash_chain_no_dict_with_state_and_policy(
+            GreedyBlockSource {
+                src: &combined,
+                block_range: block_start..block_end,
+            },
+            block_end == src_end,
             params,
             block_config,
             repeat_offsets,

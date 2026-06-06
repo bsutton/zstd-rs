@@ -74,6 +74,16 @@ fn insert_and_find_first_index(
     state.hash_table[hash_ptr(src, ip, params.hash_log, min_match)] as usize
 }
 
+pub(super) fn load_dictionary_hash_chain(
+    src: &[u8],
+    target: usize,
+    params: CompressionParameters,
+    min_match: u32,
+    state: &mut GreedyMatchState,
+) {
+    let _ = insert_and_find_first_index(src, target, params, min_match, state);
+}
+
 pub(super) fn count_match(
     src: &[u8],
     mut pos: usize,
