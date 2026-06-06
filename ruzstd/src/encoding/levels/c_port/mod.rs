@@ -5,6 +5,7 @@
 //! until it has enough parity coverage to replace the current strategy code.
 
 mod fast;
+mod fast_block;
 mod params;
 mod sequence_store;
 

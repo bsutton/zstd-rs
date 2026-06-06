@@ -1,6 +1,13 @@
-use super::fast::{compress_block_fast_no_dict, prepare_block_fast_no_dict};
+use super::fast::compress_block_fast_no_dict;
+use super::fast_block::{
+    encode_block_fast_no_dict, prepare_block_fast_no_dict, FastBlockEncodeContext,
+};
 use super::params::CompressionParameters;
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
+use crate::blocks::block::BlockType;
+use crate::encoding::blocks::BlockCompressionConfig;
+use crate::encoding::frame_compressor::{FseTables, OffsetHistory};
+use crate::encoding::CompressionLevel;
 
 fn level1_params(src_len: usize) -> CompressionParameters {
     CompressionParameters::for_level(1, src_len as u64, 0)
@@ -103,4 +110,69 @@ fn fast_no_dict_prepared_block_reconstructs_literals_and_raw_offsets() {
     assert_eq!(sequence.ml, 10);
     assert_eq!(sequence.raw_offset, 5);
     assert_eq!(prepared.repeat_offsets.as_offsets(), [5, 1, 8]);
+}
+
+#[test]
+fn fast_no_dict_hidden_block_emits_compressed_block() {
+    let data = b"abcdeabcdeabcde-tail";
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_block_fast_no_dict(
+        data,
+        true,
+        level1_params(data.len()),
+        BlockCompressionConfig::for_level(CompressionLevel::Fastest),
+        RepeatOffsets::new(),
+        FastBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(last_block);
+    assert_eq!(block_type, BlockType::Compressed);
+    assert_eq!(block_size as usize, encoded.bytes.len() - 3);
+    assert_eq!(encoded.repeat_offsets.as_offsets(), [5, 1, 8]);
+}
+
+#[test]
+fn fast_no_dict_hidden_block_falls_back_to_raw_when_not_smaller() {
+    let data = b"abcdefgh";
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_block_fast_no_dict(
+        data,
+        false,
+        level1_params(data.len()),
+        BlockCompressionConfig::for_level(CompressionLevel::Fastest),
+        RepeatOffsets::new(),
+        FastBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(!last_block);
+    assert_eq!(block_type, BlockType::Raw);
+    assert_eq!(block_size as usize, data.len());
+    assert_eq!(&encoded.bytes[3..], data);
+    assert_eq!(encoded.repeat_offsets, RepeatOffsets::new());
+}
+
+fn parse_block_header(bytes: &[u8]) -> (bool, BlockType, u32) {
+    assert!(bytes.len() >= 3);
+    let raw = u32::from(bytes[0]) | (u32::from(bytes[1]) << 8) | (u32::from(bytes[2]) << 16);
+    let block_type = match (raw >> 1) & 0b11 {
+        0 => BlockType::Raw,
+        1 => BlockType::RLE,
+        2 => BlockType::Compressed,
+        _ => BlockType::Reserved,
+    };
+    (raw & 1 != 0, block_type, raw >> 3)
 }
