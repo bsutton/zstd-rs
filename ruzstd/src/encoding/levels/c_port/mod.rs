@@ -12,6 +12,7 @@ mod fast_block;
 mod fast_frame;
 mod params;
 mod sequence_store;
+mod strategy_frame;
 
 #[cfg(test)]
 mod dfast_tests;
@@ -21,6 +22,8 @@ mod fast_tests;
 mod params_tests;
 #[cfg(test)]
 mod sequence_store_tests;
+#[cfg(test)]
+mod strategy_frame_tests;
 
 #[cfg(test)]
 pub(crate) use params::{
