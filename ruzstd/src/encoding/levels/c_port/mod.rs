@@ -5,9 +5,12 @@
 //! until it has enough parity coverage to replace the current strategy code.
 
 mod params;
+mod sequence_store;
 
 #[cfg(test)]
 mod params_tests;
+#[cfg(test)]
+mod sequence_store_tests;
 
 #[cfg(test)]
 pub(crate) use params::{
