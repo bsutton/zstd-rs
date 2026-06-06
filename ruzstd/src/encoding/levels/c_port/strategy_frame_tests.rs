@@ -39,6 +39,18 @@ fn strategy_frame_routes_level_three_to_double_fast() {
 }
 
 #[test]
+fn strategy_frame_routes_greedy_levels_to_greedy() {
+    let mut data = Vec::new();
+    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1024 {
+        data.extend_from_slice(b"strategy=greedy route=/sync status=202 bytes=1874\n");
+    }
+    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1024);
+
+    assert_eq!(strategy_for_level(5, data.len()), Strategy::Greedy);
+    assert_round_trips(&encode_frame_no_dict(&data, 5).unwrap(), &data);
+}
+
+#[test]
 fn strategy_frame_round_trips_multiple_blocks() {
     let mut data = Vec::new();
     while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 2048 {
@@ -55,11 +67,14 @@ fn strategy_frame_round_trips_multiple_blocks() {
 #[test]
 fn strategy_frame_reports_unsupported_strategies() {
     let data = vec![0x5Au8; (MAX_BLOCK_SIZE as usize * 2) + 256];
-    let strategy = CompressionParameters::for_level(6, data.len() as u64, 0).strategy;
+    let strategy = CompressionParameters::for_level(8, data.len() as u64, 0).strategy;
 
-    assert!(!matches!(strategy, Strategy::Fast | Strategy::DFast));
+    assert!(!matches!(
+        strategy,
+        Strategy::Fast | Strategy::DFast | Strategy::Greedy
+    ));
     assert_eq!(
-        encode_frame_no_dict(&data, 6),
+        encode_frame_no_dict(&data, 8),
         Err(UnsupportedStrategy { strategy })
     );
 }

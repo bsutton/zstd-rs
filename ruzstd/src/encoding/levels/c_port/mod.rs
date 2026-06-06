@@ -10,6 +10,9 @@ mod dfast_frame;
 mod fast;
 mod fast_block;
 mod fast_frame;
+mod greedy;
+mod greedy_block;
+mod greedy_frame;
 mod params;
 mod sequence_store;
 mod strategy_frame;
@@ -18,6 +21,8 @@ mod strategy_frame;
 mod dfast_tests;
 #[cfg(test)]
 mod fast_tests;
+#[cfg(test)]
+mod greedy_tests;
 #[cfg(test)]
 mod params_tests;
 #[cfg(test)]
