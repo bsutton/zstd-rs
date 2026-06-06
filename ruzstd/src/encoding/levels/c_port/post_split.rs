@@ -3,7 +3,9 @@
 use alloc::vec::Vec;
 
 use super::{
-    block_policy::{compressed_block_is_worthwhile, should_skip_sequence_build},
+    block_policy::{
+        compressed_block_is_worthwhile, should_skip_sequence_build, BlockEncodingPolicy,
+    },
     greedy_block::{GreedyBlockEncodeContext, GreedyEncodedBlock, GreedyPreparedBlock},
     params::Strategy,
     sequence_store::RepeatOffsets,
@@ -27,6 +29,7 @@ const MAX_NB_BLOCK_SPLITS: usize = 196;
 pub(super) fn encode_split_block(
     block: &[u8],
     last_block: bool,
+    policy: BlockEncodingPolicy,
     strategy: Strategy,
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
@@ -61,6 +64,7 @@ pub(super) fn encode_split_block(
             next_repeat_offsets,
             chunk.prepared.as_ref(),
             PartitionEncodeContext {
+                policy,
                 strategy,
                 config,
                 fse_tables: context.fse_tables,
@@ -254,13 +258,15 @@ fn encode_partition(
             new_huffman_table: None,
         };
     }
-    if let Some(rle_byte) = rle_byte(block) {
-        write_rle_block(last_block, block.len() as u32, rle_byte, &mut bytes);
-        return GreedyEncodedBlock {
-            bytes,
-            repeat_offsets,
-            new_huffman_table: None,
-        };
+    if context.policy.allows_rle() {
+        if let Some(rle_byte) = rle_byte(block) {
+            write_rle_block(last_block, block.len() as u32, rle_byte, &mut bytes);
+            return GreedyEncodedBlock {
+                bytes,
+                repeat_offsets,
+                new_huffman_table: None,
+            };
+        }
     }
 
     let block_start = bytes.len();
@@ -305,6 +311,7 @@ fn encode_partition(
 }
 
 struct PartitionEncodeContext<'a, 'table> {
+    policy: BlockEncodingPolicy,
     strategy: Strategy,
     config: BlockCompressionConfig,
     fse_tables: &'a mut FseTables,
@@ -342,6 +349,7 @@ mod tests {
     use alloc::{vec, vec::Vec};
 
     use super::*;
+    use crate::blocks::block::BlockType;
 
     #[test]
     fn prepared_chunk_splits_literals_and_source_span() {
@@ -429,5 +437,59 @@ mod tests {
 
         assert!(splits.contains(&300));
         assert_eq!(splits.last(), Some(&600));
+    }
+
+    #[test]
+    fn partition_rle_obeys_first_block_policy_like_c() {
+        let encoded = encode_rle_candidate_partition(BlockEncodingPolicy::frame_first_block());
+        assert_ne!(parse_block_header(&encoded.bytes).1, BlockType::RLE);
+    }
+
+    #[test]
+    fn partition_can_emit_rle_after_first_block_like_c() {
+        let encoded = encode_rle_candidate_partition(BlockEncodingPolicy::normal());
+        let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+        assert!(last_block);
+        assert_eq!(block_type, BlockType::RLE);
+        assert_eq!(block_size as usize, 32);
+        assert_eq!(encoded.bytes, [0x03, 0x01, 0x00, 0x44]);
+    }
+
+    fn encode_rle_candidate_partition(policy: BlockEncodingPolicy) -> GreedyEncodedBlock {
+        let block = [0x44; 32];
+        let prepared = PreparedBlock {
+            literals: block.to_vec(),
+            sequences: Vec::new(),
+        };
+        let mut fse_tables = FseTables::new();
+        let mut offset_history = OffsetHistory::new();
+
+        encode_partition(
+            &block,
+            true,
+            RepeatOffsets::new(),
+            prepared.as_ref(),
+            PartitionEncodeContext {
+                policy,
+                strategy: Strategy::BtOpt,
+                config: BlockCompressionConfig::for_c_strategy(Strategy::BtOpt as u8),
+                fse_tables: &mut fse_tables,
+                offset_history: &mut offset_history,
+                previous_huff_table: None,
+            },
+        )
+    }
+
+    fn parse_block_header(bytes: &[u8]) -> (bool, BlockType, u32) {
+        assert!(bytes.len() >= 3);
+        let raw = u32::from(bytes[0]) | (u32::from(bytes[1]) << 8) | (u32::from(bytes[2]) << 16);
+        let block_type = match (raw >> 1) & 0b11 {
+            0 => BlockType::Raw,
+            1 => BlockType::RLE,
+            2 => BlockType::Compressed,
+            _ => BlockType::Reserved,
+        };
+        (raw & 1 != 0, block_type, raw >> 3)
     }
 }
