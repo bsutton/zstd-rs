@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use super::block_policy::BlockEncodingPolicy;
+use super::block_policy::{compressed_block_is_worthwhile, BlockEncodingPolicy};
 use super::dfast::{
     compress_block_double_fast_no_dict, compress_block_double_fast_no_dict_with_state,
     DFastBlockOutput, DFastMatchState,
@@ -123,6 +123,7 @@ pub(crate) fn encode_block_double_fast_no_dict_with_policy(
     encode_prepared_block(
         src,
         last_block,
+        params,
         config,
         repeat_offsets,
         prepared,
@@ -186,6 +187,7 @@ pub(crate) fn encode_block_double_fast_no_dict_with_state_and_policy(
     encode_prepared_block(
         block,
         last_block,
+        params,
         config,
         repeat_offsets,
         prepared,
@@ -200,6 +202,7 @@ pub(crate) fn encode_block_double_fast_no_dict_with_state_and_policy(
 fn encode_prepared_block(
     block: &[u8],
     last_block: bool,
+    params: CompressionParameters,
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
     prepared: DFastPreparedBlock,
@@ -221,7 +224,9 @@ fn encode_prepared_block(
     );
     let compressed_size = bytes.len() - compressed_start;
 
-    if compressed_size >= block.len() || compressed_size > MAX_BLOCK_SIZE as usize {
+    if !compressed_block_is_worthwhile(block.len(), compressed_size, params.strategy)
+        || compressed_size > MAX_BLOCK_SIZE as usize
+    {
         bytes.truncate(block_start);
         *context.fse_tables = previous_fse;
         *context.offset_history = previous_offsets;

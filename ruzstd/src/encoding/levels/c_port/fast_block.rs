@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use super::block_policy::BlockEncodingPolicy;
+use super::block_policy::{compressed_block_is_worthwhile, BlockEncodingPolicy};
 use super::fast::{
     compress_block_fast_no_dict, compress_block_fast_no_dict_with_state, FastBlockOutput,
     FastMatchState,
@@ -142,7 +142,9 @@ pub(crate) fn encode_block_fast_no_dict_with_policy(
     );
     let compressed_size = bytes.len() - compressed_start;
 
-    if compressed_size >= src.len() || compressed_size > MAX_BLOCK_SIZE as usize {
+    if !compressed_block_is_worthwhile(src.len(), compressed_size, params.strategy)
+        || compressed_size > MAX_BLOCK_SIZE as usize
+    {
         bytes.truncate(block_start);
         *context.fse_tables = previous_fse;
         *context.offset_history = previous_offsets;
@@ -243,7 +245,9 @@ pub(crate) fn encode_block_fast_no_dict_with_state_and_policy(
     );
     let compressed_size = bytes.len() - compressed_start;
 
-    if compressed_size >= block.len() || compressed_size > MAX_BLOCK_SIZE as usize {
+    if !compressed_block_is_worthwhile(block.len(), compressed_size, params.strategy)
+        || compressed_size > MAX_BLOCK_SIZE as usize
+    {
         bytes.truncate(block_start);
         *context.fse_tables = previous_fse;
         *context.offset_history = previous_offsets;

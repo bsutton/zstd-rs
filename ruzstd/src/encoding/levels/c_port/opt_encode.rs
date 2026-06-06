@@ -173,6 +173,7 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy(
         if let Some(encoded) = encode_split_block(
             block,
             last_block,
+            params.strategy,
             config,
             repeat_offsets,
             &prepared,
@@ -187,6 +188,7 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy(
     encode_prepared_block(
         block,
         last_block,
+        params,
         config,
         repeat_offsets,
         prepared,

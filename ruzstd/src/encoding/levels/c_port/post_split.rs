@@ -3,7 +3,9 @@
 use alloc::vec::Vec;
 
 use super::{
+    block_policy::compressed_block_is_worthwhile,
     greedy_block::{GreedyBlockEncodeContext, GreedyEncodedBlock, GreedyPreparedBlock},
+    params::Strategy,
     sequence_store::RepeatOffsets,
 };
 #[cfg(test)]
@@ -25,6 +27,7 @@ const MAX_NB_BLOCK_SPLITS: usize = 196;
 pub(super) fn encode_split_block(
     block: &[u8],
     last_block: bool,
+    strategy: Strategy,
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
     prepared: &GreedyPreparedBlock,
@@ -58,6 +61,7 @@ pub(super) fn encode_split_block(
             next_repeat_offsets,
             chunk.prepared.as_ref(),
             PartitionEncodeContext {
+                strategy,
                 config,
                 fse_tables: context.fse_tables,
                 offset_history: context.offset_history,
@@ -264,7 +268,9 @@ fn encode_partition(
     );
     let compressed_size = bytes.len() - compressed_start;
 
-    if compressed_size >= block.len() || compressed_size > MAX_BLOCK_SIZE as usize {
+    if !compressed_block_is_worthwhile(block.len(), compressed_size, context.strategy)
+        || compressed_size > MAX_BLOCK_SIZE as usize
+    {
         bytes.truncate(block_start);
         *context.fse_tables = previous_fse;
         *context.offset_history = previous_offsets;
@@ -291,6 +297,7 @@ fn encode_partition(
 }
 
 struct PartitionEncodeContext<'a, 'table> {
+    strategy: Strategy,
     config: BlockCompressionConfig,
     fse_tables: &'a mut FseTables,
     offset_history: &'a mut OffsetHistory,
