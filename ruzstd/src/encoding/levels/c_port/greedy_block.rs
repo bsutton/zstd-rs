@@ -10,7 +10,8 @@ use super::greedy::{
 };
 use super::opt_parser::compress_block_opt_no_dict_with_state;
 use super::opt_state::{OptBlockState, OptParserStrategy};
-use super::params::CompressionParameters;
+use super::params::{CompressionParameters, Strategy};
+use super::post_split::encode_split_block;
 use super::sequence_store::RepeatOffsets;
 use crate::{
     common::MAX_BLOCK_SIZE,
@@ -153,25 +154,6 @@ fn compress_block_for_depth_with_state(
     }
 }
 
-pub(crate) fn encode_block_greedy_no_dict(
-    src: &[u8],
-    last_block: bool,
-    params: CompressionParameters,
-    config: BlockCompressionConfig,
-    repeat_offsets: RepeatOffsets,
-    context: GreedyBlockEncodeContext<'_, '_>,
-) -> GreedyEncodedBlock {
-    encode_block_hash_chain_no_dict(
-        src,
-        last_block,
-        params,
-        config,
-        repeat_offsets,
-        context,
-        LazyBlockStrategy::Greedy,
-    )
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn encode_block_hash_chain_no_dict(
     src: &[u8],
@@ -277,7 +259,7 @@ fn encode_block_opt_no_dict_with_state(
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
     opt_state: &mut OptBlockState,
-    context: GreedyBlockEncodeContext<'_, '_>,
+    mut context: GreedyBlockEncodeContext<'_, '_>,
     strategy: OptParserStrategy,
 ) -> GreedyEncodedBlock {
     let block = &source.src[source.block_range.clone()];
@@ -302,6 +284,20 @@ fn encode_block_opt_no_dict_with_state(
         prepared,
         repeat_offsets: output.repeat_offsets,
     };
+    if params.strategy >= Strategy::BtOpt && params.window_log >= 17 {
+        if let Some(encoded) = encode_split_block(
+            block,
+            last_block,
+            config,
+            repeat_offsets,
+            &prepared,
+            previous_fse.clone(),
+            previous_offsets,
+            &mut context,
+        ) {
+            return encoded;
+        }
+    }
 
     encode_prepared_block(
         block,

@@ -22,6 +22,7 @@ mod opt_parser;
 mod opt_price;
 mod opt_state;
 mod params;
+mod post_split;
 mod pre_split;
 mod sequence_store;
 mod strategy_frame;

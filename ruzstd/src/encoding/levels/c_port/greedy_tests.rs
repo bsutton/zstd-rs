@@ -6,7 +6,8 @@ use super::greedy::{
     compress_block_lazy_no_dict_with_state, GreedyBlockOutput, GreedyMatchState,
 };
 use super::greedy_block::{
-    encode_block_greedy_no_dict, prepare_block_greedy_no_dict, GreedyBlockEncodeContext,
+    encode_block_hash_chain_no_dict, prepare_block_greedy_no_dict, GreedyBlockEncodeContext,
+    LazyBlockStrategy,
 };
 use super::greedy_frame::{
     encode_frame_btlazy2_no_dict, encode_frame_greedy_no_dict, encode_frame_lazy2_no_dict,
@@ -219,7 +220,7 @@ fn greedy_hidden_block_emits_compressed_block() {
     let mut fse_tables = FseTables::new();
     let mut offset_history = OffsetHistory::new();
 
-    let encoded = encode_block_greedy_no_dict(
+    let encoded = encode_block_hash_chain_no_dict(
         data,
         true,
         greedy_params(data.len()),
@@ -230,6 +231,7 @@ fn greedy_hidden_block_emits_compressed_block() {
             fse_tables: &mut fse_tables,
             offset_history: &mut offset_history,
         },
+        LazyBlockStrategy::Greedy,
     );
     let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
 
@@ -245,7 +247,7 @@ fn greedy_hidden_block_falls_back_to_raw_when_not_smaller() {
     let mut fse_tables = FseTables::new();
     let mut offset_history = OffsetHistory::new();
 
-    let encoded = encode_block_greedy_no_dict(
+    let encoded = encode_block_hash_chain_no_dict(
         data,
         false,
         greedy_params(data.len()),
@@ -256,6 +258,7 @@ fn greedy_hidden_block_falls_back_to_raw_when_not_smaller() {
             fse_tables: &mut fse_tables,
             offset_history: &mut offset_history,
         },
+        LazyBlockStrategy::Greedy,
     );
     let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
 
@@ -272,7 +275,7 @@ fn greedy_hidden_block_emits_rle_for_single_byte_run() {
     let mut fse_tables = FseTables::new();
     let mut offset_history = OffsetHistory::new();
 
-    let encoded = encode_block_greedy_no_dict(
+    let encoded = encode_block_hash_chain_no_dict(
         &data,
         true,
         greedy_params(data.len()),
@@ -283,6 +286,7 @@ fn greedy_hidden_block_emits_rle_for_single_byte_run() {
             fse_tables: &mut fse_tables,
             offset_history: &mut offset_history,
         },
+        LazyBlockStrategy::Greedy,
     );
     let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
 
