@@ -4,7 +4,9 @@ use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::greedy::{
-    compress_block_greedy_no_dict, compress_block_greedy_no_dict_with_state, GreedyBlockOutput,
+    compress_block_greedy_no_dict, compress_block_greedy_no_dict_with_state,
+    compress_block_lazy2_no_dict, compress_block_lazy2_no_dict_with_state,
+    compress_block_lazy_no_dict, compress_block_lazy_no_dict_with_state, GreedyBlockOutput,
     GreedyMatchState,
 };
 use super::params::CompressionParameters;
@@ -43,12 +45,32 @@ pub(crate) struct GreedyBlockSource<'a> {
     pub(crate) block_range: Range<usize>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HashChainDepth {
+    Greedy,
+    Lazy,
+    Lazy2,
+}
+
 pub(crate) fn prepare_block_greedy_no_dict(
     src: &[u8],
     params: CompressionParameters,
     repeat_offsets: RepeatOffsets,
 ) -> GreedyPreparedBlock {
-    let output = compress_block_greedy_no_dict(src, params, repeat_offsets);
+    prepare_block_hash_chain_no_dict(src, params, repeat_offsets, HashChainDepth::Greedy)
+}
+
+fn prepare_block_hash_chain_no_dict(
+    src: &[u8],
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    depth: HashChainDepth,
+) -> GreedyPreparedBlock {
+    let output = match depth {
+        HashChainDepth::Greedy => compress_block_greedy_no_dict(src, params, repeat_offsets),
+        HashChainDepth::Lazy => compress_block_lazy_no_dict(src, params, repeat_offsets),
+        HashChainDepth::Lazy2 => compress_block_lazy2_no_dict(src, params, repeat_offsets),
+    };
     let prepared = prepare_from_greedy_output(src, repeat_offsets, &output);
 
     GreedyPreparedBlock {
@@ -64,9 +86,40 @@ pub(crate) fn prepare_block_greedy_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
 ) -> GreedyPreparedBlock {
+    prepare_block_hash_chain_no_dict_with_state(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        HashChainDepth::Greedy,
+    )
+}
+
+fn prepare_block_hash_chain_no_dict_with_state(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut GreedyMatchState,
+    depth: HashChainDepth,
+) -> GreedyPreparedBlock {
     let block = &src[block_range.clone()];
-    let output =
-        compress_block_greedy_no_dict_with_state(src, block_range, params, repeat_offsets, state);
+    let output = match depth {
+        HashChainDepth::Greedy => compress_block_greedy_no_dict_with_state(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+        ),
+        HashChainDepth::Lazy => {
+            compress_block_lazy_no_dict_with_state(src, block_range, params, repeat_offsets, state)
+        }
+        HashChainDepth::Lazy2 => {
+            compress_block_lazy2_no_dict_with_state(src, block_range, params, repeat_offsets, state)
+        }
+    };
     let prepared = prepare_from_greedy_output(block, repeat_offsets, &output);
 
     GreedyPreparedBlock {
@@ -83,6 +136,27 @@ pub(crate) fn encode_block_greedy_no_dict(
     repeat_offsets: RepeatOffsets,
     context: GreedyBlockEncodeContext<'_, '_>,
 ) -> GreedyEncodedBlock {
+    encode_block_hash_chain_no_dict(
+        src,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        context,
+        HashChainDepth::Greedy,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_hash_chain_no_dict(
+    src: &[u8],
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    context: GreedyBlockEncodeContext<'_, '_>,
+    depth: HashChainDepth,
+) -> GreedyEncodedBlock {
     let mut bytes = Vec::new();
 
     if let Some(encoded) = encode_special_block(src, last_block, repeat_offsets, &mut bytes) {
@@ -91,7 +165,7 @@ pub(crate) fn encode_block_greedy_no_dict(
 
     let previous_fse = context.fse_tables.clone();
     let previous_offsets = *context.offset_history;
-    let prepared = prepare_block_greedy_no_dict(src, params, repeat_offsets);
+    let prepared = prepare_block_hash_chain_no_dict(src, params, repeat_offsets, depth);
     encode_prepared_block(
         src,
         last_block,
@@ -114,6 +188,29 @@ pub(crate) fn encode_block_greedy_no_dict_with_state(
     match_state: &mut GreedyMatchState,
     context: GreedyBlockEncodeContext<'_, '_>,
 ) -> GreedyEncodedBlock {
+    encode_block_hash_chain_no_dict_with_state(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        match_state,
+        context,
+        HashChainDepth::Greedy,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_hash_chain_no_dict_with_state(
+    source: GreedyBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut GreedyMatchState,
+    context: GreedyBlockEncodeContext<'_, '_>,
+    depth: HashChainDepth,
+) -> GreedyEncodedBlock {
     let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
 
@@ -123,12 +220,13 @@ pub(crate) fn encode_block_greedy_no_dict_with_state(
 
     let previous_fse = context.fse_tables.clone();
     let previous_offsets = *context.offset_history;
-    let prepared = prepare_block_greedy_no_dict_with_state(
+    let prepared = prepare_block_hash_chain_no_dict_with_state(
         source.src,
         source.block_range,
         params,
         repeat_offsets,
         match_state,
+        depth,
     );
     encode_prepared_block(
         block,

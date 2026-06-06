@@ -1,13 +1,18 @@
 use alloc::vec::Vec;
 
 use super::greedy::{
-    compress_block_greedy_no_dict, compress_block_greedy_no_dict_with_state, GreedyMatchState,
+    compress_block_greedy_no_dict, compress_block_greedy_no_dict_with_state,
+    compress_block_lazy2_no_dict, compress_block_lazy_no_dict, GreedyMatchState,
 };
 use super::greedy_block::{
     encode_block_greedy_no_dict, prepare_block_greedy_no_dict, GreedyBlockEncodeContext,
 };
-use super::greedy_frame::{encode_frame_greedy_no_dict, encode_single_block_frame_greedy_no_dict};
-use super::params::CompressionParameters;
+use super::greedy_frame::{
+    encode_frame_greedy_no_dict, encode_frame_lazy2_no_dict, encode_frame_lazy_no_dict,
+    encode_single_block_frame_greedy_no_dict, encode_single_block_frame_lazy2_no_dict,
+    encode_single_block_frame_lazy_no_dict,
+};
+use super::params::{CompressionParameters, Strategy};
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 use crate::blocks::block::BlockType;
 use crate::common::MAX_BLOCK_SIZE;
@@ -20,11 +25,35 @@ fn greedy_params(src_len: usize) -> CompressionParameters {
     CompressionParameters::for_level(greedy_level(src_len), src_len as u64, 0)
 }
 
+fn lazy_params(src_len: usize) -> CompressionParameters {
+    CompressionParameters::for_level(lazy_level(src_len), src_len as u64, 0)
+}
+
+fn lazy2_params(src_len: usize) -> CompressionParameters {
+    CompressionParameters::for_level(lazy2_level(src_len), src_len as u64, 0)
+}
+
 fn greedy_level(src_len: usize) -> i32 {
     if src_len <= 16 * 1024 {
         4
     } else {
         5
+    }
+}
+
+fn lazy_level(src_len: usize) -> i32 {
+    if src_len <= 16 * 1024 {
+        5
+    } else {
+        6
+    }
+}
+
+fn lazy2_level(src_len: usize) -> i32 {
+    if src_len <= 16 * 1024 {
+        6
+    } else {
+        8
     }
 }
 
@@ -65,6 +94,36 @@ fn greedy_no_dict_uses_hash_chain_match() {
 
     let output =
         compress_block_greedy_no_dict(data, greedy_params(data.len()), RepeatOffsets::new());
+
+    assert_eq!(
+        output.sequences,
+        [StoredSequence::new(10, OffBase::Offset(10), 10)]
+    );
+    assert_eq!(output.last_literals, 5);
+    assert_eq!(output.repeat_offsets.as_offsets(), [10, 1, 8]);
+}
+
+#[test]
+fn lazy_no_dict_uses_hash_chain_match() {
+    let data = b"abcde12345abcde12345-tail";
+
+    assert_eq!(lazy_params(data.len()).strategy, Strategy::Lazy);
+    let output = compress_block_lazy_no_dict(data, lazy_params(data.len()), RepeatOffsets::new());
+
+    assert_eq!(
+        output.sequences,
+        [StoredSequence::new(10, OffBase::Offset(10), 10)]
+    );
+    assert_eq!(output.last_literals, 5);
+    assert_eq!(output.repeat_offsets.as_offsets(), [10, 1, 8]);
+}
+
+#[test]
+fn lazy2_no_dict_uses_hash_chain_match() {
+    let data = b"abcde12345abcde12345-tail";
+
+    assert_eq!(lazy2_params(data.len()).strategy, Strategy::Lazy2);
+    let output = compress_block_lazy2_no_dict(data, lazy2_params(data.len()), RepeatOffsets::new());
 
     assert_eq!(
         output.sequences,
@@ -222,6 +281,22 @@ fn greedy_hidden_frame_round_trips_rle_block() {
 }
 
 #[test]
+fn lazy_hidden_frame_round_trips_compressed_block() {
+    let data = b"abcde12345abcde12345-tail";
+    let encoded = encode_single_block_frame_lazy_no_dict(data, lazy_level(data.len()));
+
+    assert_round_trips(&encoded, data);
+}
+
+#[test]
+fn lazy2_hidden_frame_round_trips_compressed_block() {
+    let data = b"abcde12345abcde12345-tail";
+    let encoded = encode_single_block_frame_lazy2_no_dict(data, lazy2_level(data.len()));
+
+    assert_round_trips(&encoded, data);
+}
+
+#[test]
 fn greedy_hidden_frame_round_trips_multiple_blocks() {
     let mut data = Vec::new();
     while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1536 {
@@ -230,6 +305,36 @@ fn greedy_hidden_frame_round_trips_multiple_blocks() {
     data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1536);
 
     let encoded = encode_frame_greedy_no_dict(&data, greedy_level(data.len()));
+
+    assert!(count_frame_blocks(&encoded) > 1);
+    assert_round_trips(&encoded, &data);
+}
+
+#[test]
+fn lazy_hidden_frame_round_trips_multiple_blocks() {
+    let mut data = Vec::new();
+    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1536 {
+        data.extend_from_slice(b"tenant=delta method=PATCH route=/v4/items status=204 bytes=99\n");
+    }
+    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1536);
+
+    assert_eq!(lazy_params(data.len()).strategy, Strategy::Lazy);
+    let encoded = encode_frame_lazy_no_dict(&data, lazy_level(data.len()));
+
+    assert!(count_frame_blocks(&encoded) > 1);
+    assert_round_trips(&encoded, &data);
+}
+
+#[test]
+fn lazy2_hidden_frame_round_trips_multiple_blocks() {
+    let mut data = Vec::new();
+    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1536 {
+        data.extend_from_slice(b"tenant=epsilon method=PUT route=/v5/items status=200 bytes=122\n");
+    }
+    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1536);
+
+    assert_eq!(lazy2_params(data.len()).strategy, Strategy::Lazy2);
+    let encoded = encode_frame_lazy2_no_dict(&data, lazy2_level(data.len()));
 
     assert!(count_frame_blocks(&encoded) > 1);
     assert_round_trips(&encoded, &data);

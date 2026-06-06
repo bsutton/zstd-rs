@@ -13,6 +13,7 @@ mod fast_frame;
 mod greedy;
 mod greedy_block;
 mod greedy_frame;
+mod hash_chain_match;
 mod params;
 mod sequence_store;
 mod strategy_frame;

@@ -1,8 +1,9 @@
 //! No-dictionary greedy block compressor ported from `zstd_lazy.c`.
 
 use alloc::vec::Vec;
-use core::{convert::TryInto, ops::Range};
+use core::ops::Range;
 
+use super::hash_chain_match::{count_match, hash_ptr, highbit32, lowest_prefix_index, read32};
 use super::params::CompressionParameters;
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 
@@ -72,12 +73,75 @@ pub(crate) fn compress_block_greedy_no_dict(
     compress_block_greedy_no_dict_with_state(src, 0..src.len(), params, repeat_offsets, &mut state)
 }
 
+pub(crate) fn compress_block_lazy_no_dict(
+    src: &[u8],
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+) -> GreedyBlockOutput {
+    let mut state = GreedyMatchState::new();
+    compress_block_hash_chain_no_dict_with_state(
+        src,
+        0..src.len(),
+        params,
+        repeat_offsets,
+        &mut state,
+        1,
+    )
+}
+
+pub(crate) fn compress_block_lazy2_no_dict(
+    src: &[u8],
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+) -> GreedyBlockOutput {
+    let mut state = GreedyMatchState::new();
+    compress_block_hash_chain_no_dict_with_state(
+        src,
+        0..src.len(),
+        params,
+        repeat_offsets,
+        &mut state,
+        2,
+    )
+}
+
 pub(crate) fn compress_block_greedy_no_dict_with_state(
     src: &[u8],
     block_range: Range<usize>,
     params: CompressionParameters,
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
+) -> GreedyBlockOutput {
+    compress_block_hash_chain_no_dict_with_state(src, block_range, params, repeat_offsets, state, 0)
+}
+
+pub(crate) fn compress_block_lazy_no_dict_with_state(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut GreedyMatchState,
+) -> GreedyBlockOutput {
+    compress_block_hash_chain_no_dict_with_state(src, block_range, params, repeat_offsets, state, 1)
+}
+
+pub(crate) fn compress_block_lazy2_no_dict_with_state(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut GreedyMatchState,
+) -> GreedyBlockOutput {
+    compress_block_hash_chain_no_dict_with_state(src, block_range, params, repeat_offsets, state, 2)
+}
+
+fn compress_block_hash_chain_no_dict_with_state(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut GreedyMatchState,
+    depth: u32,
 ) -> GreedyBlockOutput {
     debug_assert!(block_range.start <= block_range.end);
     debug_assert!(block_range.end <= src.len());
@@ -123,7 +187,7 @@ pub(crate) fn compress_block_greedy_no_dict_with_state(
 
     while ip < ilimit {
         let mut match_length = 0_usize;
-        let mut off_base = Some(OffBase::Repeat(RepeatCode::First));
+        let mut off_base = OffBase::Repeat(RepeatCode::First).to_c_value();
         let mut start = ip + 1;
 
         if offset_1 > 0
@@ -131,8 +195,29 @@ pub(crate) fn compress_block_greedy_no_dict_with_state(
             && read32(src, ip + 1 - offset_1) == read32(src, ip + 1)
         {
             match_length = count_match(src, ip + 1 + 4, ip + 1 + 4 - offset_1, block_end) + 4;
+            if depth == 0 {
+                store_sequence(
+                    &mut sequences,
+                    &mut anchor,
+                    &mut ip,
+                    start,
+                    OffBase::from_c_value(off_base).expect("repcode offBase"),
+                    match_length,
+                );
+                continue_immediate_repcodes(
+                    src,
+                    &mut sequences,
+                    &mut anchor,
+                    &mut ip,
+                    ilimit,
+                    block_end,
+                    &mut offset_1,
+                    &mut offset_2,
+                );
+                continue;
+            }
         } else {
-            let mut offbase_found = 0_u32;
+            let mut offbase_found = 999_999_999_u32;
             let ml2 = hc_find_best_match(
                 src,
                 ip,
@@ -145,7 +230,7 @@ pub(crate) fn compress_block_greedy_no_dict_with_state(
             if ml2 > match_length {
                 match_length = ml2;
                 start = ip;
-                off_base = OffBase::from_c_value(offbase_found);
+                off_base = offbase_found;
             }
         }
 
@@ -156,7 +241,89 @@ pub(crate) fn compress_block_greedy_no_dict_with_state(
             continue;
         }
 
-        let off_base = off_base.expect("stored match has an offBase");
+        if depth >= 1 {
+            loop {
+                ip += 1;
+                if off_base != 0
+                    && offset_1 > 0
+                    && ip >= offset_1
+                    && read32(src, ip) == read32(src, ip - offset_1)
+                {
+                    let ml_rep = count_match(src, ip + 4, ip + 4 - offset_1, block_end) + 4;
+                    let gain2 = (ml_rep * 3) as i32;
+                    let gain1 = (match_length * 3) as i32 - highbit32(off_base) as i32 + 1;
+                    if ml_rep >= 4 && gain2 > gain1 {
+                        match_length = ml_rep;
+                        off_base = OffBase::Repeat(RepeatCode::First).to_c_value();
+                        start = ip;
+                    }
+                }
+
+                let mut ofb_candidate = 999_999_999_u32;
+                let ml2 = hc_find_best_match(
+                    src,
+                    ip,
+                    block_end,
+                    &mut ofb_candidate,
+                    params,
+                    min_match,
+                    state,
+                );
+                let gain2 = (ml2 * 4) as i32 - highbit32(ofb_candidate) as i32;
+                let gain1 = (match_length * 4) as i32 - highbit32(off_base) as i32 + 4;
+                if ml2 >= 4 && gain2 > gain1 {
+                    match_length = ml2;
+                    off_base = ofb_candidate;
+                    start = ip;
+                    if ip < ilimit {
+                        continue;
+                    }
+                }
+
+                if depth == 2 && ip < ilimit {
+                    ip += 1;
+                    if off_base != 0
+                        && offset_1 > 0
+                        && ip >= offset_1
+                        && read32(src, ip) == read32(src, ip - offset_1)
+                    {
+                        let ml_rep = count_match(src, ip + 4, ip + 4 - offset_1, block_end) + 4;
+                        let gain2 = (ml_rep * 4) as i32;
+                        let gain1 = (match_length * 4) as i32 - highbit32(off_base) as i32 + 1;
+                        if ml_rep >= 4 && gain2 > gain1 {
+                            match_length = ml_rep;
+                            off_base = OffBase::Repeat(RepeatCode::First).to_c_value();
+                            start = ip;
+                        }
+                    }
+
+                    let mut ofb_candidate = 999_999_999_u32;
+                    let ml2 = hc_find_best_match(
+                        src,
+                        ip,
+                        block_end,
+                        &mut ofb_candidate,
+                        params,
+                        min_match,
+                        state,
+                    );
+                    let gain2 = (ml2 * 4) as i32 - highbit32(ofb_candidate) as i32;
+                    let gain1 = (match_length * 4) as i32 - highbit32(off_base) as i32 + 7;
+                    if ml2 >= 4 && gain2 > gain1 {
+                        match_length = ml2;
+                        off_base = ofb_candidate;
+                        start = ip;
+                        if ip < ilimit {
+                            continue;
+                        }
+                    }
+                }
+
+                break;
+            }
+        }
+
+        let off_base = OffBase::from_c_value(off_base).expect("stored match has an offBase");
         if let OffBase::Offset(offset) = off_base {
             let offset = offset as usize;
             while start > anchor
@@ -183,19 +350,16 @@ pub(crate) fn compress_block_greedy_no_dict_with_state(
             state.lazy_skipping = false;
         }
 
-        while ip <= ilimit && offset_2 > 0 && read32(src, ip) == read32(src, ip - offset_2) {
-            let repeat_length = count_match(src, ip + 4, ip + 4 - offset_2, block_end) + 4;
-            core::mem::swap(&mut offset_2, &mut offset_1);
-            let repeat_start = anchor;
-            store_sequence(
-                &mut sequences,
-                &mut anchor,
-                &mut ip,
-                repeat_start,
-                OffBase::Repeat(RepeatCode::First),
-                repeat_length,
-            );
-        }
+        continue_immediate_repcodes(
+            src,
+            &mut sequences,
+            &mut anchor,
+            &mut ip,
+            ilimit,
+            block_end,
+            &mut offset_1,
+            &mut offset_2,
+        );
     }
 
     if offset_saved1 != 0 && offset_1 != 0 {
@@ -217,6 +381,32 @@ pub(crate) fn compress_block_greedy_no_dict_with_state(
         sequences,
         last_literals: (block_end - anchor) as u32,
         repeat_offsets: RepeatOffsets::from_offsets(rep[0], rep[1], rep[2]),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn continue_immediate_repcodes(
+    src: &[u8],
+    sequences: &mut Vec<StoredSequence>,
+    anchor: &mut usize,
+    ip: &mut usize,
+    ilimit: usize,
+    block_end: usize,
+    offset_1: &mut usize,
+    offset_2: &mut usize,
+) {
+    while *ip <= ilimit && *offset_2 > 0 && read32(src, *ip) == read32(src, *ip - *offset_2) {
+        let repeat_length = count_match(src, *ip + 4, *ip + 4 - *offset_2, block_end) + 4;
+        core::mem::swap(offset_2, offset_1);
+        let repeat_start = *anchor;
+        store_sequence(
+            sequences,
+            anchor,
+            ip,
+            repeat_start,
+            OffBase::Repeat(RepeatCode::First),
+            repeat_length,
+        );
     }
 }
 
@@ -305,52 +495,4 @@ fn store_sequence(
     ));
     *ip = start + match_length;
     *anchor = *ip;
-}
-
-fn count_match(src: &[u8], mut pos: usize, mut match_pos: usize, match_limit: usize) -> usize {
-    let start = pos;
-    while pos + 8 <= match_limit && read64(src, pos) == read64(src, match_pos) {
-        pos += 8;
-        match_pos += 8;
-    }
-    while pos < match_limit && src[pos] == src[match_pos] {
-        pos += 1;
-        match_pos += 1;
-    }
-    pos - start
-}
-
-fn hash_ptr(src: &[u8], pos: usize, h_bits: u32, min_match: u32) -> usize {
-    match min_match {
-        5 => hash5(read64(src, pos), h_bits),
-        6 => hash6(read64(src, pos), h_bits),
-        _ => hash4(read32(src, pos), h_bits),
-    }
-}
-
-fn hash4(value: u32, h_bits: u32) -> usize {
-    const PRIME_4_BYTES: u32 = 2_654_435_761;
-    value.wrapping_mul(PRIME_4_BYTES).wrapping_shr(32 - h_bits) as usize
-}
-
-fn hash5(value: u64, h_bits: u32) -> usize {
-    const PRIME_5_BYTES: u64 = 889_523_592_379;
-    ((value << (64 - 40)).wrapping_mul(PRIME_5_BYTES) >> (64 - h_bits)) as usize
-}
-
-fn hash6(value: u64, h_bits: u32) -> usize {
-    const PRIME_6_BYTES: u64 = 227_718_039_650_203;
-    ((value << (64 - 48)).wrapping_mul(PRIME_6_BYTES) >> (64 - h_bits)) as usize
-}
-
-fn read32(src: &[u8], pos: usize) -> u32 {
-    u32::from_le_bytes(src[pos..pos + 4].try_into().expect("read32 in bounds"))
-}
-
-fn read64(src: &[u8], pos: usize) -> u64 {
-    u64::from_le_bytes(src[pos..pos + 8].try_into().expect("read64 in bounds"))
-}
-
-fn lowest_prefix_index(pos: usize, window_log: u32) -> usize {
-    pos.saturating_sub(1_usize << window_log)
 }

@@ -51,6 +51,30 @@ fn strategy_frame_routes_greedy_levels_to_greedy() {
 }
 
 #[test]
+fn strategy_frame_routes_lazy_levels_to_lazy() {
+    let mut data = Vec::new();
+    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1024 {
+        data.extend_from_slice(b"strategy=lazy route=/sync status=202 bytes=1874\n");
+    }
+    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1024);
+
+    assert_eq!(strategy_for_level(6, data.len()), Strategy::Lazy);
+    assert_round_trips(&encode_frame_no_dict(&data, 6).unwrap(), &data);
+}
+
+#[test]
+fn strategy_frame_routes_lazy2_levels_to_lazy2() {
+    let mut data = Vec::new();
+    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1024 {
+        data.extend_from_slice(b"strategy=lazy2 route=/sync status=202 bytes=1874\n");
+    }
+    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1024);
+
+    assert_eq!(strategy_for_level(8, data.len()), Strategy::Lazy2);
+    assert_round_trips(&encode_frame_no_dict(&data, 8).unwrap(), &data);
+}
+
+#[test]
 fn strategy_frame_round_trips_multiple_blocks() {
     let mut data = Vec::new();
     while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 2048 {
@@ -67,14 +91,14 @@ fn strategy_frame_round_trips_multiple_blocks() {
 #[test]
 fn strategy_frame_reports_unsupported_strategies() {
     let data = vec![0x5Au8; (MAX_BLOCK_SIZE as usize * 2) + 256];
-    let strategy = CompressionParameters::for_level(8, data.len() as u64, 0).strategy;
+    let strategy = CompressionParameters::for_level(13, data.len() as u64, 0).strategy;
 
     assert!(!matches!(
         strategy,
-        Strategy::Fast | Strategy::DFast | Strategy::Greedy
+        Strategy::Fast | Strategy::DFast | Strategy::Greedy | Strategy::Lazy | Strategy::Lazy2
     ));
     assert_eq!(
-        encode_frame_no_dict(&data, 8),
+        encode_frame_no_dict(&data, 13),
         Err(UnsupportedStrategy { strategy })
     );
 }
