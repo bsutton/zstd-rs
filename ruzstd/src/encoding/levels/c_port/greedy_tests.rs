@@ -125,6 +125,31 @@ fn greedy_no_dict_uses_hash_chain_match() {
 
 #[test]
 fn greedy_no_dict_uses_row_matchfinder_when_window_is_large() {
+    let mut data = Vec::new();
+    data.extend_from_slice(b"abcdefghijklmnopqrst");
+    data.extend_from_slice(b"row-match-finder-window");
+    data.extend_from_slice(b"01234567890123456789");
+    data.extend_from_slice(b"row-match-finder-window");
+    data.extend_from_slice(b"-tail-with-room-for-cache");
+    let mut state = GreedyMatchState::new();
+
+    let output = compress_block_greedy_no_dict_with_state(
+        &data,
+        0..data.len(),
+        large_window_greedy_params(),
+        RepeatOffsets::new(),
+        &mut state,
+    );
+
+    assert!(!state.tag_table.is_empty());
+    assert!(output
+        .sequences
+        .iter()
+        .any(|sequence| { matches!(sequence.off_base, OffBase::Offset(43)) }));
+}
+
+#[test]
+fn greedy_row_matchfinder_stops_at_c_cache_limit() {
     let data = b"abcde12345abcde12345-tail";
     let mut state = GreedyMatchState::new();
 
@@ -136,9 +161,9 @@ fn greedy_no_dict_uses_row_matchfinder_when_window_is_large() {
         &mut state,
     );
 
-    assert_eq!(output.sequences.len(), 1);
+    assert!(output.sequences.is_empty());
     assert!(!state.tag_table.is_empty());
-    assert_eq!(output.repeat_offsets.as_offsets(), [10, 1, 8]);
+    assert_eq!(output.last_literals, data.len() as u32);
 }
 
 #[test]

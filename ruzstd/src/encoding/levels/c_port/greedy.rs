@@ -13,6 +13,7 @@ use super::row_match::{row_find_best_match, row_match_finder_enabled};
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 
 const HASH_READ_SIZE: usize = 8;
+const ROW_HASH_CACHE_SIZE: usize = 8;
 const SEARCH_STRENGTH: usize = 8;
 const LAZY_SKIPPING_STEP: usize = 8;
 
@@ -171,7 +172,8 @@ fn compress_block_lazy_generic_no_dict_with_state(
     let block_end = block_range.end;
     let block_len = block_end - block_start;
 
-    if block_len <= HASH_READ_SIZE {
+    let search_read_size = search_read_size(search);
+    if block_len <= search_read_size {
         return GreedyBlockOutput {
             sequences,
             last_literals: block_len as u32,
@@ -184,7 +186,7 @@ fn compress_block_lazy_generic_no_dict_with_state(
 
     let min_match = params.min_match.clamp(4, 6);
     let prefix_lowest = lowest_prefix_index(block_end, params.window_log);
-    let ilimit = block_end - HASH_READ_SIZE;
+    let ilimit = block_end - search_read_size;
     let search_context = LazySearchContext {
         search,
         src,
@@ -420,6 +422,13 @@ fn search_max(
             context.min_match,
             state,
         ),
+    }
+}
+
+fn search_read_size(search: LazySearch) -> usize {
+    match search {
+        LazySearch::RowHash => HASH_READ_SIZE + ROW_HASH_CACHE_SIZE,
+        LazySearch::HashChain | LazySearch::BinaryTree => HASH_READ_SIZE,
     }
 }
 
