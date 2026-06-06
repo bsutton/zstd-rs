@@ -7,6 +7,9 @@ use super::{greedy::GreedyMatchState, params::CompressionParameters, sequence_st
 
 const TAG_BITS: u32 = 8;
 const TAG_MASK: u32 = (1 << TAG_BITS) - 1;
+const SKIP_THRESHOLD: usize = 384;
+const MAX_MATCH_START_POSITIONS_TO_UPDATE: usize = 96;
+const MAX_MATCH_END_POSITIONS_TO_UPDATE: usize = 32;
 
 pub(super) fn row_find_best_match(
     src: &[u8],
@@ -111,6 +114,45 @@ fn update_rows(
     let row_hash_log = params.hash_log - row_log;
     let mut idx = state.next_to_update;
 
+    if target.saturating_sub(idx) > SKIP_THRESHOLD {
+        let start_bound = idx + MAX_MATCH_START_POSITIONS_TO_UPDATE;
+        update_rows_range(
+            src,
+            idx,
+            start_bound,
+            row_hash_log,
+            row_log,
+            row_mask,
+            min_match,
+            state,
+        );
+        idx = target - MAX_MATCH_END_POSITIONS_TO_UPDATE;
+    }
+
+    update_rows_range(
+        src,
+        idx,
+        target,
+        row_hash_log,
+        row_log,
+        row_mask,
+        min_match,
+        state,
+    );
+    state.next_to_update = target;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn update_rows_range(
+    src: &[u8],
+    mut idx: usize,
+    target: usize,
+    row_hash_log: u32,
+    row_log: u32,
+    row_mask: usize,
+    min_match: u32,
+    state: &mut GreedyMatchState,
+) {
     while idx < target {
         let hash = hash_ptr_salted(
             src,
@@ -125,8 +167,6 @@ fn update_rows(
         state.hash_table[row_start + pos] = idx as u32;
         idx += 1;
     }
-
-    state.next_to_update = target;
 }
 
 fn next_row_index(head: &mut u8, row_mask: usize) -> usize {
@@ -186,6 +226,7 @@ fn read64(src: &[u8], pos: usize) -> u64 {
 mod tests {
     use super::*;
     use crate::encoding::levels::c_port::params::Strategy;
+    use alloc::vec;
 
     fn params() -> CompressionParameters {
         CompressionParameters {
@@ -229,5 +270,27 @@ mod tests {
         assert!(row_match_finder_enabled(params));
         params.window_log = 17;
         assert!(!row_match_finder_enabled(params));
+    }
+
+    #[test]
+    fn row_update_skips_middle_of_large_gaps_like_c() {
+        let mut data = vec![0u8; 540];
+        for (idx, byte) in data.iter_mut().enumerate() {
+            *byte = (idx.wrapping_mul(37) & 0xFF) as u8;
+        }
+        let pattern = b"abcdefghijklmnopqrstuvwxyz";
+        data[200..200 + pattern.len()].copy_from_slice(pattern);
+        data[500..500 + pattern.len()].copy_from_slice(pattern);
+
+        let mut state = GreedyMatchState::new();
+        let params = params();
+        state.ensure_tables(params);
+        let mut off_base = 0;
+
+        let match_len =
+            row_find_best_match(&data, 500, data.len(), &mut off_base, params, 4, &mut state);
+
+        assert_eq!(match_len, 3);
+        assert_eq!(off_base, 0);
     }
 }

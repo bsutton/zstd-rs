@@ -57,6 +57,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
     let mut last_huff_table = None;
     let mut repeat_offsets = RepeatOffsets::new();
     let params = CompressionParameters::for_level(level, src.len() as u64, 0);
+    opt_state.reset_for_frame(params);
     let block_config = BlockCompressionConfig::for_c_strategy(params.strategy as u8);
 
     if src.is_empty() {

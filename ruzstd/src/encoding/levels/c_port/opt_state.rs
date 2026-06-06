@@ -6,6 +6,7 @@ use super::{
     greedy::GreedyMatchState,
     opt_match::OptMatch,
     opt_price::{OptLevel, OptPriceState, ZSTD_MAX_PRICE},
+    params::CompressionParameters,
     sequence_store::RepeatOffsets,
 };
 
@@ -61,6 +62,10 @@ impl OptBlockState {
             matches: Vec::new(),
             opt: vec![Optimal::default(); ZSTD_OPT_NUM + 4],
         }
+    }
+
+    pub(crate) fn reset_for_frame(&mut self, params: CompressionParameters) {
+        self.match_state.reset_for_frame(params);
     }
 }
 
