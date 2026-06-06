@@ -3,6 +3,9 @@ use alloc::vec::Vec;
 use super::params::CompressionParameters;
 use super::row_match::{row_log, row_match_finder_enabled};
 
+const LONG_MATCH_UPDATE_GAP: usize = 384;
+const LONG_MATCH_UPDATE_LIMIT: usize = 192;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GreedyMatchState {
     pub(super) hash_table: Vec<u32>,
@@ -110,6 +113,17 @@ impl GreedyMatchState {
         }
     }
 
+    pub(super) fn correct_after_long_match_gap(&mut self, block_start: usize) {
+        if block_start > self.next_to_update + LONG_MATCH_UPDATE_GAP {
+            let gap = block_start - self.next_to_update - LONG_MATCH_UPDATE_GAP;
+            self.next_to_update = block_start - gap.min(LONG_MATCH_UPDATE_LIMIT);
+        }
+    }
+
+    pub(super) fn reset_hash3_cursor_to_primary(&mut self) {
+        self.next_to_update3 = self.next_to_update;
+    }
+
     fn advance_hash_salt(&mut self) {
         self.hash_salt = bitmix(self.hash_salt, 8) ^ bitmix(u64::from(self.hash_salt_entropy), 4);
     }
@@ -174,6 +188,47 @@ mod tests {
         assert!(state.hash_table3.iter().all(|&index| index == 0));
         assert!(state.chain_table.iter().all(|&index| index == 0));
         assert_eq!(state.hash_table.capacity(), hash_capacity);
+    }
+
+    #[test]
+    fn long_match_gap_correction_leaves_nearby_cursor_unchanged() {
+        let mut state = GreedyMatchState::new();
+        state.next_to_update = 100;
+
+        state.correct_after_long_match_gap(484);
+
+        assert_eq!(state.next_to_update, 100);
+    }
+
+    #[test]
+    fn long_match_gap_correction_updates_short_gap_like_c() {
+        let mut state = GreedyMatchState::new();
+        state.next_to_update = 100;
+
+        state.correct_after_long_match_gap(500);
+
+        assert_eq!(state.next_to_update, 484);
+    }
+
+    #[test]
+    fn long_match_gap_correction_caps_update_distance_like_c() {
+        let mut state = GreedyMatchState::new();
+        state.next_to_update = 100;
+
+        state.correct_after_long_match_gap(800);
+
+        assert_eq!(state.next_to_update, 608);
+    }
+
+    #[test]
+    fn hash3_cursor_can_be_reset_to_primary_for_opt_parser() {
+        let mut state = GreedyMatchState::new();
+        state.next_to_update = 608;
+        state.next_to_update3 = 1200;
+
+        state.reset_hash3_cursor_to_primary();
+
+        assert_eq!(state.next_to_update3, 608);
     }
 
     #[test]

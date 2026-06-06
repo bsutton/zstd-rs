@@ -40,6 +40,8 @@ pub(crate) fn compress_block_opt_no_dict_with_state(
     }
 
     state.match_state.ensure_tables(params);
+    state.match_state.correct_after_long_match_gap(block_start);
+    state.match_state.reset_hash3_cursor_to_primary();
     state.match_state.lazy_skipping = false;
     let opt_level = strategy.opt_level();
     state

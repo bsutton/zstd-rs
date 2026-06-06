@@ -182,6 +182,7 @@ fn compress_block_lazy_generic_no_dict_with_state(
     }
 
     state.ensure_tables(params);
+    state.correct_after_long_match_gap(block_start);
     state.lazy_skipping = false;
 
     let min_match = params.min_match.clamp(4, 6);
