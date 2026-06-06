@@ -89,7 +89,12 @@ impl GreedyMatchState {
             self.hash_table3.resize(hash3_size, 0);
         }
 
-        let chain_size = 1_usize << params.chain_log;
+        let row_match_enabled = row_match_finder_enabled(params);
+        let chain_size = if row_match_enabled {
+            0
+        } else {
+            1_usize << params.chain_log
+        };
         if self.chain_table.len() != chain_size {
             self.chain_table.resize(chain_size, 0);
         }
@@ -100,7 +105,7 @@ impl GreedyMatchState {
             self.tag_table.clear();
             self.next_to_update = 0;
         }
-        if row_match_finder_enabled(params) && self.tag_table.len() != hash_size {
+        if row_match_enabled && self.tag_table.len() != hash_size {
             self.tag_table.resize(hash_size, 0);
         }
     }
@@ -157,7 +162,6 @@ mod tests {
         state.ensure_tables(params);
         state.hash_table[3] = 99;
         state.hash_table3.resize(8, 7);
-        state.chain_table[4] = 88;
         state.next_to_update = 42;
         state.next_to_update3 = 24;
         let hash_capacity = state.hash_table.capacity();
@@ -170,5 +174,28 @@ mod tests {
         assert!(state.hash_table3.iter().all(|&index| index == 0));
         assert!(state.chain_table.iter().all(|&index| index == 0));
         assert_eq!(state.hash_table.capacity(), hash_capacity);
+    }
+
+    #[test]
+    fn row_match_finder_does_not_allocate_chain_table() {
+        let mut state = GreedyMatchState::new();
+
+        state.ensure_tables(row_params());
+
+        assert!(state.chain_table.is_empty());
+        assert!(!state.hash_table.is_empty());
+        assert!(!state.tag_table.is_empty());
+    }
+
+    #[test]
+    fn hash_chain_match_finder_allocates_chain_table() {
+        let mut params = row_params();
+        params.window_log = 17;
+        let mut state = GreedyMatchState::new();
+
+        state.ensure_tables(params);
+
+        assert_eq!(state.chain_table.len(), 1_usize << params.chain_log);
+        assert!(state.tag_table.is_empty());
     }
 }
