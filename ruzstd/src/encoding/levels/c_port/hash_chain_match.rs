@@ -100,6 +100,18 @@ pub(super) fn hash_ptr(src: &[u8], pos: usize, h_bits: u32, min_match: u32) -> u
     }
 }
 
+pub(super) fn hash3_ptr(src: &[u8], pos: usize, h_bits: u32) -> usize {
+    const PRIME_3_BYTES: u32 = 506_832_829;
+    (read32(src, pos) << 8)
+        .wrapping_mul(PRIME_3_BYTES)
+        .wrapping_shr(32 - h_bits) as usize
+}
+
+pub(super) fn equal_min_match(src: &[u8], left: usize, right: usize, min_match: u32) -> bool {
+    let len = min_match as usize;
+    src[left..left + len] == src[right..right + len]
+}
+
 pub(super) fn read32(src: &[u8], pos: usize) -> u32 {
     u32::from_le_bytes(src[pos..pos + 4].try_into().expect("read32 in bounds"))
 }
