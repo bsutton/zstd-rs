@@ -540,7 +540,7 @@ fn old_normalize_counts(counts: &[usize], max_log: u8, avoid_0_numbit: bool) -> 
     (probs, acc_log)
 }
 
-pub(super) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSETable {
+pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSETable {
     let mut states = core::array::from_fn::<SymbolStates, 256, _>(|_| SymbolStates {
         states: Vec::new(),
         lookup: Vec::new(),

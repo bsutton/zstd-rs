@@ -136,6 +136,10 @@ impl FSETable {
         self.build_decoding_table()
     }
 
+    pub(crate) fn symbol_probabilities(&self) -> &[i32] {
+        &self.symbol_probabilities
+    }
+
     /// Build the actual decoding table after probabilities have been read into the table.
     /// After this function is called, the decoding process can begin.
     fn build_decoding_table(&mut self) -> Result<(), FSETableError> {

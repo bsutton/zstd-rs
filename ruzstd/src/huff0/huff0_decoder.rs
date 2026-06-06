@@ -122,6 +122,20 @@ impl HuffmanTable {
         Ok(bytes_used)
     }
 
+    pub(crate) fn encoder_weights(&self) -> Vec<usize> {
+        self.bits
+            .iter()
+            .copied()
+            .map(|bits| {
+                if bits == 0 {
+                    0
+                } else {
+                    usize::from(self.max_num_bits + 1 - bits)
+                }
+            })
+            .collect()
+    }
+
     /// Read weights from the provided source.
     ///
     /// The huffman table is represented in the input data as a list of weights.

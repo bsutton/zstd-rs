@@ -175,6 +175,7 @@ fn encode_weight_table_fse_bytes(weights: &[u8], max_log: u8) -> Vec<u8> {
     encoded
 }
 
+#[derive(Clone)]
 pub struct HuffmanTable {
     /// Index is the symbol, values are the bitstring in the lower bits of the u32 and the amount of bits in the u8
     codes: Vec<(u32, u8)>,

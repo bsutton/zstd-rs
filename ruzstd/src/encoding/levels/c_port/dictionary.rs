@@ -1,6 +1,12 @@
 //! Dictionary metadata handling ported from `ZSTD_compress_insertDictionary()`.
 
+use alloc::boxed::Box;
+use core::fmt;
+
 use crate::decoding::dictionary::{Dictionary, MAGIC_NUM};
+use crate::encoding::frame_compressor::FseTables;
+use crate::fse::fse_encoder;
+use crate::huff0::huff0_encoder;
 
 use super::sequence_store::RepeatOffsets;
 
@@ -17,12 +23,58 @@ pub(crate) enum DictionaryKind {
     Full,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 pub(crate) struct ParsedDictionary<'a> {
     pub(crate) kind: DictionaryKind,
     pub(crate) dict_id: u32,
     pub(crate) content: &'a [u8],
     pub(crate) repeat_offsets: RepeatOffsets,
+    entropy: Option<Box<DictionaryEntropy>>,
+}
+
+impl ParsedDictionary<'_> {
+    pub(crate) fn initial_fse_tables(&self) -> FseTables {
+        self.entropy
+            .as_ref()
+            .map(|entropy| entropy.fse_tables.clone())
+            .unwrap_or_else(FseTables::new)
+    }
+
+    pub(crate) fn initial_huffman_table(&self) -> Option<huff0_encoder::HuffmanTable> {
+        self.entropy
+            .as_ref()
+            .map(|entropy| entropy.huffman_table.clone())
+    }
+}
+
+impl fmt::Debug for ParsedDictionary<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ParsedDictionary")
+            .field("kind", &self.kind)
+            .field("dict_id", &self.dict_id)
+            .field("content", &self.content)
+            .field("repeat_offsets", &self.repeat_offsets)
+            .field("has_entropy", &self.entropy.is_some())
+            .finish()
+    }
+}
+
+impl PartialEq for ParsedDictionary<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            && self.dict_id == other.dict_id
+            && self.content == other.content
+            && self.repeat_offsets == other.repeat_offsets
+    }
+}
+
+impl Eq for ParsedDictionary<'_> {}
+
+#[derive(Clone)]
+struct DictionaryEntropy {
+    huffman_table: huff0_encoder::HuffmanTable,
+    fse_tables: FseTables,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -64,6 +116,7 @@ fn raw_dictionary(dict: &[u8]) -> ParsedDictionary<'_> {
         dict_id: 0,
         content: dict,
         repeat_offsets: RepeatOffsets::new(),
+        entropy: None,
     }
 }
 
@@ -91,7 +144,31 @@ fn parse_full_dictionary(
         dict_id: if no_dict_id { 0 } else { decoded.id },
         content: &dict[content_start..],
         repeat_offsets,
+        entropy: Some(Box::new(dictionary_entropy(&decoded))),
     }))
+}
+
+fn dictionary_entropy(decoded: &Dictionary) -> DictionaryEntropy {
+    let mut fse_tables = FseTables::new();
+    fse_tables.ll_previous = Some(fse_encoder::build_table_from_probabilities(
+        decoded.fse.literal_lengths.symbol_probabilities(),
+        decoded.fse.literal_lengths.accuracy_log,
+    ));
+    fse_tables.ml_previous = Some(fse_encoder::build_table_from_probabilities(
+        decoded.fse.match_lengths.symbol_probabilities(),
+        decoded.fse.match_lengths.accuracy_log,
+    ));
+    fse_tables.of_previous = Some(fse_encoder::build_table_from_probabilities(
+        decoded.fse.offsets.symbol_probabilities(),
+        decoded.fse.offsets.accuracy_log,
+    ));
+
+    DictionaryEntropy {
+        huffman_table: huff0_encoder::HuffmanTable::build_from_weights(
+            &decoded.huf.table.encoder_weights(),
+        ),
+        fse_tables,
+    }
 }
 
 fn validate_repeat_offsets(
@@ -175,6 +252,34 @@ mod tests {
             parsed.repeat_offsets,
             RepeatOffsets::from_offsets(3, 10, 25)
         );
+    }
+
+    #[test]
+    fn full_dictionary_seeds_encoder_entropy_tables_like_c() {
+        let raw = full_dictionary_with_offsets([3, 10, 25]);
+
+        let parsed = parse_dictionary(&raw, DictionaryContentType::Auto, false)
+            .unwrap()
+            .expect("full dictionary");
+        let fse_tables = parsed.initial_fse_tables();
+
+        assert!(parsed.initial_huffman_table().is_some());
+        assert!(fse_tables.ll_previous.is_some());
+        assert!(fse_tables.ml_previous.is_some());
+        assert!(fse_tables.of_previous.is_some());
+    }
+
+    #[test]
+    fn raw_dictionary_does_not_seed_encoder_entropy_tables_like_c() {
+        let parsed = parse_dictionary(b"raw-dict-content", DictionaryContentType::Auto, false)
+            .unwrap()
+            .expect("raw dictionary");
+        let fse_tables = parsed.initial_fse_tables();
+
+        assert!(parsed.initial_huffman_table().is_none());
+        assert!(fse_tables.ll_previous.is_none());
+        assert!(fse_tables.ml_previous.is_none());
+        assert!(fse_tables.of_previous.is_none());
     }
 
     #[test]
