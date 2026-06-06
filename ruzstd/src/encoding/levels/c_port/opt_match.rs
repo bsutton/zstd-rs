@@ -65,7 +65,7 @@ pub(super) fn bt_get_all_matches_no_dict(
     );
 }
 
-fn update_tree_no_dict(
+pub(super) fn update_tree_no_dict(
     src: &[u8],
     target: usize,
     block_end: usize,
