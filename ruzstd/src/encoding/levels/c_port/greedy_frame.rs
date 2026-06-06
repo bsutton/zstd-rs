@@ -11,7 +11,7 @@ use super::{
         encode_block_hash_chain_no_dict, encode_block_hash_chain_no_dict_with_state_and_policy,
         GreedyBlockEncodeContext, GreedyBlockSource, LazyBlockStrategy,
     },
-    greedy_dict::load_prefix,
+    greedy_dict::{load_binary_tree_prefix, load_prefix},
     params::CompressionParameters,
     pre_split::FrameProgress,
     sequence_store::RepeatOffsets,
@@ -82,6 +82,14 @@ pub(crate) fn encode_single_block_frame_btlazy2_no_dict(src: &[u8], level: i32) 
 
 pub(crate) fn encode_frame_btlazy2_no_dict(src: &[u8], level: i32) -> Vec<u8> {
     encode_frame_hash_chain_no_dict(src, level, LazyBlockStrategy::BtLazy2)
+}
+
+pub(crate) fn encode_frame_btlazy2_with_dictionary(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+) -> Vec<u8> {
+    encode_frame_hash_chain_with_dictionary(src, level, dictionary, LazyBlockStrategy::BtLazy2)
 }
 
 fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrategy) -> Vec<u8> {
@@ -173,7 +181,11 @@ fn encode_frame_hash_chain_with_dictionary(
     let mut offset_history = OffsetHistory::from_offsets(offsets[0], offsets[1], offsets[2]);
     let mut match_state = GreedyMatchState::new();
     match_state.reset_for_frame(params);
-    load_prefix(&mut match_state, &combined, dict_len, params);
+    if depth == LazyBlockStrategy::BtLazy2 {
+        load_binary_tree_prefix(&mut match_state, &combined, dict_len, params);
+    } else {
+        load_prefix(&mut match_state, &combined, dict_len, params);
+    }
     let mut last_huff_table = None;
     let mut repeat_offsets = dictionary.repeat_offsets;
     let block_config = BlockCompressionConfig::for_c_strategy(params.strategy as u8);

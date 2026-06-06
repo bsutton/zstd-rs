@@ -2,8 +2,9 @@ use alloc::vec::Vec;
 
 use super::dictionary::{parse_dictionary, DictionaryContentType};
 use super::greedy_frame::{
-    encode_frame_btlazy2_no_dict, encode_frame_greedy_no_dict, encode_frame_greedy_with_dictionary,
-    encode_frame_lazy2_no_dict, encode_frame_lazy2_with_dictionary, encode_frame_lazy_no_dict,
+    encode_frame_btlazy2_no_dict, encode_frame_btlazy2_with_dictionary,
+    encode_frame_greedy_no_dict, encode_frame_greedy_with_dictionary, encode_frame_lazy2_no_dict,
+    encode_frame_lazy2_with_dictionary, encode_frame_lazy_no_dict,
     encode_frame_lazy_with_dictionary, encode_single_block_frame_btlazy2_no_dict,
     encode_single_block_frame_greedy_no_dict, encode_single_block_frame_lazy2_no_dict,
     encode_single_block_frame_lazy_no_dict,
@@ -175,6 +176,13 @@ fn lazy_frame_with_dictionary_writes_dict_id_and_round_trips() {
 #[test]
 fn lazy2_frame_with_dictionary_writes_dict_id_and_round_trips() {
     let encoded = encode_with_fixture_dictionary(6, encode_frame_lazy2_with_dictionary);
+
+    assert_dictionary_frame_round_trips(&encoded);
+}
+
+#[test]
+fn btlazy2_frame_with_dictionary_writes_dict_id_and_round_trips() {
+    let encoded = encode_with_fixture_dictionary(9, encode_frame_btlazy2_with_dictionary);
 
     assert_dictionary_frame_round_trips(&encoded);
 }
