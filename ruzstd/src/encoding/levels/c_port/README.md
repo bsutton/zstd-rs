@@ -31,6 +31,8 @@ Primary C references:
   encoding.
 - `/tmp/zstd-reference/lib/compress/zstd_compress_superblock.c`: superblock
   path.
+- `/tmp/zstd-reference/lib/compress/zstd_compress.c`: dictionary loading via
+  `ZSTD_compress_insertDictionary()` and `ZSTD_loadDictionaryContent()`.
 
 Porting rule: add parity tests at the module boundary before wiring the module
 into the active encoder path.

@@ -10,6 +10,7 @@ mod c_frame_header;
 mod dfast;
 mod dfast_block;
 mod dfast_frame;
+mod dictionary;
 mod fast;
 mod fast_block;
 mod fast_frame;
