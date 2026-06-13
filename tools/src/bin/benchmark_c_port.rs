@@ -373,11 +373,11 @@ fn median(values: &mut [f64]) -> f64 {
 
 fn write_csv(path: &Path, rows: &[Row]) -> io::Result<()> {
     let mut csv = String::from(
-        "fixture,level,input_bytes,c_bytes,rust_bytes,rust_vs_c_bytes_pct,c_cpu,rust_cpu,cpu_ratio,c_wall,rust_wall\n",
+        "fixture,level,input_bytes,c_bytes,rust_bytes,rust_vs_c_bytes_pct,c_cpu,rust_cpu,cpu_improvement_pct,c_wall,rust_wall\n",
     );
     for row in rows {
         csv.push_str(&format!(
-            "{},{},{},{},{},{:+.2},{:.4},{:.4},{:.2},{:.4},{:.4}\n",
+            "{},{},{},{},{},{:+.2},{:.4},{:.4},{:+.2},{:.4},{:.4}\n",
             csv_escape(&row.fixture),
             row.level,
             row.input_bytes,
@@ -386,7 +386,7 @@ fn write_csv(path: &Path, rows: &[Row]) -> io::Result<()> {
             pct_delta(row.rust_bytes as f64, row.c_bytes as f64),
             row.c_cpu,
             row.rust_cpu,
-            ratio(row.rust_cpu, row.c_cpu),
+            pct_improvement(row.rust_cpu, row.c_cpu),
             row.c_wall,
             row.rust_wall,
         ));
@@ -404,7 +404,7 @@ fn write_markdown(path: &Path, rows: &[Row], csv_path: &Path) -> io::Result<()> 
         "Gap",
         "C CPU",
         "Rust CPU",
-        "CPU x",
+        "CPU Improvement",
     ];
     let table_rows = rows
         .iter()
@@ -421,7 +421,7 @@ fn write_markdown(path: &Path, rows: &[Row], csv_path: &Path) -> io::Result<()> 
                 ),
                 format!("{:.4}s", row.c_cpu),
                 format!("{:.4}s", row.rust_cpu),
-                format!("{:.2}", ratio(row.rust_cpu, row.c_cpu)),
+                format!("{:+.1}%", pct_improvement(row.rust_cpu, row.c_cpu)),
             ]
         })
         .collect::<Vec<_>>();
@@ -442,7 +442,7 @@ fn write_markdown(path: &Path, rows: &[Row], csv_path: &Path) -> io::Result<()> 
         String::new(),
         format!("Source CSV: `{}`", csv_path.display()),
         String::new(),
-        "Gap is Rust compressed size versus C zstd; positive means Rust is larger. CPU x is Rust CPU divided by C zstd CPU. Every output is decoded with C zstd and byte-compared against the original fixture.".to_string(),
+        "Gap is Rust compressed size versus C zstd; positive means Rust is larger. CPU Improvement is positive when Rust uses less CPU than C zstd. Every output is decoded with C zstd and byte-compared against the original fixture.".to_string(),
         String::new(),
         "```text".to_string(),
         format_row(&headers, &widths),
@@ -462,19 +462,19 @@ fn write_markdown(path: &Path, rows: &[Row], csv_path: &Path) -> io::Result<()> 
     write_all(path, &lines.join("\n"))
 }
 
+fn pct_improvement(value: f64, baseline: f64) -> f64 {
+    if baseline == 0.0 {
+        0.0
+    } else {
+        (baseline - value) * 100.0 / baseline
+    }
+}
+
 fn pct_delta(value: f64, baseline: f64) -> f64 {
     if baseline == 0.0 {
         0.0
     } else {
         (value - baseline) * 100.0 / baseline
-    }
-}
-
-fn ratio(value: f64, baseline: f64) -> f64 {
-    if baseline == 0.0 {
-        0.0
-    } else {
-        value / baseline
     }
 }
 
