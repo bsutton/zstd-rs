@@ -8,6 +8,7 @@ use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 
 const HASH_READ_SIZE: usize = 8;
 const SEARCH_STRENGTH: usize = 8;
+const INVALID_INDEX: u32 = u32::MAX;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FastBlockOutput {
@@ -38,7 +39,7 @@ impl FastMatchState {
 
         let table_size = 1_usize << hash_log;
         if self.hash_table.len() != table_size {
-            self.hash_table.resize(table_size, 0);
+            self.hash_table.resize(table_size, INVALID_INDEX);
         }
 
         &mut self.hash_table
@@ -406,9 +407,10 @@ fn match4_found(
     prefix_start_index: usize,
     match_limit: usize,
 ) -> bool {
-    match_idx >= prefix_start_index
+    match_idx != INVALID_INDEX as usize
+        && match_idx >= prefix_start_index
         && current + 4 <= match_limit
-        && match_idx + 4 <= src.len()
+        && match_idx.checked_add(4).is_some_and(|end| end <= src.len())
         && read32(src, current) == read32(src, match_idx)
 }
 

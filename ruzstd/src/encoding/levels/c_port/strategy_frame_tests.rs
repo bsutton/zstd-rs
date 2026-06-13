@@ -145,7 +145,7 @@ fn strategy_frame_round_trips_multiple_blocks() {
 fn strategy_frame_corpus_size_regressions_round_trip() {
     let level_one = include_bytes!("../../../../decodecorpus_files/z000021");
     let level_five = include_bytes!("../../../../decodecorpus_files/z000033");
-    let level_three = include_bytes!("../../../../decodecorpus_files/z000040");
+    let z000040 = include_bytes!("../../../../decodecorpus_files/z000040");
 
     let encoded = encode_frame_no_dict(level_one, 1);
     assert_round_trips(&encoded, level_one);
@@ -163,8 +163,16 @@ fn strategy_frame_corpus_size_regressions_round_trip() {
         encoded.len()
     );
 
-    let encoded = encode_frame_no_dict(level_three, 3);
-    assert_round_trips(&encoded, level_three);
+    let encoded = encode_frame_no_dict(z000040, 1);
+    assert_round_trips(&encoded, z000040);
+    assert!(
+        encoded.len() <= 39_320,
+        "level 1 fast hash sentinel regressed to {} bytes",
+        encoded.len()
+    );
+
+    let encoded = encode_frame_no_dict(z000040, 3);
+    assert_round_trips(&encoded, z000040);
     assert!(
         encoded.len() <= 38_400,
         "level 3 double-fast hash insertion regressed to {} bytes",
