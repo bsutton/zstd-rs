@@ -178,6 +178,14 @@ fn strategy_frame_corpus_size_regressions_round_trip() {
         "level 3 double-fast hash insertion regressed to {} bytes",
         encoded.len()
     );
+
+    let encoded = encode_frame_no_dict(z000040, 8);
+    assert_round_trips(&encoded, z000040);
+    assert!(
+        encoded.len() <= 32_600,
+        "level 8 lazy repcode search regressed to {} bytes",
+        encoded.len()
+    );
 }
 
 #[test]

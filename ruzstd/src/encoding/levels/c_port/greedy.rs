@@ -245,14 +245,14 @@ fn compress_block_lazy_generic_no_dict_with_state(
                 );
                 continue;
             }
-        } else {
-            let mut offbase_found = 999_999_999_u32;
-            let ml2 = search_max(&search_context, ip, &mut offbase_found, state);
-            if ml2 > match_length {
-                match_length = ml2;
-                start = ip;
-                off_base = offbase_found;
-            }
+        }
+
+        let mut offbase_found = 999_999_999_u32;
+        let ml2 = search_max(&search_context, ip, &mut offbase_found, state);
+        if ml2 > match_length {
+            match_length = ml2;
+            start = ip;
+            off_base = offbase_found;
         }
 
         if match_length < 4 {
