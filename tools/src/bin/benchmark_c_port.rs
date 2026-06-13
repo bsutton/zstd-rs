@@ -23,6 +23,7 @@ struct Args {
     csv_output: PathBuf,
     md_output: PathBuf,
     no_sync: bool,
+    keep_outputs: bool,
 }
 
 struct Fixture {
@@ -99,12 +100,13 @@ fn parse_args() -> io::Result<Args> {
             tmp.join("c-port-benchmark.md").display().to_string(),
         )),
         no_sync: has_flag(&raw, "--no-sync"),
+        keep_outputs: has_flag(&raw, "--keep-outputs"),
     })
 }
 
 fn print_help() {
     println!(
-        "Usage: benchmark_c_port [--fixtures DIR] [--levels CSV] [--runs N] \\\n    [--limit N] [--zstd-bin PATH] [--output-dir DIR] [--csv-output PATH] \\\n    [--md-output PATH] [--no-sync]\n\nOptions:\n  --fixtures DIR    Fixture directory, walked recursively.\n  --levels CSV      C compression levels to test, for example 1,3,9,19.\n  --runs N          Timed runs per fixture and level.\n  --limit N         Limit fixture count after sorting by path.\n  --zstd-bin PATH   Path to the C zstd binary.\n  --output-dir DIR  Temporary directory for compressed outputs.\n  --csv-output PATH CSV output path.\n  --md-output PATH  Markdown output path.\n  --no-sync         Skip sync before timed runs.\n  -h, --help        Show this help message."
+        "Usage: benchmark_c_port [--fixtures DIR] [--levels CSV] [--runs N] \\\n    [--limit N] [--zstd-bin PATH] [--output-dir DIR] [--csv-output PATH] \\\n    [--md-output PATH] [--no-sync] [--keep-outputs]\n\nOptions:\n  --fixtures DIR    Fixture directory, walked recursively.\n  --levels CSV      C compression levels to test, for example 1,3,9,19.\n  --runs N          Timed runs per fixture and level.\n  --limit N         Limit fixture count after sorting by path.\n  --zstd-bin PATH   Path to the C zstd binary.\n  --output-dir DIR  Temporary directory for compressed outputs.\n  --csv-output PATH CSV output path.\n  --md-output PATH  Markdown output path.\n  --no-sync         Skip sync before timed runs.\n  --keep-outputs    Keep compressed outputs for inspection.\n  -h, --help        Show this help message."
     );
 }
 
@@ -176,11 +178,11 @@ fn run_benchmarks(args: &Args) -> io::Result<Vec<Row>> {
             let rust = compress_to_vec_c_level(input.as_slice(), *level);
             fs::write(&rust_output, &rust)?;
             verify_decoded_matches(&args.zstd_bin, &rust_output, &fixture.path)?;
-            fs::remove_file(&rust_output)?;
+            remove_output_unless_kept(&rust_output, args.keep_outputs)?;
 
             run_c_zstd(&args.zstd_bin, *level, &fixture.path, &c_output)?;
             verify_decoded_matches(&args.zstd_bin, &c_output, &fixture.path)?;
-            fs::remove_file(&c_output)?;
+            remove_output_unless_kept(&c_output, args.keep_outputs)?;
 
             let mut rust_walls = Vec::with_capacity(args.runs);
             let mut c_walls = Vec::with_capacity(args.runs);
@@ -199,14 +201,14 @@ fn run_benchmarks(args: &Args) -> io::Result<Vec<Row>> {
                 fs::write(&rust_output, &rust)?;
                 verify_decoded_matches(&args.zstd_bin, &rust_output, &fixture.path)?;
                 rust_bytes = rust.len() as u64;
-                fs::remove_file(&rust_output)?;
+                remove_output_unless_kept(&rust_output, args.keep_outputs)?;
 
                 sync_if_requested(args.no_sync)?;
                 let (c_wall, c_cpu) =
                     run_c_zstd_timed(&args.zstd_bin, *level, &fixture.path, &c_output)?;
                 verify_decoded_matches(&args.zstd_bin, &c_output, &fixture.path)?;
                 c_bytes = fs::metadata(&c_output)?.len();
-                fs::remove_file(&c_output)?;
+                remove_output_unless_kept(&c_output, args.keep_outputs)?;
 
                 rust_walls.push(rust_wall);
                 rust_cpus.push(rust_cpu);
@@ -229,6 +231,14 @@ fn run_benchmarks(args: &Args) -> io::Result<Vec<Row>> {
     }
 
     Ok(rows)
+}
+
+fn remove_output_unless_kept(path: &Path, keep_outputs: bool) -> io::Result<()> {
+    if keep_outputs {
+        Ok(())
+    } else {
+        fs::remove_file(path)
+    }
 }
 
 fn collect_fixtures(root: &Path) -> io::Result<Vec<Fixture>> {
