@@ -1,6 +1,5 @@
-use alloc::collections::BinaryHeap;
 use alloc::vec::Vec;
-use core::cmp::{Ordering, Reverse};
+use core::cmp::Ordering;
 
 use crate::{
     bit_io::BitWriter,
@@ -8,7 +7,6 @@ use crate::{
 };
 
 const MAX_HUFFMAN_BITS: usize = 11;
-type ActiveHuffmanNode = Reverse<(usize, Option<usize>, Reverse<usize>, usize)>;
 
 pub(crate) struct HuffmanEncoder<'output, 'table, V: AsMut<Vec<u8>>> {
     table: &'table HuffmanTable,
@@ -390,6 +388,7 @@ fn length_limited_code_lengths(counts: &[usize], max_bits: usize) -> Option<Vec<
                 count,
                 symbol: Some(symbol),
                 parent: None,
+                len: 0,
             })
         })
         .collect::<Vec<_>>();
@@ -398,17 +397,20 @@ fn length_limited_code_lengths(counts: &[usize], max_bits: usize) -> Option<Vec<
         return None;
     }
 
-    let active_key =
-        |idx, node: &HuffmanNode| Reverse((node.count, node.symbol, Reverse(idx), idx));
+    nodes.sort_unstable_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.symbol.cmp(&right.symbol))
+    });
 
-    let mut active = BinaryHeap::with_capacity(nodes.len());
-    for (idx, node) in nodes.iter().enumerate() {
-        active.push(active_key(idx, node));
-    }
+    let leaf_count = nodes.len();
+    let mut smallest_leaf = leaf_count as isize - 1;
+    let mut smallest_parent = leaf_count;
 
-    while active.len() > 1 {
-        let Reverse((_, _, _, left)) = pop_active_huffman_node(&mut active);
-        let Reverse((_, _, _, right)) = pop_active_huffman_node(&mut active);
+    for _ in 0..leaf_count - 1 {
+        let left = pop_smallest_huffman_node(&nodes, &mut smallest_leaf, &mut smallest_parent);
+        let right = pop_smallest_huffman_node(&nodes, &mut smallest_leaf, &mut smallest_parent);
         let parent = nodes.len();
         nodes[left].parent = Some(parent);
         nodes[right].parent = Some(parent);
@@ -416,92 +418,242 @@ fn length_limited_code_lengths(counts: &[usize], max_bits: usize) -> Option<Vec<
             count: nodes[left].count + nodes[right].count,
             symbol: None,
             parent: None,
+            len: 0,
         });
-        active.push(active_key(parent, &nodes[parent]));
+    }
+
+    let root = nodes.len() - 1;
+    for idx in (leaf_count..root).rev() {
+        let parent = match nodes[idx].parent {
+            Some(parent) => parent,
+            None => invalid_huffman_tree(),
+        };
+        nodes[idx].len = nodes[parent].len + 1;
     }
 
     let mut lengths = alloc::vec![0; counts.len()];
-    for idx in 0..counts.len() {
-        if counts[idx] == 0 {
-            continue;
-        }
-        let mut node_idx = match nodes.iter().position(|node| node.symbol == Some(idx)) {
-            Some(node_idx) => node_idx,
+    for idx in 0..leaf_count {
+        let parent = match nodes[idx].parent {
+            Some(parent) => parent,
             None => invalid_huffman_tree(),
         };
-        let mut len = 0;
-        while let Some(parent) = nodes[node_idx].parent {
-            len += 1;
-            node_idx = parent;
-        }
-        lengths[idx] = len;
+        let len = nodes[parent].len + 1;
+        let symbol = match nodes[idx].symbol {
+            Some(symbol) => symbol,
+            None => invalid_huffman_tree(),
+        };
+        nodes[idx].len = len;
+        lengths[symbol] = len;
     }
 
     limit_code_lengths(&mut lengths, counts, max_bits).then_some(lengths)
+}
+
+fn pop_smallest_huffman_node(
+    nodes: &[HuffmanNode],
+    smallest_leaf: &mut isize,
+    smallest_parent: &mut usize,
+) -> usize {
+    let leaf_count = (*smallest_leaf >= 0).then(|| nodes[*smallest_leaf as usize].count);
+    let parent_count = (*smallest_parent < nodes.len()).then(|| nodes[*smallest_parent].count);
+
+    match (leaf_count, parent_count) {
+        (Some(leaf_count), Some(parent_count)) if leaf_count < parent_count => {
+            let idx = *smallest_leaf as usize;
+            *smallest_leaf -= 1;
+            idx
+        }
+        (Some(_), None) => {
+            let idx = *smallest_leaf as usize;
+            *smallest_leaf -= 1;
+            idx
+        }
+        (_, Some(_)) => {
+            let idx = *smallest_parent;
+            *smallest_parent += 1;
+            idx
+        }
+        (None, None) => invalid_huffman_tree(),
+    }
 }
 
 struct HuffmanNode {
     count: usize,
     symbol: Option<usize>,
     parent: Option<usize>,
+    len: usize,
 }
 
 fn limit_code_lengths(lengths: &mut [usize], counts: &[usize], max_bits: usize) -> bool {
-    let mut bl_count = alloc::vec![0usize; max_bits + 1];
-    let mut overflow = 0usize;
-    for len in lengths.iter_mut().filter(|len| **len > 0) {
-        if *len > max_bits {
-            *len = max_bits;
-            overflow += 1;
-        }
-        bl_count[*len] += 1;
-    }
-
-    if !overflow.is_multiple_of(2) {
-        return false;
-    }
-
-    while overflow > 0 {
-        let mut bits = max_bits - 1;
-        while bl_count[bits] == 0 {
-            if bits == 0 {
-                return false;
-            }
-            bits -= 1;
-        }
-        bl_count[bits] -= 1;
-        bl_count[bits + 1] += 2;
-        bl_count[max_bits] -= 1;
-        overflow -= 2;
-    }
-
     let mut symbols = counts
         .iter()
         .copied()
         .enumerate()
-        .filter(|(_, count)| *count > 0)
+        .filter_map(|(symbol, count)| {
+            (count > 0).then_some(LengthLimitedSymbol {
+                symbol,
+                count,
+                len: lengths[symbol],
+            })
+        })
         .collect::<Vec<_>>();
-    symbols.sort_unstable_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(&left.0)));
 
-    lengths.fill(0);
-    let mut symbol_idx = 0;
-    for bits in (1..=max_bits).rev() {
-        for _ in 0..bl_count[bits] {
-            lengths[symbols[symbol_idx].0] = bits;
-            symbol_idx += 1;
+    if symbols.len() <= 1 {
+        return false;
+    }
+
+    symbols.sort_unstable_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.symbol.cmp(&right.symbol))
+    });
+
+    let largest_bits = symbols.iter().map(|symbol| symbol.len).max().unwrap_or(0);
+    if largest_bits <= max_bits {
+        return length_units(lengths, max_bits) == 1usize << max_bits;
+    }
+
+    let Some(shift) = largest_bits.checked_sub(max_bits) else {
+        return false;
+    };
+    if shift >= usize::BITS as usize {
+        return false;
+    }
+
+    let base_cost = 1usize << shift;
+    let mut total_cost = 0isize;
+    let mut last_below_target = symbols.len() as isize - 1;
+
+    while last_below_target >= 0 && symbols[last_below_target as usize].len > max_bits {
+        let len = symbols[last_below_target as usize].len;
+        let Some(rank_cost) = 1usize.checked_shl((largest_bits - len) as u32) else {
+            return false;
+        };
+        total_cost += base_cost.saturating_sub(rank_cost) as isize;
+        symbols[last_below_target as usize].len = max_bits;
+        last_below_target -= 1;
+    }
+
+    while last_below_target >= 0 && symbols[last_below_target as usize].len == max_bits {
+        last_below_target -= 1;
+    }
+
+    total_cost >>= shift;
+    if total_cost <= 0 {
+        return false;
+    }
+
+    let mut rank_last = alloc::vec![None; max_bits + 2];
+    let mut current_bits = max_bits;
+    for pos in (0..=last_below_target).rev() {
+        let pos = pos as usize;
+        let len = symbols[pos].len;
+        if len >= current_bits {
+            continue;
+        }
+        current_bits = len;
+        rank_last[max_bits - current_bits] = Some(pos);
+    }
+
+    while total_cost > 0 {
+        let mut bits_to_decrease = highest_bit_set(total_cost as usize);
+        for candidate_bits in (2..=bits_to_decrease).rev() {
+            let high_pos = rank_last[candidate_bits];
+            let low_pos = rank_last[candidate_bits - 1];
+            let Some(high_pos) = high_pos else {
+                bits_to_decrease -= 1;
+                continue;
+            };
+            let Some(low_pos) = low_pos else {
+                break;
+            };
+            if symbols[high_pos].count <= symbols[low_pos].count.saturating_mul(2) {
+                break;
+            }
+            bits_to_decrease -= 1;
+        }
+
+        while bits_to_decrease <= max_bits && rank_last[bits_to_decrease].is_none() {
+            bits_to_decrease += 1;
+        }
+        if bits_to_decrease > max_bits {
+            return false;
+        }
+
+        total_cost -= 1isize << (bits_to_decrease - 1);
+        let pos = match rank_last[bits_to_decrease] {
+            Some(pos) => pos,
+            None => return false,
+        };
+        symbols[pos].len += 1;
+
+        if rank_last[bits_to_decrease - 1].is_none() {
+            rank_last[bits_to_decrease - 1] = Some(pos);
+        }
+
+        if pos == 0 {
+            rank_last[bits_to_decrease] = None;
+        } else {
+            let previous = pos - 1;
+            if symbols[previous].len == max_bits - bits_to_decrease {
+                rank_last[bits_to_decrease] = Some(previous);
+            } else {
+                rank_last[bits_to_decrease] = None;
+            }
         }
     }
 
-    symbol_idx == symbols.len() && length_units(lengths, max_bits) == 1usize << max_bits
+    while total_cost < 0 {
+        if rank_last[1].is_none() {
+            while last_below_target >= 0 && symbols[last_below_target as usize].len == max_bits {
+                last_below_target -= 1;
+            }
+            let pos = (last_below_target + 1) as usize;
+            if pos >= symbols.len() || symbols[pos].len == 0 {
+                return false;
+            }
+            symbols[pos].len -= 1;
+            rank_last[1] = Some(pos);
+            total_cost += 1;
+            continue;
+        }
+
+        let pos = rank_last[1].unwrap() + 1;
+        if pos >= symbols.len() || symbols[pos].len == 0 {
+            return false;
+        }
+        symbols[pos].len -= 1;
+        rank_last[1] = Some(pos);
+        total_cost += 1;
+    }
+
+    lengths.fill(0);
+    for symbol in symbols {
+        lengths[symbol.symbol] = symbol.len;
+    }
+
+    length_units(lengths, max_bits) == 1usize << max_bits
+}
+
+struct LengthLimitedSymbol {
+    symbol: usize,
+    count: usize,
+    len: usize,
 }
 
 fn length_units(lengths: &[usize], max_bits: usize) -> usize {
-    lengths
-        .iter()
-        .copied()
-        .filter(|len| *len > 0)
-        .map(|len| 1usize << (max_bits - len))
-        .sum()
+    let mut units = 0usize;
+    for len in lengths.iter().copied().filter(|len| *len > 0) {
+        if len > max_bits {
+            return usize::MAX;
+        }
+        let Some(unit) = 1usize.checked_shl((max_bits - len) as u32) else {
+            return usize::MAX;
+        };
+        units = units.saturating_add(unit);
+    }
+    units
 }
 
 fn code_lengths_to_weights(lengths: &[usize], max_bits: usize) -> Vec<usize> {
@@ -535,14 +687,6 @@ fn rank_limited_weights(counts: &[usize]) -> Vec<usize> {
     }
 
     weights_distributed
-}
-
-#[inline(always)]
-fn pop_active_huffman_node(active: &mut BinaryHeap<ActiveHuffmanNode>) -> ActiveHuffmanNode {
-    match active.pop() {
-        Some(node) => node,
-        None => invalid_huffman_tree(),
-    }
 }
 
 #[cold]

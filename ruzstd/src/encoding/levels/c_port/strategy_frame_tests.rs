@@ -142,6 +142,28 @@ fn strategy_frame_round_trips_multiple_blocks() {
 }
 
 #[test]
+fn strategy_frame_huffman_regression_corpus_round_trips() {
+    let level_one = include_bytes!("../../../../decodecorpus_files/z000021");
+    let level_five = include_bytes!("../../../../decodecorpus_files/z000033");
+
+    let encoded = encode_frame_no_dict(level_one, 1);
+    assert_round_trips(&encoded, level_one);
+    assert!(
+        encoded.len() <= 32_000,
+        "level 1 corpus literal table regressed to {} bytes",
+        encoded.len()
+    );
+
+    let encoded = encode_frame_no_dict(level_five, 5);
+    assert_round_trips(&encoded, level_five);
+    assert!(
+        encoded.len() <= 490_000,
+        "level 5 corpus literal table regressed to {} bytes",
+        encoded.len()
+    );
+}
+
+#[test]
 fn strategy_frame_does_not_emit_rle_first_block_like_c() {
     let data = [0x61; 4096];
 
