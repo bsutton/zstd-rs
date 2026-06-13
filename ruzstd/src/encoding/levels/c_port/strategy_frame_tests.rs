@@ -166,7 +166,7 @@ fn strategy_frame_corpus_size_regressions_round_trip() {
     let encoded = encode_frame_no_dict(level_three, 3);
     assert_round_trips(&encoded, level_three);
     assert!(
-        encoded.len() <= 38_600,
+        encoded.len() <= 38_400,
         "level 3 double-fast hash insertion regressed to {} bytes",
         encoded.len()
     );

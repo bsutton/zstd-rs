@@ -164,6 +164,9 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
                     OffBase::Repeat(RepeatCode::First),
                     match_length,
                 );
+                complementary_insert(
+                    src, hash_long, hash_small, h_bits_l, h_bits_s, min_match, curr, ip, ilimit,
+                );
                 consume_immediate_repcodes(
                     src,
                     hash_long,
