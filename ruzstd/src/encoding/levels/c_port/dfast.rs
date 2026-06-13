@@ -196,6 +196,9 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
                     offset = ip - matchl0;
                     match_length += 1;
                 }
+                if step < 4 {
+                    hash_long[hl1] = ip1 as u32;
+                }
                 store_offset_match(
                     &mut sequences,
                     &mut anchor,

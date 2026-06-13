@@ -142,9 +142,10 @@ fn strategy_frame_round_trips_multiple_blocks() {
 }
 
 #[test]
-fn strategy_frame_huffman_regression_corpus_round_trips() {
+fn strategy_frame_corpus_size_regressions_round_trip() {
     let level_one = include_bytes!("../../../../decodecorpus_files/z000021");
     let level_five = include_bytes!("../../../../decodecorpus_files/z000033");
+    let level_three = include_bytes!("../../../../decodecorpus_files/z000040");
 
     let encoded = encode_frame_no_dict(level_one, 1);
     assert_round_trips(&encoded, level_one);
@@ -159,6 +160,14 @@ fn strategy_frame_huffman_regression_corpus_round_trips() {
     assert!(
         encoded.len() <= 490_000,
         "level 5 corpus literal table regressed to {} bytes",
+        encoded.len()
+    );
+
+    let encoded = encode_frame_no_dict(level_three, 3);
+    assert_round_trips(&encoded, level_three);
+    assert!(
+        encoded.len() <= 38_600,
+        "level 3 double-fast hash insertion regressed to {} bytes",
         encoded.len()
     );
 }
