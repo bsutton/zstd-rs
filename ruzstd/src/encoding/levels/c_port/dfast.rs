@@ -301,7 +301,7 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
             matchl0 = matchl1;
 
             if ip1 > ilimit {
-                break;
+                break 'outer;
             }
         }
     }
