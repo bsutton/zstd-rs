@@ -45,7 +45,7 @@ impl FrameHeader {
         if !self.single_segment {
             if let Some(window_size) = self.window_size {
                 let log = window_size.next_power_of_two().ilog2();
-                let exponent = if log > 10 { log - 10 } else { 1 } as u8;
+                let exponent = log.saturating_sub(10) as u8;
                 output.push(exponent << 3);
             }
         }
@@ -132,7 +132,7 @@ impl FrameHeader {
                 1 => 0,
                 2 => 1,
                 4 => 2,
-                3 => 8,
+                8 => 3,
                 _ => panic!(),
             };
 
@@ -197,6 +197,24 @@ mod tests {
         let parsed_header = read_frame_header(serialized_header.as_slice()).unwrap().0;
         assert!(parsed_header.dictionary_id().is_none());
         assert_eq!(parsed_header.frame_content_size(), 1);
+    }
+
+    #[test]
+    fn frame_header_decode_8_byte_content_size() {
+        let content_size = 1u64 << 40;
+        let header = FrameHeader {
+            frame_content_size: Some(content_size),
+            single_segment: true,
+            content_checksum: false,
+            dictionary_id: None,
+            window_size: None,
+        };
+
+        let mut serialized_header = Vec::new();
+        header.serialize(&mut serialized_header);
+        let parsed_header = read_frame_header(serialized_header.as_slice()).unwrap().0;
+
+        assert_eq!(parsed_header.frame_content_size(), content_size);
     }
 
     #[test]

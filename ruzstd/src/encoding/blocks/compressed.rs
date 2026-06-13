@@ -1,46 +1,172 @@
 use alloc::vec::Vec;
+use core::convert::TryFrom;
 
+mod config;
+mod literals;
+mod sequence_codes;
+mod sequence_cost;
+mod sequence_tables;
+
+pub(crate) use config::BlockCompressionConfig;
+use config::HuffmanTableSearch;
+use literals::{
+    compress_literals, raw_literals, should_compress_literals, COMPRESS_LITERALS_SIZE_MIN,
+};
+#[cfg(test)]
+use literals::{
+    compressed_literals_header_len, compressed_literals_size_format,
+    literal_estimate_has_enough_gain, literal_min_gain, rle_literals, LiteralStats,
+    REPEAT_LITERALS_SIZE_MIN,
+};
+use sequence_codes::{encode_literal_length, encode_match_len, encode_offset};
+pub(crate) use sequence_codes::{literal_length_code, match_length_code, offset_code};
+use sequence_tables::{
+    choose_sequence_table_modes, encode_fse_table_modes, encode_table, FseTableMode,
+    SequenceModeSearchConfig,
+};
+#[cfg(test)]
+use sequence_tables::{choose_table, exact_sequence_section_size};
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+use crate::fse::fse_encoder::build_table_from_data;
 use crate::{
     bit_io::BitWriter,
-    encoding::frame_compressor::CompressState,
-    encoding::{Matcher, Sequence},
-    fse::fse_encoder::{build_table_from_data, FSETable, State},
+    encoding::frame_compressor::{CompressState, FseTables, OffsetHistory},
+    encoding::util::likely_dependency_json_lockfile_text,
+    encoding::{CompressionFileProfile, Matcher, Sequence},
+    fse::fse_encoder::{FSETable, State},
     huff0::huff0_encoder,
 };
 
-/// A block of [`crate::common::BlockType::Compressed`]
-pub fn compress_block<M: Matcher>(state: &mut CompressState<M>, output: &mut Vec<u8>) {
-    let mut literals_vec = Vec::new();
-    let mut sequences = Vec::new();
-    state.matcher.start_matching(|seq| {
-        match seq {
-            Sequence::Literals { literals } => literals_vec.extend_from_slice(literals),
-            Sequence::Triple {
-                literals,
-                offset,
-                match_len,
-            } => {
-                literals_vec.extend_from_slice(literals);
-                sequences.push(crate::blocks::sequence_section::Sequence {
-                    ll: literals.len() as u32,
-                    ml: match_len as u32,
-                    of: (offset + 3) as u32, // TODO make use of the offset history
-                });
-            }
+const INITIAL_LITERALS_CAPACITY: usize = 1024;
+const INITIAL_SEQUENCES_CAPACITY: usize = 256;
+const SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS: usize = 256;
+const SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES: usize = 2;
+const FILE_TYPE_SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS: usize = 4 * 1024;
+const EXACT_SEQUENCE_TABLE_MIN_LOG: u8 = 7;
+pub(crate) struct PreparedBlock {
+    pub(crate) literals: Vec<u8>,
+    pub(crate) sequences: Vec<PreparedSequence>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct PreparedBlockRef<'a> {
+    pub(crate) literals: &'a [u8],
+    pub(crate) sequences: &'a [PreparedSequence],
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct PreparedSequence {
+    pub(crate) ll: u32,
+    pub(crate) ml: u32,
+    pub(crate) raw_offset: u32,
+}
+
+impl PreparedBlock {
+    pub(crate) fn as_ref(&self) -> PreparedBlockRef<'_> {
+        PreparedBlockRef {
+            literals: &self.literals,
+            sequences: &self.sequences,
+        }
+    }
+}
+
+pub(crate) fn compress_block_with_config<M: Matcher>(
+    state: &mut CompressState<M>,
+    output: &mut Vec<u8>,
+    config: BlockCompressionConfig,
+) -> Option<huff0_encoder::HuffmanTable> {
+    let mut config = config;
+    if matches!(state.file_profile_hint, CompressionFileProfile::None)
+        && likely_dependency_json_lockfile_text(state.matcher.get_last_space())
+    {
+        config.apply_dependency_json_lockfile_tuning();
+    }
+    let prepared = prepare_block(state);
+    let previous_huff_table = state.last_huff_table.take();
+    let result = compress_prepared_block(
+        output,
+        config,
+        prepared.as_ref(),
+        &mut state.fse_tables,
+        &mut state.offset_history,
+        previous_huff_table.as_ref(),
+    );
+    state.last_huff_table = previous_huff_table;
+    result
+}
+
+pub(crate) fn prepare_block<M: Matcher>(state: &mut CompressState<M>) -> PreparedBlock {
+    let mut literals_vec = Vec::with_capacity(INITIAL_LITERALS_CAPACITY);
+    let mut sequences = Vec::with_capacity(INITIAL_SEQUENCES_CAPACITY);
+    let (newest, second, third) = state.offset_history.as_offsets();
+    state.matcher.set_repeat_offsets(newest, second, third);
+    state.matcher.start_matching(|seq| match seq {
+        Sequence::Literals { literals } => literals_vec.extend_from_slice(literals),
+        Sequence::Triple {
+            literals,
+            offset,
+            match_len,
+        } => {
+            literals_vec.extend_from_slice(literals);
+            sequences.push(PreparedSequence {
+                ll: literals.len() as u32,
+                ml: match_len as u32,
+                raw_offset: offset_to_u32(offset),
+            });
         }
     });
+
+    PreparedBlock {
+        literals: literals_vec,
+        sequences,
+    }
+}
+
+pub(crate) fn compress_prepared_block(
+    output: &mut Vec<u8>,
+    config: BlockCompressionConfig,
+    prepared: PreparedBlockRef<'_>,
+    fse_tables: &mut FseTables,
+    offset_history: &mut OffsetHistory,
+    previous_huff_table: Option<&huff0_encoder::HuffmanTable>,
+) -> Option<huff0_encoder::HuffmanTable> {
+    let mut new_huffman_table = None;
+    let mut next_offset_history = *offset_history;
+    let sequences = encode_sequences_for_history(prepared.sequences, &mut next_offset_history);
 
     // literals section
 
     let mut writer = BitWriter::from(output);
-    if literals_vec.len() > 1024 {
-        if let Some(table) =
-            compress_literals(&literals_vec, state.last_huff_table.as_ref(), &mut writer)
-        {
-            state.last_huff_table.replace(table);
+    if should_compress_literals(prepared.literals.len(), previous_huff_table.is_some()) {
+        let search_smallest_huffman_table = match config.huffman_table_search {
+            HuffmanTableSearch::Heuristic => {
+                sequences.is_empty()
+                    || (sequences.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES
+                        && prepared.literals.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS)
+            }
+            HuffmanTableSearch::FileTypeSmall => {
+                prepared.literals.len() <= FILE_TYPE_SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS
+                    || sequences.is_empty()
+                    || (sequences.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES
+                        && prepared.literals.len() <= SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS)
+            }
+            HuffmanTableSearch::AllSections => true,
+        };
+        if let Some(table) = compress_literals(
+            prepared.literals,
+            previous_huff_table,
+            search_smallest_huffman_table,
+            config.file_type_single_stream_huffman_max_literals,
+            &mut writer,
+        ) {
+            new_huffman_table = Some(table);
         }
     } else {
-        raw_literals(&literals_vec, &mut writer);
+        raw_literals(prepared.literals, &mut writer);
     }
 
     // sequences section
@@ -50,25 +176,36 @@ pub fn compress_block<M: Matcher>(state: &mut CompressState<M>, output: &mut Vec
     } else {
         encode_seqnum(sequences.len(), &mut writer);
 
-        // Choose the tables
-        // TODO store previously used tables
-        let ll_mode = choose_table(
-            state.fse_tables.ll_previous.as_ref(),
-            &state.fse_tables.ll_default,
-            sequences.iter().map(|seq| encode_literal_length(seq.ll).0),
-            9,
-        );
-        let ml_mode = choose_table(
-            state.fse_tables.ml_previous.as_ref(),
-            &state.fse_tables.ml_default,
-            sequences.iter().map(|seq| encode_match_len(seq.ml).0),
-            9,
-        );
-        let of_mode = choose_table(
-            state.fse_tables.of_previous.as_ref(),
-            &state.fse_tables.of_default,
-            sequences.iter().map(|seq| encode_offset(seq.of).0),
-            8,
+        // Choose the tables.
+        let file_type_small_sequence_predefined_llml_max_sequences =
+            if prepared.literals.len() >= COMPRESS_LITERALS_SIZE_MIN {
+                config
+                    .file_type_small_sequence_predefined_llml_max_sequences
+                    .unwrap_or(16)
+            } else {
+                16
+            };
+        let ll_previous = fse_tables.ll_previous.clone();
+        let ml_previous = fse_tables.ml_previous.clone();
+        let of_previous = fse_tables.of_previous.clone();
+        let (ll_mode, ml_mode, of_mode) = choose_sequence_table_modes(
+            &sequences,
+            SequenceModeSearchConfig {
+                ll_previous: ll_previous.as_ref(),
+                ll_default: &fse_tables.ll_default,
+                ml_previous: ml_previous.as_ref(),
+                ml_default: &fse_tables.ml_default,
+                of_previous: of_previous.as_ref(),
+                of_default: &fse_tables.of_default,
+                repeat_table_max_sequences: config.repeat_table_max_sequences,
+                llml_predefined_max_sequences:
+                    file_type_small_sequence_predefined_llml_max_sequences,
+                of_predefined_max_sequences: config.offset_predefined_max_sequences,
+                of_max_log: config.offset_table_max_log,
+                exact_sequence_mode_search: config.exact_sequence_mode_search,
+                c_fast_heuristics: config.c_fast_sequence_table_heuristics,
+                c_cost_model: config.c_cost_sequence_table_selection,
+            },
         );
 
         writer.write_bits(encode_fse_table_modes(&ll_mode, &ml_mode, &of_mode), 8);
@@ -77,146 +214,189 @@ pub fn compress_block<M: Matcher>(state: &mut CompressState<M>, output: &mut Vec
         encode_table(&of_mode, &mut writer);
         encode_table(&ml_mode, &mut writer);
 
-        encode_sequences(
-            &sequences,
-            &mut writer,
-            ll_mode.as_ref(),
-            ml_mode.as_ref(),
-            of_mode.as_ref(),
-        );
+        encode_sequences(&sequences, &mut writer, &ll_mode, &ml_mode, &of_mode);
 
-        if let FseTableMode::Encoded(table) = ll_mode {
-            state.fse_tables.ll_previous = Some(table)
+        match ll_mode {
+            FseTableMode::Encoded(table) => fse_tables.ll_previous = Some(table),
+            FseTableMode::Predefined(_) => fse_tables.ll_previous = None,
+            FseTableMode::Rle(_) => fse_tables.ll_previous = None,
+            FseTableMode::RepeatLast(_) => {}
         }
-        if let FseTableMode::Encoded(table) = ml_mode {
-            state.fse_tables.ml_previous = Some(table)
+        match ml_mode {
+            FseTableMode::Encoded(table) => fse_tables.ml_previous = Some(table),
+            FseTableMode::Predefined(_) => fse_tables.ml_previous = None,
+            FseTableMode::Rle(_) => fse_tables.ml_previous = None,
+            FseTableMode::RepeatLast(_) => {}
         }
-        if let FseTableMode::Encoded(table) = of_mode {
-            state.fse_tables.of_previous = Some(table)
+        match of_mode {
+            FseTableMode::Encoded(table) => fse_tables.of_previous = Some(table),
+            FseTableMode::Predefined(_) => fse_tables.of_previous = None,
+            FseTableMode::Rle(_) => fse_tables.of_previous = None,
+            FseTableMode::RepeatLast(_) => {}
         }
     }
     writer.flush();
+    *offset_history = next_offset_history;
+    new_huffman_table
 }
 
-#[derive(Clone)]
-#[allow(clippy::large_enum_variant)]
-enum FseTableMode<'a> {
-    Predefined(&'a FSETable),
-    Encoded(FSETable),
-    RepeateLast(&'a FSETable),
-}
-
-impl FseTableMode<'_> {
-    pub fn as_ref(&self) -> &FSETable {
-        match self {
-            Self::Predefined(t) => t,
-            Self::RepeateLast(t) => t,
-            Self::Encoded(t) => t,
-        }
+fn encode_sequences_for_history(
+    sequences: &[PreparedSequence],
+    offset_history: &mut OffsetHistory,
+) -> Vec<crate::blocks::sequence_section::Sequence> {
+    let mut encoded = Vec::with_capacity(sequences.len());
+    for sequence in sequences {
+        encoded.push(crate::blocks::sequence_section::Sequence {
+            ll: sequence.ll,
+            ml: sequence.ml,
+            of: offset_history.encode_offset_value(sequence.raw_offset, sequence.ll),
+        });
     }
+    encoded
 }
 
-fn choose_table<'a>(
-    previous: Option<&'a FSETable>,
-    default_table: &'a FSETable,
-    data: impl Iterator<Item = u8>,
-    max_log: u8,
-) -> FseTableMode<'a> {
-    // TODO check if the new table is better than the predefined and previous table
-    let use_new_table = true;
-    let use_previous_table = false;
-    if use_previous_table {
-        FseTableMode::RepeateLast(previous.unwrap())
-    } else if use_new_table {
-        FseTableMode::Encoded(build_table_from_data(data, max_log, true))
-    } else {
-        FseTableMode::Predefined(default_table)
+#[inline(always)]
+fn offset_to_u32(offset: usize) -> u32 {
+    match u32::try_from(offset) {
+        Ok(offset) => offset,
+        Err(_) => unreachable!("match offsets are bounded by the compressor window"),
     }
-}
-
-fn encode_table(mode: &FseTableMode<'_>, writer: &mut BitWriter<&mut Vec<u8>>) {
-    match mode {
-        FseTableMode::Predefined(_) => {}
-        FseTableMode::RepeateLast(_) => {}
-        FseTableMode::Encoded(table) => table.write_table(writer),
-    }
-}
-
-fn encode_fse_table_modes(
-    ll_mode: &FseTableMode<'_>,
-    ml_mode: &FseTableMode<'_>,
-    of_mode: &FseTableMode<'_>,
-) -> u8 {
-    fn mode_to_bits(mode: &FseTableMode<'_>) -> u8 {
-        match mode {
-            FseTableMode::Predefined(_) => 0,
-            FseTableMode::Encoded(_) => 2,
-            FseTableMode::RepeateLast(_) => 3,
-        }
-    }
-    mode_to_bits(ll_mode) << 6 | mode_to_bits(of_mode) << 4 | mode_to_bits(ml_mode) << 2
 }
 
 fn encode_sequences(
     sequences: &[crate::blocks::sequence_section::Sequence],
     writer: &mut BitWriter<&mut Vec<u8>>,
-    ll_table: &FSETable,
-    ml_table: &FSETable,
-    of_table: &FSETable,
+    ll_mode: &FseTableMode<'_>,
+    ml_mode: &FseTableMode<'_>,
+    of_mode: &FseTableMode<'_>,
 ) {
+    if let (
+        FseTableMode::Rle(ll_symbol),
+        FseTableMode::Rle(ml_symbol),
+        FseTableMode::Rle(of_symbol),
+    ) = (ll_mode, ml_mode, of_mode)
+    {
+        encode_rle_sequences(sequences, writer, *ll_symbol, *ml_symbol, *of_symbol);
+        return;
+    }
+
     let sequence = sequences[sequences.len() - 1];
+    let ll_table = ll_mode.table();
+    let ml_table = ml_mode.table();
+    let of_table = of_mode.table();
     let (ll_code, ll_add_bits, ll_num_bits) = encode_literal_length(sequence.ll);
     let (of_code, of_add_bits, of_num_bits) = encode_offset(sequence.of);
     let (ml_code, ml_add_bits, ml_num_bits) = encode_match_len(sequence.ml);
-    let mut ll_state: &State = ll_table.start_state(ll_code);
-    let mut ml_state: &State = ml_table.start_state(ml_code);
-    let mut of_state: &State = of_table.start_state(of_code);
+    let mut ll_state = init_fse_state(ll_mode, ll_code);
+    let mut ml_state = init_fse_state(ml_mode, ml_code);
+    let mut of_state = init_fse_state(of_mode, of_code);
 
     writer.write_bits(ll_add_bits, ll_num_bits);
     writer.write_bits(ml_add_bits, ml_num_bits);
     writer.write_bits(of_add_bits, of_num_bits);
 
-    // encode backwards so the decoder reads the first sequence first
-    if sequences.len() > 1 {
-        for sequence in (0..=sequences.len() - 2).rev() {
-            let sequence = sequences[sequence];
-            let (ll_code, ll_add_bits, ll_num_bits) = encode_literal_length(sequence.ll);
-            let (of_code, of_add_bits, of_num_bits) = encode_offset(sequence.of);
-            let (ml_code, ml_add_bits, ml_num_bits) = encode_match_len(sequence.ml);
+    // Encode backwards so the decoder reads the first sequence first.
+    let mut sequence_idx = sequences.len() - 1;
+    while sequence_idx > 0 {
+        sequence_idx -= 1;
+        let sequence = sequences[sequence_idx];
+        let (ll_code, ll_add_bits, ll_num_bits) = encode_literal_length(sequence.ll);
+        let (of_code, of_add_bits, of_num_bits) = encode_offset(sequence.of);
+        let (ml_code, ml_add_bits, ml_num_bits) = encode_match_len(sequence.ml);
 
-            {
-                let next = of_table.next_state(of_code, of_state.index);
-                let diff = of_state.index - next.baseline;
-                writer.write_bits(diff as u64, next.num_bits as usize);
-                of_state = next;
-            }
-            {
-                let next = ml_table.next_state(ml_code, ml_state.index);
-                let diff = ml_state.index - next.baseline;
-                writer.write_bits(diff as u64, next.num_bits as usize);
-                ml_state = next;
-            }
-            {
-                let next = ll_table.next_state(ll_code, ll_state.index);
-                let diff = ll_state.index - next.baseline;
-                writer.write_bits(diff as u64, next.num_bits as usize);
-                ll_state = next;
-            }
-
-            writer.write_bits(ll_add_bits, ll_num_bits);
-            writer.write_bits(ml_add_bits, ml_num_bits);
-            writer.write_bits(of_add_bits, of_num_bits);
+        {
+            update_fse_state(of_table, &mut of_state, of_code, writer);
         }
+        {
+            update_fse_state(ml_table, &mut ml_state, ml_code, writer);
+        }
+        {
+            update_fse_state(ll_table, &mut ll_state, ll_code, writer);
+        }
+
+        writer.write_bits(ll_add_bits, ll_num_bits);
+        writer.write_bits(ml_add_bits, ml_num_bits);
+        writer.write_bits(of_add_bits, of_num_bits);
     }
-    writer.write_bits(ml_state.index as u64, ml_table.table_size.ilog2() as usize);
-    writer.write_bits(of_state.index as u64, of_table.table_size.ilog2() as usize);
-    writer.write_bits(ll_state.index as u64, ll_table.table_size.ilog2() as usize);
+    flush_fse_state(ml_table, ml_state, writer);
+    flush_fse_state(of_table, of_state, writer);
+    flush_fse_state(ll_table, ll_state, writer);
 
     let bits_to_fill = writer.misaligned();
     if bits_to_fill == 0 {
         writer.write_bits(1u32, 8);
     } else {
         writer.write_bits(1u32, bits_to_fill);
+    }
+}
+
+fn encode_rle_sequences(
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    writer: &mut BitWriter<&mut Vec<u8>>,
+    ll_symbol: u8,
+    ml_symbol: u8,
+    of_symbol: u8,
+) {
+    for sequence in sequences.iter().rev() {
+        let (ll_code, ll_add_bits, ll_num_bits) = encode_literal_length(sequence.ll);
+        let (of_code, of_add_bits, of_num_bits) = encode_offset(sequence.of);
+        let (ml_code, ml_add_bits, ml_num_bits) = encode_match_len(sequence.ml);
+        debug_assert_eq!(ll_code, ll_symbol);
+        debug_assert_eq!(ml_code, ml_symbol);
+        debug_assert_eq!(of_code, of_symbol);
+
+        writer.write_bits(ll_add_bits, ll_num_bits);
+        writer.write_bits(ml_add_bits, ml_num_bits);
+        writer.write_bits(of_add_bits, of_num_bits);
+    }
+
+    let bits_to_fill = writer.misaligned();
+    if bits_to_fill == 0 {
+        writer.write_bits(1u32, 8);
+    } else {
+        writer.write_bits(1u32, bits_to_fill);
+    }
+}
+
+fn init_fse_state<'a>(mode: &'a FseTableMode<'_>, symbol: u8) -> Option<&'a State> {
+    match mode {
+        FseTableMode::Rle(rle_symbol) => {
+            debug_assert_eq!(*rle_symbol, symbol);
+            None
+        }
+        _ => mode.table().map(|table| table.start_state(symbol)),
+    }
+}
+
+fn update_fse_state<'a>(
+    table: Option<&'a FSETable>,
+    state: &mut Option<&'a State>,
+    symbol: u8,
+    writer: &mut BitWriter<&mut Vec<u8>>,
+) {
+    if let Some(table) = table {
+        if let Some(current) = *state {
+            let next = table.next_state(symbol, current.index);
+            let diff = current.index - next.baseline;
+            writer.write_bits(diff as u64, next.num_bits as usize);
+            *state = Some(next);
+        } else {
+            unreachable!("non-RLE FSE mode must have a state");
+        }
+    }
+}
+
+fn flush_fse_state(
+    table: Option<&FSETable>,
+    state: Option<&State>,
+    writer: &mut BitWriter<&mut Vec<u8>>,
+) {
+    if let Some(table) = table {
+        if let Some(state) = state {
+            writer.write_bits(state.index as u64, table.acc_log() as usize);
+        } else {
+            unreachable!("non-RLE FSE mode must have a state");
+        }
     }
 }
 
@@ -239,139 +419,5 @@ fn encode_seqnum(seqnum: usize, writer: &mut BitWriter<impl AsMut<Vec<u8>>>) {
             writer.write_bits(lower, 8);
         }
         _ => unreachable!(),
-    }
-}
-
-fn encode_literal_length(len: u32) -> (u8, u32, usize) {
-    match len {
-        0..=15 => (len as u8, 0, 0),
-        16..=17 => (16, len - 16, 1),
-        18..=19 => (17, len - 18, 1),
-        20..=21 => (18, len - 20, 1),
-        22..=23 => (19, len - 22, 1),
-        24..=27 => (20, len - 24, 2),
-        28..=31 => (21, len - 28, 2),
-        32..=39 => (22, len - 32, 3),
-        40..=47 => (23, len - 40, 3),
-        48..=63 => (24, len - 48, 4),
-        64..=127 => (25, len - 64, 6),
-        128..=255 => (26, len - 128, 7),
-        256..=511 => (27, len - 256, 8),
-        512..=1023 => (28, len - 512, 9),
-        1024..=2047 => (29, len - 1024, 10),
-        2048..=4095 => (30, len - 2048, 11),
-        4096..=8191 => (31, len - 4096, 12),
-        8192..=16383 => (32, len - 8192, 13),
-        16384..=32767 => (33, len - 16384, 14),
-        32768..=65535 => (34, len - 32768, 15),
-        65536..=131071 => (35, len - 65536, 16),
-        131072.. => unreachable!(),
-    }
-}
-
-fn encode_match_len(len: u32) -> (u8, u32, usize) {
-    match len {
-        0..=2 => unreachable!(),
-        3..=34 => (len as u8 - 3, 0, 0),
-        35..=36 => (32, len - 35, 1),
-        37..=38 => (33, len - 37, 1),
-        39..=40 => (34, len - 39, 1),
-        41..=42 => (35, len - 41, 1),
-        43..=46 => (36, len - 43, 2),
-        47..=50 => (37, len - 47, 2),
-        51..=58 => (38, len - 51, 3),
-        59..=66 => (39, len - 59, 3),
-        67..=82 => (40, len - 67, 4),
-        83..=98 => (41, len - 83, 4),
-        99..=130 => (42, len - 99, 5),
-        131..=258 => (43, len - 131, 7),
-        259..=514 => (44, len - 259, 8),
-        515..=1026 => (45, len - 515, 9),
-        1027..=2050 => (46, len - 1027, 10),
-        2051..=4098 => (47, len - 2051, 11),
-        4099..=8194 => (48, len - 4099, 12),
-        8195..=16386 => (49, len - 8195, 13),
-        16387..=32770 => (50, len - 16387, 14),
-        32771..=65538 => (51, len - 32771, 15),
-        65539..=131074 => (52, len - 32771, 16),
-        131075.. => unreachable!(),
-    }
-}
-
-fn encode_offset(len: u32) -> (u8, u32, usize) {
-    let log = len.ilog2();
-    let lower = len & ((1 << log) - 1);
-    (log as u8, lower, log as usize)
-}
-
-fn raw_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>) {
-    writer.write_bits(0u8, 2);
-    writer.write_bits(0b11u8, 2);
-    writer.write_bits(literals.len() as u32, 20);
-    writer.append_bytes(literals);
-}
-
-fn compress_literals(
-    literals: &[u8],
-    last_table: Option<&huff0_encoder::HuffmanTable>,
-    writer: &mut BitWriter<&mut Vec<u8>>,
-) -> Option<huff0_encoder::HuffmanTable> {
-    let reset_idx = writer.index();
-
-    let new_encoder_table = huff0_encoder::HuffmanTable::build_from_data(literals);
-
-    let (encoder_table, new_table) = if let Some(_table) = last_table {
-        if let Some(diff) = _table.can_encode(&new_encoder_table) {
-            // TODO this is a very simple heuristic, maybe we should try to do better
-            if diff > 5 {
-                (&new_encoder_table, true)
-            } else {
-                (_table, false)
-            }
-        } else {
-            (&new_encoder_table, true)
-        }
-    } else {
-        (&new_encoder_table, true)
-    };
-
-    if new_table {
-        writer.write_bits(2u8, 2); // compressed literals type
-    } else {
-        writer.write_bits(3u8, 2); // treeless compressed literals type
-    }
-
-    let (size_format, size_bits) = match literals.len() {
-        0..6 => (0b00u8, 10),
-        6..1024 => (0b01, 10),
-        1024..16384 => (0b10, 14),
-        16384..262144 => (0b11, 18),
-        _ => unimplemented!("too many literals"),
-    };
-
-    writer.write_bits(size_format, 2);
-    writer.write_bits(literals.len() as u32, size_bits);
-    let size_index = writer.index();
-    writer.write_bits(0u32, size_bits);
-    let index_before = writer.index();
-    let mut encoder = huff0_encoder::HuffmanEncoder::new(encoder_table, writer);
-    if size_format == 0 {
-        encoder.encode(literals, new_table)
-    } else {
-        encoder.encode4x(literals, new_table)
-    };
-    let encoded_len = (writer.index() - index_before) / 8;
-    writer.change_bits(size_index, encoded_len as u64, size_bits);
-    let total_len = (writer.index() - reset_idx) / 8;
-
-    // If encoded len is bigger than the raw literals we are better off just writing the raw literals here
-    if total_len >= literals.len() {
-        writer.reset_to(reset_idx);
-        raw_literals(literals, writer);
-        None
-    } else if new_table {
-        Some(new_encoder_table)
-    } else {
-        None
     }
 }

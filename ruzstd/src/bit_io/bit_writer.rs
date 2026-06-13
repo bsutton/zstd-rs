@@ -177,11 +177,21 @@ impl<V: AsMut<Vec<u8>>> BitWriter<V> {
         }
 
         // fill partial byte first
-        if num_bits + self.bits_in_partial < 64 {
+        let new_bits_in_partial = num_bits + self.bits_in_partial;
+        if new_bits_in_partial < 64 {
             let part = bits << self.bits_in_partial;
             let merged = self.partial | part;
             self.partial = merged;
-            self.bits_in_partial += num_bits;
+            self.bits_in_partial = new_bits_in_partial;
+        } else if new_bits_in_partial == 64 {
+            let part = bits << self.bits_in_partial;
+            let merged = self.partial | part;
+            self.output
+                .as_mut()
+                .extend_from_slice(&merged.to_le_bytes());
+            self.bit_idx += 64;
+            self.partial = 0;
+            self.bits_in_partial = 0;
         } else {
             // If the partial buffer can't hold the num_bits we need to make space
             self.write_bits_64_cold(bits, num_bits);
@@ -305,6 +315,19 @@ mod tests {
         bw.write_bits(0x0100u16, 16);
         bw.write_bits(69u8, 8);
         assert_eq!(vec![0, 1, 69], bw.dump())
+    }
+
+    #[test]
+    fn exact_64_bit_fill_flushes_without_losing_following_bits() {
+        let mut bw = BitWriter::new();
+        bw.write_bits(0xABu8, 8);
+        bw.write_bits(0x01_02_03_04_05_06_07u64, 56);
+        bw.write_bits(0xCDu8, 8);
+
+        assert_eq!(
+            vec![0xAB, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0xCD],
+            bw.dump()
+        );
     }
 
     #[test]

@@ -23,6 +23,10 @@ impl BlockHeader {
     /// Write encoded binary representation of this header into the provided buffer.
     pub fn serialize(self, output: &mut Vec<u8>) {
         vprintln!("Serializing block with the header: {self:?}");
+        output.extend_from_slice(&self.serialize_to_bytes());
+    }
+
+    pub(crate) fn serialize_to_bytes(self) -> [u8; 3] {
         let encoded_block_type = match self.block_type {
             BlockType::Raw => 0,
             BlockType::RLE => 1,
@@ -32,7 +36,8 @@ impl BlockHeader {
         let mut block_header = self.block_size << 3;
         block_header |= encoded_block_type << 1;
         block_header |= self.last_block as u32;
-        output.extend_from_slice(&block_header.to_le_bytes()[0..3]);
+        let bytes = block_header.to_le_bytes();
+        [bytes[0], bytes[1], bytes[2]]
     }
 }
 

@@ -1,3 +1,6 @@
+#[cfg(all(test, feature = "std"))]
+use alloc::format;
+
 #[cfg(test)]
 use alloc::vec;
 
@@ -6,6 +9,9 @@ use alloc::vec::Vec;
 
 #[cfg(test)]
 extern crate std;
+
+#[cfg(all(test, feature = "std"))]
+use std::hint::black_box;
 
 #[cfg(all(test, not(feature = "std")))]
 impl crate::io_nostd::Read for std::fs::File {
@@ -573,6 +579,475 @@ fn test_decode_all() {
     assert_eq!(output, original);
 }
 
+#[cfg(all(test, feature = "std"))]
+fn archive_mode_name(mode: crate::blocks::sequence_section::ModeType) -> &'static str {
+    use crate::blocks::sequence_section::ModeType;
+
+    match mode {
+        ModeType::Predefined => "predefined",
+        ModeType::RLE => "rle",
+        ModeType::FSECompressed => "fse",
+        ModeType::Repeat => "repeat",
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+fn archive_literal_length_extra_bits(len: u32) -> usize {
+    match len {
+        0..=15 => 0,
+        16..=23 => 1,
+        24..=31 => 2,
+        32..=47 => 3,
+        48..=63 => 4,
+        64..=127 => 6,
+        128..=255 => 7,
+        256..=511 => 8,
+        512..=1023 => 9,
+        1024..=2047 => 10,
+        2048..=4095 => 11,
+        4096..=8191 => 12,
+        8192..=16383 => 13,
+        16384..=32767 => 14,
+        32768..=65535 => 15,
+        65536..=131071 => 16,
+        _ => unreachable!(),
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+fn archive_match_length_extra_bits(len: u32) -> usize {
+    match len {
+        3..=34 => 0,
+        35..=42 => 1,
+        43..=50 => 2,
+        51..=66 => 3,
+        67..=98 => 4,
+        99..=130 => 5,
+        131..=258 => 7,
+        259..=514 => 8,
+        515..=1026 => 9,
+        1027..=2050 => 10,
+        2051..=4098 => 11,
+        4099..=8194 => 12,
+        8195..=16386 => 13,
+        16387..=32770 => 14,
+        32771..=65538 => 15,
+        65539..=131074 => 16,
+        _ => unreachable!(),
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+fn archive_offset_extra_bits(offset_value: u32) -> usize {
+    offset_value.ilog2() as usize
+}
+
+#[cfg(all(test, feature = "std"))]
+fn archive_literal_length_code(len: u32) -> u8 {
+    match len {
+        0..=15 => len as u8,
+        16..=17 => 16,
+        18..=19 => 17,
+        20..=21 => 18,
+        22..=23 => 19,
+        24..=27 => 20,
+        28..=31 => 21,
+        32..=39 => 22,
+        40..=47 => 23,
+        48..=63 => 24,
+        64..=127 => 25,
+        128..=255 => 26,
+        256..=511 => 27,
+        512..=1023 => 28,
+        1024..=2047 => 29,
+        2048..=4095 => 30,
+        4096..=8191 => 31,
+        8192..=16383 => 32,
+        16384..=32767 => 33,
+        32768..=65535 => 34,
+        65536..=131071 => 35,
+        _ => unreachable!(),
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+fn archive_match_length_code(len: u32) -> u8 {
+    match len {
+        3..=34 => len as u8 - 3,
+        35..=36 => 32,
+        37..=38 => 33,
+        39..=40 => 34,
+        41..=42 => 35,
+        43..=46 => 36,
+        47..=50 => 37,
+        51..=58 => 38,
+        59..=66 => 39,
+        67..=82 => 40,
+        83..=98 => 41,
+        99..=130 => 42,
+        131..=258 => 43,
+        259..=514 => 44,
+        515..=1026 => 45,
+        1027..=2050 => 46,
+        2051..=4098 => 47,
+        4099..=8194 => 48,
+        8195..=16386 => 49,
+        16387..=32770 => 50,
+        32771..=65538 => 51,
+        65539..=131074 => 52,
+        _ => unreachable!(),
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+fn archive_offset_code(offset_value: u32) -> u8 {
+    offset_value.ilog2() as u8
+}
+
+#[cfg(all(test, feature = "std"))]
+fn print_top_code_counts(label: &str, counts: &[usize], limit: usize) {
+    let mut pairs = counts
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, count)| *count != 0)
+        .collect::<Vec<_>>();
+    pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let summary = pairs
+        .into_iter()
+        .take(limit)
+        .map(|(code, count)| format!("{code}:{count}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    std::println!("{label} {summary}");
+}
+
+#[cfg(all(test, feature = "std"))]
+fn inspect_archive(path: &std::path::Path) {
+    use crate::blocks::block::BlockType;
+    use crate::blocks::literals_section::{LiteralsSection, LiteralsSectionType};
+    use crate::blocks::sequence_section::SequencesHeader;
+    use crate::decoding::frame;
+    use crate::decoding::literals_section_decoder::decode_literals;
+    use crate::decoding::scratch::DecoderScratch;
+    use crate::decoding::sequence_execution::execute_sequences;
+    use crate::decoding::sequence_section_decoder::decode_sequences;
+    use std::env;
+    use std::fs;
+
+    let frame_bytes = fs::read(path).unwrap();
+    let mut source = frame_bytes.as_slice();
+    let (frame_header, _) = frame::read_frame_header(&mut source).unwrap();
+    let window_size = frame_header.window_size().unwrap() as usize;
+    let mut scratch = DecoderScratch::new(window_size);
+    let mut block_decoder = crate::decoding::block_decoder::new();
+
+    std::println!(
+        "FRAME path={} compressed_bytes={} window_size={} content_size={} checksum={} single_segment={}",
+        path.display(),
+        frame_bytes.len(),
+        window_size,
+        frame_header.frame_content_size(),
+        frame_header.descriptor.content_checksum_flag(),
+        frame_header.descriptor.single_segment_flag(),
+    );
+
+    let mut block_index = 0usize;
+    let mut total_sequences = 0usize;
+    let mut total_literals = 0usize;
+    let mut total_match_bytes = 0usize;
+    let mut total_literal_section_bytes = 0usize;
+    let mut total_sequence_payload_bytes = 0usize;
+    let mut total_compressed_block_bytes = 0usize;
+    let mut total_decompressed_block_bytes = 0usize;
+    let mut compressed_blocks = 0usize;
+    let mut raw_blocks = 0usize;
+    let mut rle_blocks = 0usize;
+    let mut raw_block_input_bytes = 0usize;
+    let mut rle_block_output_bytes = 0usize;
+    let verbose_blocks = env::var("RUZSTD_INSPECT_VERBOSE_BLOCKS").ok().as_deref() == Some("1");
+    let sequence_hist = env::var("RUZSTD_INSPECT_SEQUENCE_HIST").ok().as_deref() == Some("1");
+
+    loop {
+        let (block_header, _) = block_decoder.read_block_header(&mut source).unwrap();
+        let block_before = scratch.buffer.len();
+
+        match block_header.block_type {
+            BlockType::Raw => {
+                raw_blocks += 1;
+                let size = block_header.content_size as usize;
+                raw_block_input_bytes += size;
+                scratch.buffer.push(&source[..size]);
+                source = &source[size..];
+                let block_output = scratch.buffer.len() - block_before;
+                total_decompressed_block_bytes += block_output;
+                if verbose_blocks {
+                    std::println!(
+                        "BLOCK idx={} type=raw compressed_bytes={} decompressed_bytes={}",
+                        block_index,
+                        size,
+                        block_output,
+                    );
+                }
+            }
+            BlockType::RLE => {
+                rle_blocks += 1;
+                let byte = source[0];
+                source = &source[1..];
+                scratch
+                    .buffer
+                    .extend_and_fill(byte, block_header.decompressed_size as usize);
+                let block_output = scratch.buffer.len() - block_before;
+                rle_block_output_bytes += block_output;
+                total_decompressed_block_bytes += block_output;
+                if verbose_blocks {
+                    std::println!(
+                        "BLOCK idx={} type=rle compressed_bytes=1 decompressed_bytes={} byte={}",
+                        block_index,
+                        block_output,
+                        byte,
+                    );
+                }
+            }
+            BlockType::Compressed => {
+                compressed_blocks += 1;
+                let block_size = block_header.content_size as usize;
+                total_compressed_block_bytes += block_size;
+                let block_bytes = &source[..block_size];
+                source = &source[block_size..];
+
+                let mut literals = LiteralsSection::new();
+                let literals_header_bytes = literals.parse_from_header(block_bytes).unwrap();
+                let after_literals_header = &block_bytes[literals_header_bytes as usize..];
+                let literals_payload_bytes = match literals.compressed_size {
+                    Some(size) => size as usize,
+                    None => match literals.ls_type {
+                        LiteralsSectionType::RLE => 1,
+                        LiteralsSectionType::Raw => literals.regenerated_size as usize,
+                        LiteralsSectionType::Compressed | LiteralsSectionType::Treeless => {
+                            unreachable!("compressed literals must carry compressed size")
+                        }
+                    },
+                };
+                let literals_payload = &after_literals_header[..literals_payload_bytes];
+                let literals_table_desc_bytes =
+                    if matches!(literals.ls_type, LiteralsSectionType::Compressed) {
+                        let mut temp_table = crate::huff0::HuffmanTable::new();
+                        temp_table.build_decoder(literals_payload).unwrap() as usize
+                    } else {
+                        0
+                    };
+                let literals_stream_bytes = literals_payload_bytes
+                    .saturating_sub(literals_table_desc_bytes)
+                    .saturating_sub(if literals.num_streams == Some(4) {
+                        6
+                    } else {
+                        0
+                    });
+
+                scratch.literals_buffer.clear();
+                decode_literals(
+                    &literals,
+                    &mut scratch.huf,
+                    literals_payload,
+                    &mut scratch.literals_buffer,
+                )
+                .unwrap();
+
+                let after_literals = &after_literals_header[literals_payload_bytes..];
+                let mut sequences = SequencesHeader::new();
+                let sequence_header_bytes = sequences.parse_from_header(after_literals).unwrap();
+                let sequence_payload = &after_literals[sequence_header_bytes as usize..];
+
+                scratch.sequences.clear();
+                if sequences.num_sequences != 0 {
+                    decode_sequences(
+                        &sequences,
+                        sequence_payload,
+                        &mut scratch.fse,
+                        &mut scratch.sequences,
+                    )
+                    .unwrap();
+                } else {
+                    assert!(
+                        sequence_payload.is_empty(),
+                        "compressed block with zero sequences had trailing bytes"
+                    );
+                }
+
+                let sequence_count = scratch.sequences.len();
+                let match_bytes = scratch
+                    .sequences
+                    .iter()
+                    .map(|seq| seq.ml as usize)
+                    .sum::<usize>();
+                let ll_extra_bits = scratch
+                    .sequences
+                    .iter()
+                    .map(|seq| archive_literal_length_extra_bits(seq.ll))
+                    .sum::<usize>();
+                let ml_extra_bits = scratch
+                    .sequences
+                    .iter()
+                    .map(|seq| archive_match_length_extra_bits(seq.ml))
+                    .sum::<usize>();
+                let of_extra_bits = scratch
+                    .sequences
+                    .iter()
+                    .map(|seq| archive_offset_extra_bits(seq.of))
+                    .sum::<usize>();
+                let max_offset = scratch
+                    .sequences
+                    .iter()
+                    .map(|seq| seq.of)
+                    .max()
+                    .unwrap_or(0);
+
+                total_sequences += sequence_count;
+                total_literals += scratch.literals_buffer.len();
+                total_match_bytes += match_bytes;
+                total_literal_section_bytes += literals_payload_bytes;
+                total_sequence_payload_bytes += sequence_payload.len();
+
+                if sequence_count != 0 {
+                    execute_sequences(&mut scratch).unwrap();
+                } else {
+                    scratch.buffer.push(&scratch.literals_buffer);
+                }
+                let block_output = scratch.buffer.len() - block_before;
+                total_decompressed_block_bytes += block_output;
+
+                let (ll_mode, of_mode, ml_mode) = match sequences.modes {
+                    Some(modes) => (
+                        archive_mode_name(modes.ll_mode()),
+                        archive_mode_name(modes.of_mode()),
+                        archive_mode_name(modes.ml_mode()),
+                    ),
+                    None => ("none", "none", "none"),
+                };
+                let literals_kind = match literals.ls_type {
+                    LiteralsSectionType::Raw => "raw",
+                    LiteralsSectionType::RLE => "rle",
+                    LiteralsSectionType::Compressed => "compressed",
+                    LiteralsSectionType::Treeless => "treeless",
+                };
+
+                if verbose_blocks {
+                    std::println!(
+                        "BLOCK idx={} type=compressed compressed_bytes={} decompressed_bytes={} literals_type={} literals_regen={} literals_payload={} literals_table_desc={} literals_stream={} literals_streams={} sequence_count={} sequence_payload={} ll_mode={} of_mode={} ml_mode={} match_bytes={} max_offset={} ll_extra_bits={} ml_extra_bits={} of_extra_bits={}",
+                        block_index,
+                        block_size,
+                        block_output,
+                        literals_kind,
+                        scratch.literals_buffer.len(),
+                        literals_payload_bytes,
+                        literals_table_desc_bytes,
+                        literals_stream_bytes,
+                        literals.num_streams.unwrap_or(0),
+                        sequence_count,
+                        sequence_payload.len(),
+                        ll_mode,
+                        of_mode,
+                        ml_mode,
+                        match_bytes,
+                        max_offset,
+                        ll_extra_bits,
+                        ml_extra_bits,
+                        of_extra_bits,
+                    );
+                }
+
+                if sequence_hist {
+                    let mut ll_counts = [0usize;
+                        crate::blocks::sequence_section::MAX_LITERAL_LENGTH_CODE as usize + 1];
+                    let mut ml_counts = [0usize;
+                        crate::blocks::sequence_section::MAX_MATCH_LENGTH_CODE as usize + 1];
+                    let mut of_counts =
+                        [0usize; crate::blocks::sequence_section::MAX_OFFSET_CODE as usize + 1];
+                    for seq in &scratch.sequences {
+                        ll_counts[archive_literal_length_code(seq.ll) as usize] += 1;
+                        ml_counts[archive_match_length_code(seq.ml) as usize] += 1;
+                        of_counts[archive_offset_code(seq.of) as usize] += 1;
+                    }
+                    std::println!(
+                        "SEQHIST idx={} ll_extra_bits={} ml_extra_bits={} of_extra_bits={}",
+                        block_index,
+                        ll_extra_bits,
+                        ml_extra_bits,
+                        of_extra_bits
+                    );
+                    print_top_code_counts("  ll_codes", &ll_counts, 8);
+                    print_top_code_counts("  ml_codes", &ml_counts, 8);
+                    print_top_code_counts("  of_codes", &of_counts, 8);
+                }
+            }
+            BlockType::Reserved => {
+                unreachable!("reserved blocks are rejected by the header parser")
+            }
+        }
+
+        block_index += 1;
+        if block_header.last_block {
+            break;
+        }
+    }
+
+    std::println!(
+        "TOTAL blocks={} compressed_blocks={} raw_blocks={} rle_blocks={} compressed_block_bytes={} raw_block_input_bytes={} rle_block_output_bytes={} decompressed_block_bytes={} literal_section_bytes={} sequence_payload_bytes={} decoded_literals={} sequences={} match_bytes={}",
+        block_index,
+        compressed_blocks,
+        raw_blocks,
+        rle_blocks,
+        total_compressed_block_bytes,
+        raw_block_input_bytes,
+        rle_block_output_bytes,
+        total_decompressed_block_bytes,
+        total_literal_section_bytes,
+        total_sequence_payload_bytes,
+        total_literals,
+        total_sequences,
+        total_match_bytes,
+    );
+}
+
+#[test]
+#[cfg(all(test, feature = "std"))]
+#[ignore = "diagnostic archive inspector"]
+fn inspect_archive_from_env() {
+    use std::env;
+    use std::path::PathBuf;
+
+    let path = PathBuf::from(env::var("RUZSTD_INSPECT_FRAME").expect("RUZSTD_INSPECT_FRAME"));
+    inspect_archive(&path);
+}
+
+#[test]
+#[cfg(all(test, feature = "std"))]
+#[ignore = "diagnostic profile harness"]
+fn profile_level1_fixture_from_env() {
+    use std::env;
+    use std::path::PathBuf;
+
+    let path = PathBuf::from(env::var("RUZSTD_PROFILE_FIXTURE").expect("RUZSTD_PROFILE_FIXTURE"));
+    let loops = env::var("RUZSTD_PROFILE_LOOPS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(1000);
+    let data = std::fs::read(&path).expect("fixture should be readable");
+    let mut total_output = 0usize;
+
+    for _ in 0..loops {
+        let compressed = crate::encoding::compress_to_vec(
+            data.as_slice(),
+            crate::encoding::CompressionLevel::Fastest,
+        );
+        total_output += compressed.len();
+        black_box(compressed);
+    }
+
+    assert!(black_box(total_output) > 0);
+}
+
 pub mod bit_reader;
 pub mod decode_corpus;
 pub mod dict_test;
@@ -584,5 +1059,7 @@ pub mod fuzz_regressions;
 #[test]
 fn verbose_disabled() {
     use crate::VERBOSE;
-    assert_eq!(VERBOSE, false);
+    const {
+        assert!(!VERBOSE);
+    }
 }

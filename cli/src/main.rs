@@ -4,6 +4,7 @@ use progress::ProgressMonitor;
 
 use std::fs::File;
 use std::io::BufReader;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -113,13 +114,20 @@ fn compress(input: PathBuf, output: PathBuf, level: u8) -> color_eyre::Result<()
             unimplemented!("unsupported compression level: {}", level);
         }
     };
-    let source_file = File::open(input).wrap_err("failed to open input file")?;
+    let source_file = File::open(&input).wrap_err("failed to open input file")?;
     let source_size = source_file.metadata()?.len() as usize;
     let buffered_source = BufReader::new(source_file);
     let encoder_input = ProgressMonitor::new(buffered_source, source_size);
-    let output: File = File::create(output).wrap_err("failed to open output file for writing")?;
+    let mut output: File =
+        File::create(output).wrap_err("failed to open output file for writing")?;
 
-    ruzstd::encoding::compress(encoder_input, &output, compression_level);
+    ruzstd::encoding::compress_with_path(
+        encoder_input,
+        &mut output,
+        input.as_path(),
+        compression_level,
+    );
+    output.flush()?;
     let compressed_size = output.metadata()?.len();
     let compression_ratio = compressed_size as f64 / source_size as f64 * 100.0;
     info!(

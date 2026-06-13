@@ -62,17 +62,19 @@ pub struct Context {
     pub frequencies: HashMap<KMer, usize>,
 }
 
-/// Returns the highest scoring segment in an epoch
-/// as a slice of that epoch.
+/// Returns the highest scoring segment from `epoch`.
+///
+/// Candidate segments come from the epoch being processed. Their k-mers are
+/// scored against `collection_sample`, which is the reservoir sample of the
+/// full training corpus.
 pub fn pick_best_segment(
     params: &DictParams,
     ctx: &mut Context,
+    epoch: &'_ [u8],
     collection_sample: &'_ [u8],
-) -> Segment {
-    let mut segments = collection_sample
-        .chunks(params.segment_size as usize)
-        .peekable();
-    let mut best_segment: &[u8] = segments.peek().expect("at least one segment");
+) -> Option<Segment> {
+    let mut segments = epoch.chunks(params.segment_size as usize).peekable();
+    let mut best_segment: &[u8] = segments.peek()?;
     let mut top_segment_score: usize = 0;
     // Iterate over segments and score each segment, keeping track of the best segment
     for segment in segments {
@@ -83,16 +85,20 @@ pub fn pick_best_segment(
         }
     }
 
-    Segment {
+    Some(Segment {
         raw: best_segment.into(),
         score: top_segment_score,
-    }
+    })
 }
 
 /// Given a segment, compute the score (or usefulness) of that segment against the entire epoch.
 ///
 /// `score_segment` modifies `ctx.frequencies`.
 fn score_segment(ctx: &mut Context, collection_sample: &[u8], segment: &[u8]) -> usize {
+    if segment.len() < K {
+        return 0;
+    }
+
     let mut segment_score = 0;
     // Determine the score of each overlapping k-mer
     for window in segment.windows(K) {
@@ -129,4 +135,43 @@ pub fn compute_epoch_info(
     epoch_size = usize::min(min_epoch_size, num_kmers);
     num_epochs = num_kmers / epoch_size;
     (num_epochs, epoch_size)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn best_segment_is_selected_from_epoch() {
+        let params = DictParams { segment_size: 32 };
+        let mut ctx = Context {
+            frequencies: HashMap::new(),
+        };
+        let first_epoch_segment = [b'a'; 32];
+        let second_epoch_segment = [b'b'; 32];
+        let epoch = [first_epoch_segment, second_epoch_segment].concat();
+        let collection_sample = [b'b'; 128];
+
+        let best_segment =
+            pick_best_segment(&params, &mut ctx, &epoch, &collection_sample).unwrap();
+
+        assert_eq!(best_segment.raw, second_epoch_segment);
+        assert!(best_segment.score > 0);
+    }
+
+    #[test]
+    fn short_segments_do_not_underflow() {
+        let params = DictParams { segment_size: 8 };
+        let mut ctx = Context {
+            frequencies: HashMap::new(),
+        };
+        let epoch = [b'a'; 8];
+        let collection_sample = [b'a'; 32];
+
+        let best_segment =
+            pick_best_segment(&params, &mut ctx, &epoch, &collection_sample).unwrap();
+
+        assert_eq!(best_segment.raw, epoch);
+        assert_eq!(best_segment.score, 0);
+    }
 }

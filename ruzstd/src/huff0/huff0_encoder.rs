@@ -1,10 +1,14 @@
+use alloc::collections::BinaryHeap;
 use alloc::vec::Vec;
-use core::cmp::Ordering;
+use core::cmp::{Ordering, Reverse};
 
 use crate::{
     bit_io::BitWriter,
     fse::fse_encoder::{self, FSEEncoder},
 };
+
+const MAX_HUFFMAN_BITS: usize = 11;
+type ActiveHuffmanNode = Reverse<(usize, Option<usize>, Reverse<usize>, usize)>;
 
 pub(crate) struct HuffmanEncoder<'output, 'table, V: AsMut<Vec<u8>>> {
     table: &'table HuffmanTable,
@@ -104,7 +108,7 @@ impl<V: AsMut<Vec<u8>>> HuffmanEncoder<'_, '_, V> {
     }
 
     pub(super) fn weights(&self) -> Vec<u8> {
-        let max = self.table.codes.iter().map(|(_, nb)| nb).max().unwrap();
+        let max = self.table.max_num_bits;
         let weights = self
             .table
             .codes
@@ -117,21 +121,12 @@ impl<V: AsMut<Vec<u8>>> HuffmanEncoder<'_, '_, V> {
     }
 
     fn write_table(&mut self) {
-        // TODO strategy for determining this?
         let weights = self.weights();
         let weights = &weights[..weights.len() - 1]; // dont encode last weight
         if weights.len() > 16 {
-            let size_idx = self.writer.index();
-            self.writer.write_bits(0u8, 8);
-            let idx_before = self.writer.index();
-            let mut encoder = FSEEncoder::new(
-                fse_encoder::build_table_from_data(weights.iter().copied(), 6, true),
-                self.writer,
-            );
-            encoder.encode_interleaved(weights);
-            let encoded_len = (self.writer.index() - idx_before) / 8;
-            assert!(encoded_len < 128);
-            self.writer.change_bits(size_idx, encoded_len as u8, 8);
+            for byte in encoded_weight_table_bytes(weights) {
+                self.writer.write_bits(byte, 8);
+            }
         } else {
             self.writer.write_bits(weights.len() as u8 + 127, 8);
             let pairs = weights.chunks_exact(2);
@@ -153,12 +148,42 @@ impl<V: AsMut<Vec<u8>>> HuffmanEncoder<'_, '_, V> {
     }
 }
 
+fn encoded_weight_table_bytes(weights: &[u8]) -> Vec<u8> {
+    let mut best = encode_weight_table_fse_bytes(weights, 6);
+    let smaller = encode_weight_table_fse_bytes(weights, 5);
+    if smaller.len() < best.len() {
+        best = smaller;
+    }
+    best
+}
+
+fn encode_weight_table_fse_bytes(weights: &[u8], max_log: u8) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    let mut writer = BitWriter::from(&mut encoded);
+    writer.write_bits(0u8, 8);
+    let size_idx = writer.index() - 8;
+    let idx_before = writer.index();
+    let mut encoder = FSEEncoder::new(
+        fse_encoder::build_table_from_data(weights.iter().copied(), max_log, true),
+        &mut writer,
+    );
+    encoder.encode_interleaved(weights);
+    let encoded_len = (writer.index() - idx_before) / 8;
+    assert!(encoded_len < 128);
+    writer.change_bits(size_idx, encoded_len as u8, 8);
+    writer.flush();
+    encoded
+}
+
+#[derive(Clone)]
 pub struct HuffmanTable {
     /// Index is the symbol, values are the bitstring in the lower bits of the u32 and the amount of bits in the u8
     codes: Vec<(u32, u8)>,
+    max_num_bits: u8,
 }
 
 impl HuffmanTable {
+    #[cfg(any(test, feature = "fuzz_exports"))]
     pub fn build_from_data(data: &[u8]) -> Self {
         let mut counts = [0; 256];
         let mut max = 0;
@@ -172,25 +197,66 @@ impl HuffmanTable {
 
     pub fn build_from_counts(counts: &[usize]) -> Self {
         assert!(counts.len() <= 256);
-        let zeros = counts.iter().filter(|x| **x == 0).count();
-        let mut weights = distribute_weights(counts.len() - zeros);
-        let limit = weights.len().ilog2() as usize + 2;
-        redistribute_weights(&mut weights, limit);
+        let weights = if is_flat_distribution(counts) {
+            rank_limited_weights(counts)
+        } else if let Some(lengths) = length_limited_code_lengths(counts, MAX_HUFFMAN_BITS) {
+            code_lengths_to_weights(&lengths, MAX_HUFFMAN_BITS)
+        } else {
+            rank_limited_weights(counts)
+        };
+        Self::build_from_weights(&weights)
+    }
 
-        weights.reverse();
-        let mut counts_sorted = counts.iter().enumerate().collect::<Vec<_>>();
-        counts_sorted.sort_by_key(|(_, c1)| *c1);
+    pub(crate) fn build_smallest_from_counts(
+        counts: &[usize],
+        data: &[u8],
+        four_streams: bool,
+    ) -> Self {
+        let mut best = Self::build_from_counts(counts);
+        let mut best_len = best.encoded_len(data, true, four_streams);
 
-        let mut weights_distributed = alloc::vec![0; counts.len()];
-        for (idx, count) in counts_sorted {
-            if *count == 0 {
-                weights_distributed[idx] = 0;
-            } else {
-                weights_distributed[idx] = weights.pop().unwrap();
+        let rank_limited = Self::build_from_weights(&rank_limited_weights(counts));
+        if rank_limited.can_encode_counts(counts) {
+            let rank_limited_len = rank_limited.encoded_len(data, true, four_streams);
+            if rank_limited_len < best_len {
+                best = rank_limited;
+                best_len = rank_limited_len;
             }
         }
 
-        Self::build_from_weights(&weights_distributed)
+        if is_flat_distribution(counts) {
+            return best;
+        }
+
+        let min_bits = counts
+            .iter()
+            .filter(|count| **count > 0)
+            .count()
+            .next_power_of_two()
+            .ilog2() as usize;
+
+        for max_bits in min_bits.max(1)..MAX_HUFFMAN_BITS {
+            let Some(candidate) = Self::build_from_counts_with_max_bits(counts, max_bits) else {
+                continue;
+            };
+            let candidate_len = candidate.encoded_len(data, true, four_streams);
+            if candidate_len < best_len {
+                best = candidate;
+                best_len = candidate_len;
+            }
+        }
+
+        best
+    }
+
+    fn build_from_counts_with_max_bits(counts: &[usize], max_bits: usize) -> Option<Self> {
+        assert!(counts.len() <= 256);
+        if max_bits == 0 || max_bits > MAX_HUFFMAN_BITS || is_flat_distribution(counts) {
+            return None;
+        }
+
+        length_limited_code_lengths(counts, max_bits)
+            .map(|lengths| Self::build_from_weights(&code_lengths_to_weights(&lengths, max_bits)))
     }
 
     pub fn build_from_weights(weights: &[usize]) -> Self {
@@ -211,7 +277,7 @@ impl HuffmanTable {
             }
         }
         // We process symbols ordered by weight and then ordered by symbol
-        sorted.sort_by(|left, right| match left.weight.cmp(&right.weight) {
+        sorted.sort_unstable_by(|left, right| match left.weight.cmp(&right.weight) {
             Ordering::Equal => left.symbol.cmp(&right.symbol),
             other => other,
         });
@@ -219,6 +285,7 @@ impl HuffmanTable {
         // Prepare huffman table with placeholders
         let mut table = HuffmanTable {
             codes: Vec::with_capacity(weights.len()),
+            max_num_bits: 0,
         };
         for _ in 0..weights.len() {
             table.codes.push((0, 0));
@@ -246,25 +313,242 @@ impl HuffmanTable {
                 current_weight = entry.weight;
             }
             table.codes[entry.symbol as usize] = (current_code as u32, current_num_bits as u8);
+            table.max_num_bits = table.max_num_bits.max(current_num_bits as u8);
             current_code += 1;
         }
 
         table
     }
 
-    pub fn can_encode(&self, other: &Self) -> Option<usize> {
-        if other.codes.len() > self.codes.len() {
-            return None;
+    pub(crate) fn can_encode_counts(&self, counts: &[usize]) -> bool {
+        if counts.len() > self.codes.len() {
+            return false;
         }
-        let mut sum = 0;
-        for ((_, other_num_bits), (_, self_num_bits)) in other.codes.iter().zip(self.codes.iter()) {
-            if *other_num_bits != 0 && *self_num_bits == 0 {
-                return None;
-            }
-            sum += other_num_bits.abs_diff(*self_num_bits) as usize;
-        }
-        Some(sum)
+
+        counts
+            .iter()
+            .copied()
+            .zip(self.codes.iter().copied())
+            .all(|(count, (_, num_bits))| count == 0 || num_bits != 0)
     }
+
+    pub(crate) fn encoded_len(&self, data: &[u8], with_table: bool, four_streams: bool) -> usize {
+        let table_len = if with_table {
+            self.table_description_len()
+        } else {
+            0
+        };
+        let data_len = if four_streams {
+            let split_size = data.len().div_ceil(4);
+            6 + self.stream_encoded_len(&data[..split_size])
+                + self.stream_encoded_len(&data[split_size..split_size * 2])
+                + self.stream_encoded_len(&data[split_size * 2..split_size * 3])
+                + self.stream_encoded_len(&data[split_size * 3..])
+        } else {
+            self.stream_encoded_len(data)
+        };
+        table_len + data_len
+    }
+
+    fn table_description_len(&self) -> usize {
+        let mut encoded = Vec::new();
+        let mut writer = BitWriter::from(&mut encoded);
+        HuffmanEncoder::new(self, &mut writer).write_table();
+        writer.flush();
+        encoded.len()
+    }
+
+    fn stream_encoded_len(&self, data: &[u8]) -> usize {
+        let mut bit_len = 0usize;
+        for symbol in data {
+            bit_len += self.codes[*symbol as usize].1 as usize;
+        }
+        bit_len / 8 + 1
+    }
+}
+
+fn is_flat_distribution(counts: &[usize]) -> bool {
+    let mut nonzero = 0usize;
+    let mut min = usize::MAX;
+    let mut max = 0usize;
+    for count in counts.iter().copied().filter(|count| *count > 0) {
+        nonzero += 1;
+        min = min.min(count);
+        max = max.max(count);
+    }
+
+    nonzero > 128 && max <= min.saturating_mul(2)
+}
+
+fn length_limited_code_lengths(counts: &[usize], max_bits: usize) -> Option<Vec<usize>> {
+    let mut nodes = counts
+        .iter()
+        .copied()
+        .enumerate()
+        .filter_map(|(symbol, count)| {
+            (count > 0).then_some(HuffmanNode {
+                count,
+                symbol: Some(symbol),
+                parent: None,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if nodes.len() <= 1 {
+        return None;
+    }
+
+    let active_key =
+        |idx, node: &HuffmanNode| Reverse((node.count, node.symbol, Reverse(idx), idx));
+
+    let mut active = BinaryHeap::with_capacity(nodes.len());
+    for (idx, node) in nodes.iter().enumerate() {
+        active.push(active_key(idx, node));
+    }
+
+    while active.len() > 1 {
+        let Reverse((_, _, _, left)) = pop_active_huffman_node(&mut active);
+        let Reverse((_, _, _, right)) = pop_active_huffman_node(&mut active);
+        let parent = nodes.len();
+        nodes[left].parent = Some(parent);
+        nodes[right].parent = Some(parent);
+        nodes.push(HuffmanNode {
+            count: nodes[left].count + nodes[right].count,
+            symbol: None,
+            parent: None,
+        });
+        active.push(active_key(parent, &nodes[parent]));
+    }
+
+    let mut lengths = alloc::vec![0; counts.len()];
+    for idx in 0..counts.len() {
+        if counts[idx] == 0 {
+            continue;
+        }
+        let mut node_idx = match nodes.iter().position(|node| node.symbol == Some(idx)) {
+            Some(node_idx) => node_idx,
+            None => invalid_huffman_tree(),
+        };
+        let mut len = 0;
+        while let Some(parent) = nodes[node_idx].parent {
+            len += 1;
+            node_idx = parent;
+        }
+        lengths[idx] = len;
+    }
+
+    limit_code_lengths(&mut lengths, counts, max_bits).then_some(lengths)
+}
+
+struct HuffmanNode {
+    count: usize,
+    symbol: Option<usize>,
+    parent: Option<usize>,
+}
+
+fn limit_code_lengths(lengths: &mut [usize], counts: &[usize], max_bits: usize) -> bool {
+    let mut bl_count = alloc::vec![0usize; max_bits + 1];
+    let mut overflow = 0usize;
+    for len in lengths.iter_mut().filter(|len| **len > 0) {
+        if *len > max_bits {
+            *len = max_bits;
+            overflow += 1;
+        }
+        bl_count[*len] += 1;
+    }
+
+    if !overflow.is_multiple_of(2) {
+        return false;
+    }
+
+    while overflow > 0 {
+        let mut bits = max_bits - 1;
+        while bl_count[bits] == 0 {
+            if bits == 0 {
+                return false;
+            }
+            bits -= 1;
+        }
+        bl_count[bits] -= 1;
+        bl_count[bits + 1] += 2;
+        bl_count[max_bits] -= 1;
+        overflow -= 2;
+    }
+
+    let mut symbols = counts
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, count)| *count > 0)
+        .collect::<Vec<_>>();
+    symbols.sort_unstable_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(&left.0)));
+
+    lengths.fill(0);
+    let mut symbol_idx = 0;
+    for bits in (1..=max_bits).rev() {
+        for _ in 0..bl_count[bits] {
+            lengths[symbols[symbol_idx].0] = bits;
+            symbol_idx += 1;
+        }
+    }
+
+    symbol_idx == symbols.len() && length_units(lengths, max_bits) == 1usize << max_bits
+}
+
+fn length_units(lengths: &[usize], max_bits: usize) -> usize {
+    lengths
+        .iter()
+        .copied()
+        .filter(|len| *len > 0)
+        .map(|len| 1usize << (max_bits - len))
+        .sum()
+}
+
+fn code_lengths_to_weights(lengths: &[usize], max_bits: usize) -> Vec<usize> {
+    lengths
+        .iter()
+        .copied()
+        .map(|len| if len == 0 { 0 } else { max_bits - len + 1 })
+        .collect()
+}
+
+fn rank_limited_weights(counts: &[usize]) -> Vec<usize> {
+    let zeros = counts.iter().filter(|x| **x == 0).count();
+    let mut weights = distribute_weights(counts.len() - zeros);
+    let limit = weights.len().ilog2() as usize + 2;
+    redistribute_weights(&mut weights, limit);
+
+    weights.reverse();
+    let mut counts_sorted = counts.iter().enumerate().collect::<Vec<_>>();
+    counts_sorted.sort_by_key(|(_, c1)| *c1);
+
+    let mut weights_distributed = alloc::vec![0; counts.len()];
+    for (idx, count) in counts_sorted {
+        if *count == 0 {
+            weights_distributed[idx] = 0;
+        } else {
+            weights_distributed[idx] = match weights.pop() {
+                Some(weight) => weight,
+                None => invalid_huffman_tree(),
+            };
+        }
+    }
+
+    weights_distributed
+}
+
+#[inline(always)]
+fn pop_active_huffman_node(active: &mut BinaryHeap<ActiveHuffmanNode>) -> ActiveHuffmanNode {
+    match active.pop() {
+        Some(node) => node,
+        None => invalid_huffman_tree(),
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn invalid_huffman_tree() -> ! {
+    panic!("huffman tree construction invariant failed")
 }
 
 /// Assert that the provided value is greater than zero, and returns index of the first set bit
@@ -472,12 +756,216 @@ fn counts() {
 }
 
 #[test]
+fn cached_max_num_bits_matches_codes() {
+    let cases: &[&[usize]] = &[
+        &[3, 0, 4, 1, 5],
+        &[16, 16, 16, 16, 16, 16, 16, 16],
+        &[1, 1, 2, 3, 5, 8, 13, 21],
+        &[0, 7, 7, 7, 7, 7, 0],
+    ];
+
+    for counts in cases {
+        let table = HuffmanTable::build_from_counts(counts);
+        let max_num_bits = table.codes.iter().map(|(_, bits)| *bits).max().unwrap_or(0);
+        assert_eq!(table.max_num_bits, max_num_bits);
+    }
+}
+
+#[test]
+fn build_from_counts_produces_bounded_prefix_free_codes() {
+    let flat_counts = [1usize; 256];
+    let sparse_skewed_counts = [
+        3, 0, 4, 0, 7, 2, 2, 2, 0, 2, 2, 1, 5, 144, 89, 55, 34, 21, 13, 8,
+    ];
+    let tied_counts = [8, 8, 4, 4, 2, 2, 1, 1, 0, 16, 16, 32, 32];
+    let cases: &[&[usize]] = &[&flat_counts, &sparse_skewed_counts, &tied_counts];
+
+    for counts in cases {
+        let table = HuffmanTable::build_from_counts(counts);
+
+        assert_eq!(table.codes.len(), counts.len());
+        assert!(table.max_num_bits <= MAX_HUFFMAN_BITS as u8);
+        for (symbol, (code, num_bits)) in table.codes.iter().copied().enumerate() {
+            assert_eq!(
+                num_bits == 0,
+                counts[symbol] == 0,
+                "symbol {symbol} has count {} and code ({code:b}, {num_bits})",
+                counts[symbol]
+            );
+            assert!(num_bits <= MAX_HUFFMAN_BITS as u8);
+        }
+        assert_prefix_free(&table.codes);
+    }
+}
+
+#[test]
+fn build_smallest_from_counts_reduces_small_repeated_text_literals() {
+    let data = b"the quick brown fox jumps over the lazy dog\n\
+zstd-rs fastest encoder repeated text fixture\n\
+0123456789 abcdefghijklmnopqrstuvwxyz\n\
+the quick brown fox";
+    let mut counts = [0usize; 256];
+    let mut max_symbol = 0usize;
+    for symbol in data {
+        let symbol = *symbol as usize;
+        counts[symbol] += 1;
+        max_symbol = max_symbol.max(symbol);
+    }
+    let counts = &counts[..=max_symbol];
+
+    let baseline = HuffmanTable::build_from_counts(counts);
+    let smallest = HuffmanTable::build_smallest_from_counts(counts, data, false);
+
+    assert!(smallest.encoded_len(data, true, false) < baseline.encoded_len(data, true, false));
+    assert!(smallest.max_num_bits <= MAX_HUFFMAN_BITS as u8);
+    assert_prefix_free(&smallest.codes);
+}
+
+#[test]
+fn can_encode_counts_checks_symbols_without_building_table() {
+    let table = HuffmanTable::build_from_counts(&[4, 3, 0, 1]);
+
+    assert!(table.can_encode_counts(&[1, 2, 0, 1]));
+    assert!(!table.can_encode_counts(&[1, 2, 1, 1]));
+    assert!(!table.can_encode_counts(&[1, 2, 0, 1, 1]));
+}
+
+#[test]
+fn rank_limited_weights_preserve_symbol_order_for_equal_counts() {
+    let mut expected_nonzero = distribute_weights(5);
+    let limit = expected_nonzero.len().ilog2() as usize + 2;
+    redistribute_weights(&mut expected_nonzero, limit);
+
+    let weights = rank_limited_weights(&[0, 7, 7, 7, 7, 7, 0]);
+
+    assert_eq!(weights[0], 0);
+    assert_eq!(weights[6], 0);
+    assert_eq!(&weights[1..6], expected_nonzero.as_slice());
+}
+
+#[test]
+fn length_limited_code_lengths_are_stable_for_tied_counts() {
+    let counts = &[8, 8, 4, 4, 2, 2, 1, 1, 0, 16, 16, 32, 32];
+    let lengths = length_limited_code_lengths(counts, MAX_HUFFMAN_BITS)
+        .expect("length-limited table should be valid");
+
+    for _ in 0..8 {
+        assert_eq!(
+            length_limited_code_lengths(counts, MAX_HUFFMAN_BITS),
+            Some(lengths.clone())
+        );
+    }
+
+    assert_eq!(
+        length_units(&lengths, MAX_HUFFMAN_BITS),
+        1 << MAX_HUFFMAN_BITS
+    );
+}
+
+#[test]
 fn from_data() {
-    let counts = &[3, 0, 4, 1, 5];
-    let table = HuffmanTable::build_from_counts(counts).codes;
-
     let data = &[0, 2, 4, 4, 0, 3, 2, 2, 0, 2];
-    let table2 = HuffmanTable::build_from_data(data).codes;
+    let table = HuffmanTable::build_from_data(data).codes;
 
-    assert_eq!(table, table2);
+    assert_eq!(table[1].1, 0);
+    for symbol in [0, 2, 3, 4] {
+        assert!(table[symbol].1 > 0);
+        assert!(table[symbol].1 <= MAX_HUFFMAN_BITS as u8);
+    }
+}
+
+#[test]
+fn encoded_len_matches_single_stream_encoder() {
+    let data = b"abbcccddddeeeee";
+    let table = HuffmanTable::build_from_data(data);
+
+    assert_eq!(
+        table.encoded_len(data, true, false),
+        actual_encoded_len(&table, data, true, false)
+    );
+    assert_eq!(
+        table.encoded_len(data, false, false),
+        actual_encoded_len(&table, data, false, false)
+    );
+}
+
+#[test]
+fn adaptive_weight_table_fse_max_log_is_never_worse_than_fixed_six() {
+    let mut saw_smaller_five = false;
+
+    for seed in 1u32..=64 {
+        let mut state = seed;
+        let len = 17 + (seed as usize % 24);
+        let mut weights = Vec::with_capacity(len);
+        for _ in 0..len {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            weights.push((state % 12) as u8);
+        }
+
+        let adaptive = encoded_weight_table_bytes(&weights);
+        let fixed_six = encode_weight_table_fse_bytes(&weights, 6);
+        let fixed_five = encode_weight_table_fse_bytes(&weights, 5);
+
+        assert_eq!(adaptive.len(), fixed_five.len().min(fixed_six.len()));
+        saw_smaller_five |= fixed_five.len() < fixed_six.len();
+    }
+
+    assert!(saw_smaller_five);
+}
+
+#[test]
+fn encoded_len_matches_four_stream_encoder() {
+    let data = b"tenant=alpha path=/v1/archive status=200 tenant=beta path=/v1/search status=404";
+    let table = HuffmanTable::build_from_data(data);
+
+    assert_eq!(
+        table.encoded_len(data, true, true),
+        actual_encoded_len(&table, data, true, true)
+    );
+    assert_eq!(
+        table.encoded_len(data, false, true),
+        actual_encoded_len(&table, data, false, true)
+    );
+}
+
+#[cfg(test)]
+fn actual_encoded_len(
+    table: &HuffmanTable,
+    data: &[u8],
+    with_table: bool,
+    four_streams: bool,
+) -> usize {
+    let mut encoded = Vec::new();
+    let mut writer = BitWriter::from(&mut encoded);
+    let mut encoder = HuffmanEncoder::new(table, &mut writer);
+    if four_streams {
+        encoder.encode4x(data, with_table);
+    } else {
+        encoder.encode(data, with_table);
+    }
+    writer.flush();
+    encoded.len()
+}
+
+#[cfg(test)]
+fn assert_prefix_free(codes: &[(u32, u8)]) {
+    for (idx, (code, num_bits)) in codes.iter().copied().enumerate() {
+        if num_bits == 0 {
+            continue;
+        }
+        for (other_idx, (other_code, other_num_bits)) in codes.iter().copied().enumerate() {
+            if idx == other_idx || other_num_bits == 0 {
+                continue;
+            }
+            if num_bits <= other_num_bits {
+                let other_code_prefix = other_code >> (other_num_bits - num_bits);
+                assert_ne!(
+                    code, other_code_prefix,
+                    "symbol {idx}'s {num_bits}-bit code is a prefix of symbol {other_idx}'s {other_num_bits}-bit code"
+                );
+            }
+        }
+    }
 }

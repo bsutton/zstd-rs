@@ -6,170 +6,153 @@
 //! The task here is to efficiently find matches in the already encoded data for the current suffix of the not yet encoded data.
 
 use alloc::vec::Vec;
-use core::num::NonZeroUsize;
+#[cfg(all(test, feature = "std"))]
+use core::cell::Ref;
+#[cfg(test)]
+use core::cell::RefCell;
+use core::convert::TryFrom;
+use core::num::NonZeroU32;
+mod byte_match;
+mod candidate_building;
+#[cfg(test)]
+mod diagnostics;
+mod driver;
+mod emit;
+mod repeat_search;
+mod selection_policy;
+mod sequence;
+mod sidecar;
+mod suffix_store;
+mod text;
+#[cfg(feature = "std")]
+mod tuning;
+mod types;
+mod window_search;
 
+#[cfg(test)]
+use diagnostics::{CandidateSource, MatcherDiagnostics, RepeatNextPositionSelectionReason};
+pub use driver::MatchGeneratorDriver;
+use suffix_store::SuffixStore;
+#[cfg(test)]
+use suffix_store::{Candidates, INITIAL_TOUCHED_SLOT_CAPACITY, TOUCHED_SLOT_CLEAR_LIMIT};
+#[cfg(feature = "std")]
+use tuning::matcher_tuning_overrides;
+use types::{
+    MatchCandidate, MatchCandidateContext, RepeatCandidateKind, WindowCandidateKind,
+    WindowCandidateMeta, WindowEntry,
+};
+
+use super::frame_compressor::OffsetHistory;
+use super::util::{likely_composer_lockfile_text, likely_lockfile_text};
+use super::CompressionFileProfile;
+use super::CompressionFileType;
 use super::CompressionLevel;
 use super::Matcher;
 use super::Sequence;
 
 const MIN_MATCH_LEN: usize = 5;
-
-/// This is the default implementation of the `Matcher` trait. It allocates and reuses the buffers when possible.
-pub struct MatchGeneratorDriver {
-    vec_pool: Vec<Vec<u8>>,
-    suffix_pool: Vec<SuffixStore>,
-    match_generator: MatchGenerator,
-    slice_size: usize,
-}
-
-impl MatchGeneratorDriver {
-    /// slice_size says how big the slices should be that are allocated to work with
-    /// max_slices_in_window says how many slices should at most be used while looking for matches
-    pub(crate) fn new(slice_size: usize, max_slices_in_window: usize) -> Self {
-        Self {
-            vec_pool: Vec::new(),
-            suffix_pool: Vec::new(),
-            match_generator: MatchGenerator::new(max_slices_in_window * slice_size),
-            slice_size,
-        }
-    }
-}
-
-impl Matcher for MatchGeneratorDriver {
-    fn reset(&mut self, _level: CompressionLevel) {
-        let vec_pool = &mut self.vec_pool;
-        let suffix_pool = &mut self.suffix_pool;
-
-        self.match_generator.reset(|mut data, mut suffixes| {
-            data.resize(data.capacity(), 0);
-            vec_pool.push(data);
-            suffixes.slots.clear();
-            suffixes.slots.resize(suffixes.slots.capacity(), None);
-            suffix_pool.push(suffixes);
-        });
-    }
-
-    fn window_size(&self) -> u64 {
-        self.match_generator.max_window_size as u64
-    }
-
-    fn get_next_space(&mut self) -> Vec<u8> {
-        self.vec_pool.pop().unwrap_or_else(|| {
-            let mut space = alloc::vec![0; self.slice_size];
-            space.resize(space.capacity(), 0);
-            space
-        })
-    }
-
-    fn get_last_space(&mut self) -> &[u8] {
-        self.match_generator.window.last().unwrap().data.as_slice()
-    }
-
-    fn commit_space(&mut self, space: Vec<u8>) {
-        let vec_pool = &mut self.vec_pool;
-        let suffixes = self
-            .suffix_pool
-            .pop()
-            .unwrap_or_else(|| SuffixStore::with_capacity(space.len()));
-        let suffix_pool = &mut self.suffix_pool;
-        self.match_generator
-            .add_data(space, suffixes, |mut data, mut suffixes| {
-                data.resize(data.capacity(), 0);
-                vec_pool.push(data);
-                suffixes.slots.clear();
-                suffixes.slots.resize(suffixes.slots.capacity(), None);
-                suffix_pool.push(suffixes);
-            });
-    }
-
-    fn start_matching(&mut self, mut handle_sequence: impl for<'a> FnMut(Sequence<'a>)) {
-        while self.match_generator.next_sequence(&mut handle_sequence) {}
-    }
-    fn skip_matching(&mut self) {
-        self.match_generator.skip_matching();
-    }
-}
-
-/// This stores the index of a suffix of a string by hashing the first few bytes of that suffix
-/// This means that collisions just overwrite and that you need to check validity after a get
-struct SuffixStore {
-    // We use NonZeroUsize to enable niche optimization here.
-    // On store we do +1 and on get -1
-    // This is ok since usize::MAX is never a valid offset
-    slots: Vec<Option<NonZeroUsize>>,
-    len_log: u32,
-}
-
-impl SuffixStore {
-    fn with_capacity(capacity: usize) -> Self {
-        Self {
-            slots: alloc::vec![None; capacity],
-            len_log: capacity.ilog2(),
-        }
-    }
-
-    #[inline(always)]
-    fn insert(&mut self, suffix: &[u8], idx: usize) {
-        let key = self.key(suffix);
-        self.slots[key] = Some(NonZeroUsize::new(idx + 1).unwrap());
-    }
-
-    #[inline(always)]
-    fn contains_key(&self, suffix: &[u8]) -> bool {
-        let key = self.key(suffix);
-        self.slots[key].is_some()
-    }
-
-    #[inline(always)]
-    fn get(&self, suffix: &[u8]) -> Option<usize> {
-        let key = self.key(suffix);
-        self.slots[key].map(|x| <NonZeroUsize as Into<usize>>::into(x) - 1)
-    }
-
-    #[inline(always)]
-    fn key(&self, suffix: &[u8]) -> usize {
-        let s0 = suffix[0] as u64;
-        let s1 = suffix[1] as u64;
-        let s2 = suffix[2] as u64;
-        let s3 = suffix[3] as u64;
-        let s4 = suffix[4] as u64;
-
-        const POLY: u64 = 0xCF3BCCDCABu64;
-
-        let s0 = (s0 << 24).wrapping_mul(POLY);
-        let s1 = (s1 << 32).wrapping_mul(POLY);
-        let s2 = (s2 << 40).wrapping_mul(POLY);
-        let s3 = (s3 << 48).wrapping_mul(POLY);
-        let s4 = (s4 << 56).wrapping_mul(POLY);
-
-        let index = s0 ^ s1 ^ s2 ^ s3 ^ s4;
-        let index = index >> (64 - self.len_log);
-        index as usize % self.slots.len()
-    }
-}
-
-/// We keep a window of a few of these entries
-/// All of these are valid targets for a match to be generated for
-struct WindowEntry {
-    data: Vec<u8>,
-    /// Stores indexes into data
-    suffixes: SuffixStore,
-    /// Makes offset calculations efficient
-    base_offset: usize,
-}
+const SMALL_TEXT_MIN_NON_REPEAT_MATCH_LEN: usize = 5;
+const CODE_LIKE_SHORT_TEXT_MIN_NON_REPEAT_MATCH_LEN: usize = 6;
+const TEXT_MIN_NON_REPEAT_MATCH_LEN: usize = 8;
+const SHORT_TEXT_LINE_LEN_LIMIT: usize = 96;
+const SHORT_TEXT_LINE_FRACTION_PERCENT: usize = 95;
+const CODE_LIKE_SEMI_PER_100_LINES: usize = 15;
+const CODE_LIKE_BRACES_PER_100_LINES: usize = 15;
+const SMALL_CODE_TEXT_MIN_NON_REPEAT_MAX_BLOCK_LEN: usize = 16 * 1024;
+const CODE_TEXT_DENSE_PROBE_MAX_BLOCK_LEN: usize = 96 * 1024;
+const CONFIG_TEXT_DENSE_PROBE_MAX_BLOCK_LEN: usize = 8 * 1024;
+const STRUCTURED_JSON_CONFIG_DENSE_PROBE_MAX_BLOCK_LEN: usize = 128 * 1024;
+const SHORT_LINE_TEXT_NO_MATCH_PROBE_STEP: usize = 2;
+const TSCONFIG_JSON_TEXT_NO_MATCH_PROBE_STEP: usize = 6;
+const COMPOSER_JSON_LOCKFILE_NO_MATCH_PROBE_STEP: usize = 5;
+const REPEAT_MATCH_LEN_MARGIN: usize = 2;
+const DICTIONARY_SMALLER_OFFSET_BITS_GAIN_MIN: usize = 2;
+const DICTIONARY_SMALLER_OFFSET_MATCH_LOSS_MAX: usize = 1;
+const LARGE_UNKNOWN_SMALLER_OFFSET_BITS_GAIN_MIN: usize = 2;
+const LARGE_UNKNOWN_SMALLER_OFFSET_MATCH_LOSS_MAX: usize = 1;
+const LARGE_UNKNOWN_NEWEST_DISPLACEMENT_MIN_GAIN: usize = 2;
+const LARGE_UNKNOWN_OLDEST_DISPLACEMENT_MIN_GAIN: usize = 2;
+const LOCKFILE_OLDEST_DISPLACEMENT_MIN_GAIN: usize = 2;
+const LOCKFILE_SAME_END_SMALLER_OFFSET_MATCH_LOSS_MAX: usize = 1;
+const LOCKFILE_REPEAT_KIND_MATCH_LOSS_MAX: usize = 1;
+const LOCKFILE_NEXT_POSITION_MAX_CURRENT_MATCH_LEN: usize = 7;
+const LOCKFILE_NEXT_POSITION_MAX_SKIP_LITERALS: usize = 2;
+const LOCKFILE_NEXT_POSITION_MATCH_LOSS_MAX: usize = 0;
+const LOCKFILE_NEXT_POSITION_LITERAL_WEIGHT: usize = 6;
+const LOCKFILE_NEXT_POSITION_MATCH_REWARD: usize = 2;
+const LOCKFILE_NEXT_POSITION_OFFSET_WEIGHT: usize = 3;
+const LOCKFILE_NEXT_POSITION_MARGIN: usize = 1;
+const COMPOSER_REPEAT_KIND_MATCH_LOSS_MAX: usize = 2;
+const REPEAT_SEARCH_EARLY_EXIT_LEN: usize = 10;
+const DENSE_MATCH_INDEX_LIMIT: usize = 128;
+const NO_MATCH_PROBE_STEP: usize = 2;
+const TEXT_NO_MATCH_PROBE_STEP: usize = 3;
+const BEST_BINARY_NO_MATCH_SEARCH_STRENGTH: usize = 8;
+const BEST_SECOND_NEWEST_RECENT_ENTRY_LIMIT: usize = 1;
+const LOCKFILE_SECOND_NEWEST_RECENT_ENTRY_LIMIT: usize = 2;
+const BEST_SECOND_NEWEST_MIN_BLOCK_LEN: usize = 16 * 1024;
+const CODE_TEXT_SECOND_NEWEST_MAX_BLOCK_LEN: usize = 64 * 1024;
+const FASTEST_SECOND_NEWEST_MAX_BLOCK_LEN: usize = 64 * 1024;
+const FASTEST_UNKNOWN_SECOND_NEWEST_MAX_BLOCK_LEN: usize = 128 * 1024;
+const FASTEST_DENSE_BINARY_PROBE_MAX_BLOCK_LEN: usize = 64 * 1024;
+const BEST_CURRENT_LONG_HASH_MIN_BLOCK_LEN: usize = 32 * 1024;
+const BEST_CURRENT_LONG_HASH_SKIP_OLDER_LEN: usize = 56;
+const BEST_CURRENT_LONG_HASH_DISTANT_NEWEST_ENTRY_START: usize = 2;
+const SPARSE_MATCH_END_INDEX_BACKOFF: usize = 2;
+const SUFFIX_STORE_CAPACITY_DIVISOR: usize = 16;
+const BEST_SUFFIX_STORE_CAPACITY_MULTIPLIER: usize = 2;
+const FASTEST_WINDOW_BLOCKS: usize = 4;
+const BEST_WINDOW_BLOCKS: usize = 16;
 
 pub(crate) struct MatchGenerator {
     max_window_size: usize,
+    fast_window_size: usize,
     /// Data window we are operating on to find matches
     /// The data we want to find matches for is in the last slice
     window: Vec<WindowEntry>,
+    current_second_newest_sidecar: Vec<Option<NonZeroU32>>,
+    current_third_newest_sidecar: Vec<Option<NonZeroU32>>,
+    current_fourth_newest_sidecar: Vec<Option<NonZeroU32>>,
+    current_fifth_newest_sidecar: Vec<Option<NonZeroU32>>,
+    current_sixth_newest_sidecar: Vec<Option<NonZeroU32>>,
+    current_seventh_newest_sidecar: Vec<Option<NonZeroU32>>,
+    current_eighth_newest_sidecar: Vec<Option<NonZeroU32>>,
+    current_ninth_newest_sidecar: Vec<Option<NonZeroU32>>,
+    current_tenth_newest_sidecar: Vec<Option<NonZeroU32>>,
+    current_eleventh_newest_sidecar: Vec<Option<NonZeroU32>>,
+    current_twelfth_newest_sidecar: Vec<Option<NonZeroU32>>,
+    current_thirteenth_newest_sidecar: Vec<Option<NonZeroU32>>,
+    current_long_hash: Vec<Option<NonZeroU32>>,
     window_size: usize,
     #[cfg(debug_assertions)]
     concat_window: Vec<u8>,
+    uniform_suffix_len_log: Option<u32>,
     /// Index in the last slice that we already processed
     suffix_idx: usize,
     /// Gets updated when a new sequence is returned to point right behind that sequence
     last_idx_in_sequence: usize,
+    offset_history: OffsetHistory,
+    is_text_block: bool,
+    is_short_line_text: bool,
+    min_non_repeat_match_len: usize,
+    adaptive_binary_no_match_probe: bool,
+    use_fast_small_dense_binary_probe: bool,
+    prefer_binary_next_position_repeat_lookahead: bool,
+    prefer_fast_binary_next_position_repeat_lookahead: bool,
+    prefer_binary_next_position_lookahead: bool,
+    prefer_oldest_first_window_probe: bool,
+    use_complementary_end_insertion: bool,
+    use_second_newest_probe: bool,
+    use_fast_binary_small_second_newest: bool,
+    use_text_repeat_pipeline: bool,
+    current_block_is_dictionary_lockfile_text: bool,
+    current_block_is_composer_dictionary_text: bool,
+    current_block_is_structured_json_config_text: bool,
+    current_block_is_tsconfig_json_config_text: bool,
+    file_type_hint: CompressionFileType,
+    file_profile_hint: CompressionFileProfile,
+    #[cfg(test)]
+    diagnostics: RefCell<MatcherDiagnostics>,
 }
 
 impl MatchGenerator {
@@ -177,443 +160,145 @@ impl MatchGenerator {
     fn new(max_size: usize) -> Self {
         Self {
             max_window_size: max_size,
+            fast_window_size: max_size,
             window: Vec::new(),
+            current_second_newest_sidecar: Vec::new(),
+            current_third_newest_sidecar: Vec::new(),
+            current_fourth_newest_sidecar: Vec::new(),
+            current_fifth_newest_sidecar: Vec::new(),
+            current_sixth_newest_sidecar: Vec::new(),
+            current_seventh_newest_sidecar: Vec::new(),
+            current_eighth_newest_sidecar: Vec::new(),
+            current_ninth_newest_sidecar: Vec::new(),
+            current_tenth_newest_sidecar: Vec::new(),
+            current_eleventh_newest_sidecar: Vec::new(),
+            current_twelfth_newest_sidecar: Vec::new(),
+            current_thirteenth_newest_sidecar: Vec::new(),
+            current_long_hash: Vec::new(),
             window_size: 0,
             #[cfg(debug_assertions)]
             concat_window: Vec::new(),
+            uniform_suffix_len_log: None,
             suffix_idx: 0,
             last_idx_in_sequence: 0,
+            offset_history: OffsetHistory::new(),
+            is_text_block: false,
+            is_short_line_text: false,
+            min_non_repeat_match_len: MIN_MATCH_LEN,
+            adaptive_binary_no_match_probe: false,
+            use_fast_small_dense_binary_probe: false,
+            prefer_binary_next_position_repeat_lookahead: false,
+            prefer_fast_binary_next_position_repeat_lookahead: false,
+            prefer_binary_next_position_lookahead: false,
+            prefer_oldest_first_window_probe: false,
+            use_complementary_end_insertion: false,
+            use_second_newest_probe: false,
+            use_fast_binary_small_second_newest: false,
+            use_text_repeat_pipeline: false,
+            current_block_is_dictionary_lockfile_text: false,
+            current_block_is_composer_dictionary_text: false,
+            current_block_is_structured_json_config_text: false,
+            current_block_is_tsconfig_json_config_text: false,
+            file_type_hint: CompressionFileType::Unknown,
+            file_profile_hint: CompressionFileProfile::None,
+            #[cfg(test)]
+            diagnostics: RefCell::new(MatcherDiagnostics::default()),
         }
     }
 
     fn reset(&mut self, mut reuse_space: impl FnMut(Vec<u8>, SuffixStore)) {
         self.window_size = 0;
+        self.current_second_newest_sidecar.clear();
+        self.current_third_newest_sidecar.clear();
+        self.current_fourth_newest_sidecar.clear();
+        self.current_fifth_newest_sidecar.clear();
+        self.current_sixth_newest_sidecar.clear();
+        self.current_seventh_newest_sidecar.clear();
+        self.current_eighth_newest_sidecar.clear();
+        self.current_ninth_newest_sidecar.clear();
+        self.current_tenth_newest_sidecar.clear();
+        self.current_eleventh_newest_sidecar.clear();
+        self.current_twelfth_newest_sidecar.clear();
+        self.current_thirteenth_newest_sidecar.clear();
+        self.current_long_hash.clear();
         #[cfg(debug_assertions)]
         self.concat_window.clear();
+        self.uniform_suffix_len_log = None;
         self.suffix_idx = 0;
         self.last_idx_in_sequence = 0;
+        self.offset_history = OffsetHistory::new();
+        self.is_text_block = false;
+        self.is_short_line_text = false;
+        self.min_non_repeat_match_len = MIN_MATCH_LEN;
+        self.adaptive_binary_no_match_probe = false;
+        self.use_fast_small_dense_binary_probe = false;
+        self.prefer_binary_next_position_repeat_lookahead = false;
+        self.prefer_fast_binary_next_position_repeat_lookahead = false;
+        self.prefer_binary_next_position_lookahead = false;
+        self.prefer_oldest_first_window_probe = false;
+        self.use_complementary_end_insertion = false;
+        self.use_second_newest_probe = false;
+        self.use_fast_binary_small_second_newest = false;
+        self.use_text_repeat_pipeline = false;
+        self.current_block_is_dictionary_lockfile_text = false;
+        self.current_block_is_composer_dictionary_text = false;
+        self.current_block_is_structured_json_config_text = false;
+        self.current_block_is_tsconfig_json_config_text = false;
+        self.file_type_hint = CompressionFileType::Unknown;
+        self.file_profile_hint = CompressionFileProfile::None;
+        #[cfg(test)]
+        {
+            *self.diagnostics.borrow_mut() = MatcherDiagnostics::default();
+        }
         self.window.drain(..).for_each(|entry| {
             reuse_space(entry.data, entry.suffixes);
         });
     }
 
-    /// Processes bytes in the current window until either a match is found or no more matches can be found
-    /// * If a match is found handle_sequence is called with the Triple variant
-    /// * If no more matches can be found but there are bytes still left handle_sequence is called with the Literals variant
-    /// * If no more matches can be found and no more bytes are left this returns false
-    fn next_sequence(&mut self, mut handle_sequence: impl for<'a> FnMut(Sequence<'a>)) -> bool {
-        loop {
-            let last_entry = self.window.last().unwrap();
-            let data_slice = &last_entry.data;
-
-            // We already reached the end of the window, check if we need to return a Literals{}
-            if self.suffix_idx >= data_slice.len() {
-                if self.last_idx_in_sequence != self.suffix_idx {
-                    let literals = &data_slice[self.last_idx_in_sequence..];
-                    self.last_idx_in_sequence = self.suffix_idx;
-                    handle_sequence(Sequence::Literals { literals });
-                    return true;
-                } else {
-                    return false;
-                }
-            }
-
-            // If the remaining data is smaller than the minimum match length we can stop and return a Literals{}
-            let data_slice = &data_slice[self.suffix_idx..];
-            if data_slice.len() < MIN_MATCH_LEN {
-                let last_idx_in_sequence = self.last_idx_in_sequence;
-                self.last_idx_in_sequence = last_entry.data.len();
-                self.suffix_idx = last_entry.data.len();
-                handle_sequence(Sequence::Literals {
-                    literals: &last_entry.data[last_idx_in_sequence..],
-                });
-                return true;
-            }
-
-            // This is the key we are looking to find a match for
-            let key = &data_slice[..MIN_MATCH_LEN];
-
-            // Look in each window entry
-            let mut candidate = None;
-            for (match_entry_idx, match_entry) in self.window.iter().enumerate() {
-                let is_last = match_entry_idx == self.window.len() - 1;
-                if let Some(match_index) = match_entry.suffixes.get(key) {
-                    let match_slice = if is_last {
-                        &match_entry.data[match_index..self.suffix_idx]
-                    } else {
-                        &match_entry.data[match_index..]
-                    };
-
-                    // Check how long the common prefix actually is
-                    let match_len = Self::common_prefix_len(match_slice, data_slice);
-
-                    // Collisions in the suffix store might make this check fail
-                    if match_len >= MIN_MATCH_LEN {
-                        let offset = match_entry.base_offset + self.suffix_idx - match_index;
-
-                        // If we are in debug/tests make sure the match we found is actually at the offset we calculated
-                        #[cfg(debug_assertions)]
-                        {
-                            let unprocessed = last_entry.data.len() - self.suffix_idx;
-                            let start = self.concat_window.len() - unprocessed - offset;
-                            let end = start + match_len;
-                            let check_slice = &self.concat_window[start..end];
-                            debug_assert_eq!(check_slice, &match_slice[..match_len]);
-                        }
-
-                        if let Some((old_offset, old_match_len)) = candidate {
-                            if match_len > old_match_len
-                                || (match_len == old_match_len && offset < old_offset)
-                            {
-                                candidate = Some((offset, match_len));
-                            }
-                        } else {
-                            candidate = Some((offset, match_len));
-                        }
-                    }
-                }
-            }
-
-            if let Some((offset, match_len)) = candidate {
-                // For each index in the match we found we do not need to look for another match
-                // But we still want them registered in the suffix store
-                self.add_suffixes_till(self.suffix_idx + match_len);
-
-                // All literals that were not included between this match and the last are now included here
-                let last_entry = self.window.last().unwrap();
-                let literals = &last_entry.data[self.last_idx_in_sequence..self.suffix_idx];
-
-                // Update the indexes, all indexes upto and including the current index have been included in a sequence now
-                self.suffix_idx += match_len;
-                self.last_idx_in_sequence = self.suffix_idx;
-                handle_sequence(Sequence::Triple {
-                    literals,
-                    offset,
-                    match_len,
-                });
-
-                return true;
-            }
-
-            let last_entry = self.window.last_mut().unwrap();
-            let key = &last_entry.data[self.suffix_idx..self.suffix_idx + MIN_MATCH_LEN];
-            if !last_entry.suffixes.contains_key(key) {
-                last_entry.suffixes.insert(key, self.suffix_idx);
-            }
-            self.suffix_idx += 1;
-        }
+    fn set_window_sizes(&mut self, max_size: usize, fast_size: usize) {
+        debug_assert!(self.window.is_empty());
+        self.max_window_size = max_size;
+        self.fast_window_size = fast_size.min(max_size);
     }
 
-    /// Find the common prefix length between two byte slices
     #[inline(always)]
-    fn common_prefix_len(a: &[u8], b: &[u8]) -> usize {
-        Self::mismatch_chunks::<8>(a, b)
+    fn last_entry(&self) -> &WindowEntry {
+        match self.window.last() {
+            Some(entry) => entry,
+            None => Self::missing_window_entry(),
+        }
     }
 
-    /// Find the common prefix length between two byte slices with a configurable chunk length
-    /// This enables vectorization optimizations
-    fn mismatch_chunks<const N: usize>(xs: &[u8], ys: &[u8]) -> usize {
-        let off = core::iter::zip(xs.chunks_exact(N), ys.chunks_exact(N))
-            .take_while(|(x, y)| x == y)
-            .count()
-            * N;
-        off + core::iter::zip(&xs[off..], &ys[off..])
-            .take_while(|(x, y)| x == y)
-            .count()
-    }
-
-    /// Process bytes and add the suffixes to the suffix store up to a specific index
     #[inline(always)]
-    fn add_suffixes_till(&mut self, idx: usize) {
-        let last_entry = self.window.last_mut().unwrap();
-        if last_entry.data.len() < MIN_MATCH_LEN {
-            return;
-        }
-        let slice = &last_entry.data[self.suffix_idx..idx];
-        for (key_index, key) in slice.windows(MIN_MATCH_LEN).enumerate() {
-            if !last_entry.suffixes.contains_key(key) {
-                last_entry.suffixes.insert(key, self.suffix_idx + key_index);
-            }
+    fn last_entry_mut(&mut self) -> &mut WindowEntry {
+        match self.window.last_mut() {
+            Some(entry) => entry,
+            None => Self::missing_window_entry(),
         }
     }
 
-    /// Skip matching for the whole current window entry
-    fn skip_matching(&mut self) {
-        let len = self.window.last().unwrap().data.len();
-        self.add_suffixes_till(len);
-        self.suffix_idx = len;
-        self.last_idx_in_sequence = len;
-    }
-
-    /// Add a new window entry. Will panic if the last window entry hasn't been processed properly.
-    /// If any resources are released by pushing the new entry they are returned via the callback
-    fn add_data(
-        &mut self,
-        data: Vec<u8>,
-        suffixes: SuffixStore,
-        reuse_space: impl FnMut(Vec<u8>, SuffixStore),
-    ) {
-        assert!(
-            self.window.is_empty() || self.suffix_idx == self.window.last().unwrap().data.len()
-        );
-        self.reserve(data.len(), reuse_space);
-        #[cfg(debug_assertions)]
-        self.concat_window.extend_from_slice(&data);
-
-        if let Some(last_len) = self.window.last().map(|last| last.data.len()) {
-            for entry in self.window.iter_mut() {
-                entry.base_offset += last_len;
-            }
+    #[inline(always)]
+    fn last_entry_index(&self) -> usize {
+        match self.window.len().checked_sub(1) {
+            Some(idx) => idx,
+            None => Self::missing_window_entry(),
         }
-
-        let len = data.len();
-        self.window.push(WindowEntry {
-            data,
-            suffixes,
-            base_offset: 0,
-        });
-        self.window_size += len;
-        self.suffix_idx = 0;
-        self.last_idx_in_sequence = 0;
     }
 
-    /// Reserve space for a new window entry
-    /// If any resources are released by pushing the new entry they are returned via the callback
-    fn reserve(&mut self, amount: usize, mut reuse_space: impl FnMut(Vec<u8>, SuffixStore)) {
-        assert!(self.max_window_size >= amount);
-        while self.window_size + amount > self.max_window_size {
-            let removed = self.window.remove(0);
-            self.window_size -= removed.data.len();
-            #[cfg(debug_assertions)]
-            self.concat_window.drain(0..removed.data.len());
+    #[cold]
+    #[inline(never)]
+    fn missing_window_entry() -> ! {
+        panic!("match generator requires a committed window entry")
+    }
 
-            let WindowEntry {
-                suffixes,
-                data: leaked_vec,
-                base_offset: _,
-            } = removed;
-            reuse_space(leaked_vec, suffixes);
+    #[inline(always)]
+    fn bounded_u32(value: usize) -> u32 {
+        match u32::try_from(value) {
+            Ok(value) => value,
+            Err(_) => unreachable!("match generator indexes are bounded by the compressor window"),
         }
     }
 }
 
-#[test]
-fn matches() {
-    let mut matcher = MatchGenerator::new(1000);
-    let mut original_data = Vec::new();
-    let mut reconstructed = Vec::new();
-
-    let assert_seq_equal = |seq1: Sequence<'_>, seq2: Sequence<'_>, reconstructed: &mut Vec<u8>| {
-        assert_eq!(seq1, seq2);
-        match seq2 {
-            Sequence::Literals { literals } => reconstructed.extend_from_slice(literals),
-            Sequence::Triple {
-                literals,
-                offset,
-                match_len,
-            } => {
-                reconstructed.extend_from_slice(literals);
-                let start = reconstructed.len() - offset;
-                let end = start + match_len;
-                reconstructed.extend_from_within(start..end);
-            }
-        }
-    };
-
-    matcher.add_data(
-        alloc::vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        SuffixStore::with_capacity(100),
-        |_, _| {},
-    );
-    original_data.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-
-    matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[0, 0, 0, 0, 0],
-                offset: 5,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
-    });
-
-    assert!(!matcher.next_sequence(|_| {}));
-
-    matcher.add_data(
-        alloc::vec![1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6, 0, 0, 0, 0, 0,],
-        SuffixStore::with_capacity(100),
-        |_, _| {},
-    );
-    original_data.extend_from_slice(&[
-        1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6, 0, 0, 0, 0, 0,
-    ]);
-
-    matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[1, 2, 3, 4, 5, 6],
-                offset: 6,
-                match_len: 6,
-            },
-            &mut reconstructed,
-        )
-    });
-    matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 12,
-                match_len: 6,
-            },
-            &mut reconstructed,
-        )
-    });
-    matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 28,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
-    });
-    assert!(!matcher.next_sequence(|_| {}));
-
-    matcher.add_data(
-        alloc::vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 0, 0, 0, 0],
-        SuffixStore::with_capacity(100),
-        |_, _| {},
-    );
-    original_data.extend_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 0, 0, 0, 0]);
-
-    matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 23,
-                match_len: 6,
-            },
-            &mut reconstructed,
-        )
-    });
-    matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[7, 8, 9, 10, 11],
-                offset: 16,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
-    });
-    assert!(!matcher.next_sequence(|_| {}));
-
-    matcher.add_data(
-        alloc::vec![0, 0, 0, 0, 0],
-        SuffixStore::with_capacity(100),
-        |_, _| {},
-    );
-    original_data.extend_from_slice(&[0, 0, 0, 0, 0]);
-
-    matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 5,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
-    });
-    assert!(!matcher.next_sequence(|_| {}));
-
-    matcher.add_data(
-        alloc::vec![7, 8, 9, 10, 11],
-        SuffixStore::with_capacity(100),
-        |_, _| {},
-    );
-    original_data.extend_from_slice(&[7, 8, 9, 10, 11]);
-
-    matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 15,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
-    });
-    assert!(!matcher.next_sequence(|_| {}));
-
-    matcher.add_data(
-        alloc::vec![1, 3, 5, 7, 9],
-        SuffixStore::with_capacity(100),
-        |_, _| {},
-    );
-    matcher.skip_matching();
-    original_data.extend_from_slice(&[1, 3, 5, 7, 9]);
-    reconstructed.extend_from_slice(&[1, 3, 5, 7, 9]);
-    assert!(!matcher.next_sequence(|_| {}));
-
-    matcher.add_data(
-        alloc::vec![1, 3, 5, 7, 9],
-        SuffixStore::with_capacity(100),
-        |_, _| {},
-    );
-    original_data.extend_from_slice(&[1, 3, 5, 7, 9]);
-
-    matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[],
-                offset: 5,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
-    });
-    assert!(!matcher.next_sequence(|_| {}));
-
-    matcher.add_data(
-        alloc::vec![0, 0, 11, 13, 15, 17, 20, 11, 13, 15, 17, 20, 21, 23],
-        SuffixStore::with_capacity(100),
-        |_, _| {},
-    );
-    original_data.extend_from_slice(&[0, 0, 11, 13, 15, 17, 20, 11, 13, 15, 17, 20, 21, 23]);
-
-    matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Triple {
-                literals: &[0, 0, 11, 13, 15, 17, 20],
-                offset: 5,
-                match_len: 5,
-            },
-            &mut reconstructed,
-        )
-    });
-    matcher.next_sequence(|seq| {
-        assert_seq_equal(
-            seq,
-            Sequence::Literals {
-                literals: &[21, 23],
-            },
-            &mut reconstructed,
-        )
-    });
-    assert!(!matcher.next_sequence(|_| {}));
-
-    assert_eq!(reconstructed, original_data);
-}
+#[cfg(test)]
+mod tests;

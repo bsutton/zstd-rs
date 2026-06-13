@@ -3,10 +3,14 @@
 This document records the changes made between versions, starting with version 0.5.0
 
 # After 0.8.3 (Current)
+* Improve Fastest match selection by retaining both oldest and newest hash
+  candidates for each suffix bucket and using a cheaper five-byte hash.
 
 * Avoid emitting compressed blocks when the compressed payload is not smaller
   than the raw block.
 * Fix Dictionary decoding. It should not panic on invalid inputs.
+* Improve Huffman literal table selection by using length-limited frequency
+  code lengths when they can be repaired to the zstd 11-bit maximum.
 
 # After 0.8.2
 * Introduce the `rust-version` field

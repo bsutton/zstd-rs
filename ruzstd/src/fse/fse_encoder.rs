@@ -1,5 +1,8 @@
 use crate::bit_io::BitWriter;
 use alloc::vec::Vec;
+use core::convert::TryFrom;
+
+const DIRECT_STATE_LOOKUP_MAX_TABLE_SIZE: usize = 1024;
 
 pub(crate) struct FSEEncoder<'output, V: AsMut<Vec<u8>>> {
     pub(super) table: FSETable,
@@ -127,6 +130,7 @@ pub struct FSETable {
     pub(super) states: [SymbolStates; 256],
     /// Sum of all states.states.len()
     pub(crate) table_size: usize,
+    acc_log: u8,
 }
 
 impl FSETable {
@@ -140,14 +144,58 @@ impl FSETable {
         &states.states[0]
     }
 
+    pub(crate) fn can_encode_symbol(&self, symbol: u8) -> bool {
+        !self.states[symbol as usize].states.is_empty()
+    }
+
+    pub(crate) fn bit_cost(&self, symbol: u8, accuracy_log: u8) -> Option<usize> {
+        if !self.can_encode_symbol(symbol) {
+            return None;
+        }
+
+        let table_log = self.acc_log;
+        let table_size = 1usize << table_log;
+        let delta_nb_bits = self.delta_nb_bits(symbol) as usize;
+        let min_nb_bits = delta_nb_bits >> 16;
+        let threshold = (min_nb_bits + 1) << 16;
+        let delta_from_threshold = threshold.checked_sub(delta_nb_bits + table_size)?;
+        let normalized_delta_from_threshold = (delta_from_threshold << accuracy_log) >> table_log;
+        let bit_multiplier = 1usize << accuracy_log;
+
+        Some((min_nb_bits + 1) * bit_multiplier - normalized_delta_from_threshold)
+    }
+
     pub fn acc_log(&self) -> u8 {
-        self.table_size.ilog2() as u8
+        self.acc_log
+    }
+
+    pub(crate) fn normalized_probability(&self, symbol: u8) -> i32 {
+        self.states[symbol as usize].probability
+    }
+
+    fn delta_nb_bits(&self, symbol: u8) -> u32 {
+        let table_log = u32::from(self.acc_log);
+        let table_size = 1u32 << table_log;
+        let probability = self.normalized_probability(symbol);
+
+        match probability {
+            0 => ((table_log + 1) << 16) - table_size,
+            -1 | 1 => (table_log << 16) - table_size,
+            probability => {
+                debug_assert!(probability > 1);
+                let probability = probability as u32;
+                let max_bits_out = table_log - highbit32(probability - 1);
+                let min_state_plus = probability << max_bits_out;
+                (max_bits_out << 16) - min_state_plus
+            }
+        }
     }
 
     pub(crate) fn write_table<V: AsMut<Vec<u8>>>(&self, writer: &mut BitWriter<V>) {
-        writer.write_bits(self.acc_log() - 5, 4);
+        let acc_log = self.acc_log();
+        writer.write_bits(acc_log - 5, 4);
         let mut probability_counter = 0usize;
-        let probability_sum = 1 << self.acc_log();
+        let probability_sum = 1 << acc_log;
 
         let mut prob_idx = 0;
         while probability_counter < probability_sum {
@@ -188,15 +236,26 @@ impl FSETable {
     }
 }
 
+fn highbit32(value: u32) -> u32 {
+    u32::BITS - 1 - value.leading_zeros()
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct SymbolStates {
     /// Sorted by baseline to allow easy lookup using an index
     pub(super) states: Vec<State>,
+    lookup: Vec<u16>,
     pub(super) probability: i32,
 }
 
 impl SymbolStates {
     fn get(&self, idx: usize, max_idx: usize) -> &State {
+        if !self.lookup.is_empty() {
+            let state_idx = self.lookup[idx] as usize;
+            debug_assert_ne!(state_idx, u16::MAX as usize);
+            return &self.states[state_idx];
+        }
+
         let start_search_at = (idx * self.states.len()) / max_idx;
         self.states[start_search_at..]
             .iter()
@@ -242,8 +301,185 @@ pub fn build_table_from_data(
 }
 
 fn build_table_from_counts(counts: &[usize], max_log: u8, avoid_0_numbit: bool) -> FSETable {
-    let mut probs = [0; 256];
-    let probs = &mut probs[..counts.len()];
+    if max_log <= 6 {
+        let (probs, acc_log) = old_normalize_counts(counts, max_log, avoid_0_numbit);
+        return build_table_from_probabilities(&probs, acc_log);
+    }
+
+    let total = counts.iter().sum::<usize>();
+    assert!(total > 0);
+    let max_symbol = counts.iter().rposition(|count| *count > 0).unwrap_or(0);
+    let acc_log = optimal_table_log(max_log, total, max_symbol);
+    let low_prob_count = if total >= 2048 { -1 } else { 1 };
+    if let Some(probs) = normalize_counts(counts, acc_log, low_prob_count) {
+        build_table_from_probabilities(&probs, acc_log)
+    } else {
+        let (probs, acc_log) = old_normalize_counts(counts, max_log, avoid_0_numbit);
+        build_table_from_probabilities(&probs, acc_log)
+    }
+}
+
+fn optimal_table_log(max_log: u8, total: usize, max_symbol: usize) -> u8 {
+    const MIN_TABLE_LOG: u8 = 5;
+    const MAX_TABLE_LOG: u8 = 22;
+
+    let max_bits_src = (total - 1).ilog2().saturating_sub(2);
+    let min_bits_src = total.ilog2() + 1;
+    let min_bits_symbols = if max_symbol == 0 {
+        0
+    } else {
+        max_symbol.ilog2() + 2
+    };
+    let min_bits = min_bits_src.min(min_bits_symbols);
+    let table_log = u32::from(max_log).min(max_bits_src).max(min_bits);
+    table_log.clamp(u32::from(MIN_TABLE_LOG), u32::from(MAX_TABLE_LOG)) as u8
+}
+
+fn normalize_counts(counts: &[usize], table_log: u8, low_prob_count: i32) -> Option<Vec<i32>> {
+    let total = counts.iter().sum::<usize>();
+    let table_size = 1i32 << table_log;
+    let low_threshold = total >> table_log;
+    let scale = 62 - table_log;
+    let step = (1u64 << 62) / total as u64;
+    let v_step = 1u64 << (scale - 20);
+    let rtb_table = [
+        0u64, 473_195, 504_333, 520_860, 550_000, 700_000, 750_000, 830_000,
+    ];
+
+    let mut normalized = alloc::vec![0i32; counts.len()];
+    let mut still_to_distribute = table_size;
+    let mut largest = 0usize;
+    let mut largest_probability = 0i32;
+
+    for (symbol, count) in counts.iter().copied().enumerate() {
+        if count == 0 {
+            continue;
+        }
+        if count == total {
+            normalized[symbol] = table_size;
+            return Some(normalized);
+        }
+        if count <= low_threshold {
+            normalized[symbol] = low_prob_count;
+            still_to_distribute -= 1;
+            continue;
+        }
+
+        let scaled = count as u64 * step;
+        let mut probability = (scaled >> scale) as i32;
+        if probability < 8 {
+            let rest_to_beat = v_step * rtb_table[probability as usize];
+            if scaled - ((probability as u64) << scale) > rest_to_beat {
+                probability += 1;
+            }
+        }
+        if probability > largest_probability {
+            largest_probability = probability;
+            largest = symbol;
+        }
+        normalized[symbol] = probability;
+        still_to_distribute -= probability;
+    }
+
+    if -still_to_distribute >= normalized[largest] >> 1 {
+        normalize_counts_slow(counts, table_log, low_prob_count)
+    } else {
+        normalized[largest] += still_to_distribute;
+        Some(normalized)
+    }
+}
+
+fn normalize_counts_slow(counts: &[usize], table_log: u8, low_prob_count: i32) -> Option<Vec<i32>> {
+    const NOT_YET_ASSIGNED: i32 = -2;
+
+    let mut normalized = alloc::vec![0i32; counts.len()];
+    let mut distributed = 0usize;
+    let mut remaining_total = counts.iter().sum::<usize>();
+    let mut low_one = (remaining_total * 3) >> (table_log + 1);
+    let low_threshold = remaining_total >> table_log;
+
+    for (symbol, count) in counts.iter().copied().enumerate() {
+        if count == 0 {
+            continue;
+        }
+        if count <= low_threshold {
+            normalized[symbol] = low_prob_count;
+            distributed += 1;
+            remaining_total -= count;
+            continue;
+        }
+        if count <= low_one {
+            normalized[symbol] = 1;
+            distributed += 1;
+            remaining_total -= count;
+            continue;
+        }
+        normalized[symbol] = NOT_YET_ASSIGNED;
+    }
+
+    let mut to_distribute = (1usize << table_log) - distributed;
+    if to_distribute == 0 {
+        return Some(normalized);
+    }
+
+    if remaining_total / to_distribute > low_one {
+        low_one = (remaining_total * 3) / (to_distribute * 2);
+        for (symbol, count) in counts.iter().copied().enumerate() {
+            if normalized[symbol] == NOT_YET_ASSIGNED && count <= low_one {
+                normalized[symbol] = 1;
+                distributed += 1;
+                remaining_total -= count;
+            }
+        }
+        to_distribute = (1usize << table_log) - distributed;
+    }
+
+    if distributed == counts.len() {
+        let max_symbol = counts
+            .iter()
+            .copied()
+            .enumerate()
+            .max_by_key(|(_, count)| *count)
+            .map(|(symbol, _)| symbol)?;
+        normalized[max_symbol] += to_distribute as i32;
+        return Some(normalized);
+    }
+
+    if remaining_total == 0 {
+        let mut symbol = 0usize;
+        while to_distribute > 0 {
+            if normalized[symbol] > 0 {
+                normalized[symbol] += 1;
+                to_distribute -= 1;
+            }
+            symbol = (symbol + 1) % counts.len();
+        }
+        return Some(normalized);
+    }
+
+    let v_step_log = 62 - table_log;
+    let mid = (1u64 << (v_step_log - 1)) - 1;
+    let r_step = (((1u64 << v_step_log) * to_distribute as u64) + mid) / remaining_total as u64;
+    let mut tmp_total = mid;
+    for (symbol, count) in counts.iter().copied().enumerate() {
+        if normalized[symbol] == NOT_YET_ASSIGNED {
+            let end = tmp_total + count as u64 * r_step;
+            let start = tmp_total >> v_step_log;
+            let finish = end >> v_step_log;
+            let weight = finish - start;
+            if weight < 1 {
+                return None;
+            }
+            normalized[symbol] = weight as i32;
+            tmp_total = end;
+        }
+    }
+
+    Some(normalized)
+}
+
+fn old_normalize_counts(counts: &[usize], max_log: u8, avoid_0_numbit: bool) -> (Vec<i32>, u8) {
+    let mut probs = alloc::vec![0i32; counts.len()];
     let mut min_count = 0;
     for (idx, count) in counts.iter().copied().enumerate() {
         probs[idx] = count as i32;
@@ -252,7 +488,6 @@ fn build_table_from_counts(counts: &[usize], max_log: u8, avoid_0_numbit: bool) 
         }
     }
 
-    // shift all probabilities down so that the lowest are 1
     min_count -= 1;
     let mut max_prob = 0i32;
     for prob in probs.iter_mut() {
@@ -271,7 +506,6 @@ fn build_table_from_counts(counts: &[usize], max_log: u8, avoid_0_numbit: bool) 
         }
     }
 
-    // normalize probabilities to a 2^x
     let sum = probs.iter().sum::<i32>();
     assert!(sum > 0);
     let sum = sum as usize;
@@ -279,13 +513,10 @@ fn build_table_from_counts(counts: &[usize], max_log: u8, avoid_0_numbit: bool) 
     let acc_log = u8::min(acc_log, max_log);
 
     if sum < 1 << acc_log {
-        // just raise the maximum probability as much as possible
-        // TODO is this optimal?
         let diff = (1 << acc_log) - sum;
         let max = probs.iter_mut().max().unwrap();
         *max += diff as i32;
     } else {
-        // decrease the smallest ones to 1 first
         let mut diff = sum - (1 << acc_log);
         while diff > 0 {
             let min = probs.iter_mut().filter(|prob| **prob > 1).min().unwrap();
@@ -300,19 +531,19 @@ fn build_table_from_counts(counts: &[usize], max_log: u8, avoid_0_numbit: bool) 
         *max -= redistribute;
         let max = *max;
 
-        // find first occurence of the second_max to avoid lifting the last zero
         let second_max = *probs.iter_mut().filter(|x| **x != max).max().unwrap();
         let second_max = probs.iter_mut().find(|x| **x == second_max).unwrap();
         *second_max += redistribute;
         assert!(*second_max <= max);
     }
 
-    build_table_from_probabilities(probs, acc_log)
+    (probs, acc_log)
 }
 
-pub(super) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSETable {
+pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSETable {
     let mut states = core::array::from_fn::<SymbolStates, 256, _>(|_| SymbolStates {
         states: Vec::new(),
+        lookup: Vec::new(),
         probability: 0,
     });
 
@@ -369,7 +600,7 @@ pub(super) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
         let state = &mut states[symbol];
 
         // We process the states in their order in the table
-        state.states.sort_by_key(|l| l.index);
+        state.states.sort_unstable_by_key(|l| l.index);
 
         let prob_log = if prob.is_power_of_two() {
             prob.ilog2()
@@ -401,11 +632,24 @@ pub(super) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
         }
 
         // For encoding we use the states ordered by the indexes they target
-        state.states.sort_by_key(|l| l.baseline);
+        state.states.sort_unstable_by_key(|l| l.baseline);
+        if (1usize << acc_log) <= DIRECT_STATE_LOOKUP_MAX_TABLE_SIZE {
+            state.lookup.resize(1usize << acc_log, u16::MAX);
+            for (state_idx, fse_state) in state.states.iter().enumerate() {
+                let state_idx = match u16::try_from(state_idx) {
+                    Ok(state_idx) => state_idx,
+                    Err(_) => unreachable!("small FSE direct lookup state indexes fit in u16"),
+                };
+                for idx in fse_state.baseline..=fse_state.last_index {
+                    state.lookup[idx] = state_idx;
+                }
+            }
+        }
     }
 
     FSETable {
         table_size: 1 << acc_log,
+        acc_log,
         states,
     }
 }
@@ -442,4 +686,60 @@ pub(crate) fn default_ll_table() -> FSETable {
 
 pub(crate) fn default_of_table() -> FSETable {
     build_table_from_probabilities(OF_DIST, 5)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_table_from_data, default_ll_table, default_ml_table, default_of_table,
+        normalize_counts, optimal_table_log,
+    };
+
+    #[test]
+    fn default_tables_cache_their_accuracy_log() {
+        for (table, expected_acc_log) in [
+            (default_ll_table(), 6),
+            (default_ml_table(), 6),
+            (default_of_table(), 5),
+        ] {
+            assert_eq!(table.acc_log(), expected_acc_log);
+            assert_eq!(table.table_size, 1 << table.acc_log());
+        }
+    }
+
+    #[test]
+    fn optimal_table_log_matches_c_fast_sequence_shape() {
+        assert_eq!(optimal_table_log(9, 3000, 35), 9);
+        assert_eq!(optimal_table_log(8, 3000, 24), 8);
+        assert_eq!(optimal_table_log(9, 12, 35), 5);
+    }
+
+    #[test]
+    fn c_style_normalization_sums_to_table_size() {
+        let counts = [0, 57, 104, 88, 42, 17, 9, 3, 1, 0, 23, 61];
+        let table_log = optimal_table_log(9, counts.iter().sum(), counts.len() - 1);
+        let normalized = normalize_counts(&counts, table_log, 1)
+            .expect("normalization should represent the distribution");
+        let total = normalized
+            .iter()
+            .map(|probability| probability.unsigned_abs() as usize)
+            .sum::<usize>();
+
+        assert_eq!(total, 1usize << table_log);
+        for (count, probability) in counts.iter().zip(normalized) {
+            assert_eq!(*count == 0, probability == 0);
+        }
+    }
+
+    #[test]
+    fn sequence_table_builder_keeps_large_balanced_tables_precise() {
+        let mut data = alloc::vec::Vec::new();
+        for _ in 0..100 {
+            data.extend(0u8..30);
+        }
+
+        let table = build_table_from_data(data.iter().copied(), 9, true);
+
+        assert_eq!(table.acc_log(), 9);
+    }
 }

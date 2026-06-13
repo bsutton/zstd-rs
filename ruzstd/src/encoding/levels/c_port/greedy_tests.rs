@@ -1,0 +1,430 @@
+use alloc::vec::Vec;
+
+use super::greedy::{
+    compress_block_btlazy2_no_dict_with_state, compress_block_greedy_no_dict,
+    compress_block_greedy_no_dict_with_state, compress_block_lazy2_no_dict_with_state,
+    compress_block_lazy_no_dict_with_state, GreedyBlockOutput, GreedyMatchState,
+};
+use super::greedy_block::{
+    encode_block_hash_chain_no_dict, prepare_block_greedy_no_dict, GreedyBlockEncodeContext,
+    LazyBlockStrategy,
+};
+use super::params::{CompressionParameters, Strategy};
+use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
+use crate::blocks::block::BlockType;
+use crate::common::MAX_BLOCK_SIZE;
+use crate::encoding::blocks::BlockCompressionConfig;
+use crate::encoding::frame_compressor::{FseTables, OffsetHistory};
+use crate::encoding::CompressionLevel;
+
+fn greedy_params(src_len: usize) -> CompressionParameters {
+    CompressionParameters::for_level(greedy_level(src_len), src_len as u64, 0)
+}
+
+fn lazy_params(src_len: usize) -> CompressionParameters {
+    CompressionParameters::for_level(lazy_level(src_len), src_len as u64, 0)
+}
+
+fn lazy2_params(src_len: usize) -> CompressionParameters {
+    CompressionParameters::for_level(lazy2_level(src_len), src_len as u64, 0)
+}
+
+fn btlazy2_params(src_len: usize) -> CompressionParameters {
+    CompressionParameters::for_level(btlazy2_level(src_len), src_len as u64, 0)
+}
+
+fn greedy_level(src_len: usize) -> i32 {
+    if src_len <= 16 * 1024 {
+        4
+    } else {
+        5
+    }
+}
+
+fn large_window_greedy_params() -> CompressionParameters {
+    CompressionParameters {
+        window_log: 18,
+        chain_log: 16,
+        hash_log: 16,
+        search_log: 5,
+        min_match: 4,
+        target_length: 0,
+        strategy: Strategy::Greedy,
+    }
+}
+
+fn lazy_level(src_len: usize) -> i32 {
+    if src_len <= 16 * 1024 {
+        5
+    } else {
+        6
+    }
+}
+
+fn lazy2_level(src_len: usize) -> i32 {
+    if src_len <= 16 * 1024 {
+        6
+    } else {
+        8
+    }
+}
+
+fn btlazy2_level(src_len: usize) -> i32 {
+    if src_len <= 16 * 1024 {
+        9
+    } else {
+        13
+    }
+}
+
+#[test]
+fn greedy_no_dict_keeps_tiny_blocks_as_last_literals() {
+    let data = b"abcdefgh";
+
+    let output =
+        compress_block_greedy_no_dict(data, greedy_params(data.len()), RepeatOffsets::new());
+
+    assert!(output.sequences.is_empty());
+    assert_eq!(output.last_literals, data.len() as u32);
+    assert_eq!(output.repeat_offsets, RepeatOffsets::new());
+}
+
+#[test]
+fn greedy_no_dict_emits_repcode_at_next_position() {
+    let data = b"aaaaaaaaaaaaaaaa";
+
+    let output =
+        compress_block_greedy_no_dict(data, greedy_params(data.len()), RepeatOffsets::new());
+
+    assert_eq!(
+        output.sequences,
+        [StoredSequence::new(
+            2,
+            OffBase::Repeat(RepeatCode::First),
+            14
+        )]
+    );
+    assert_eq!(output.last_literals, 0);
+    assert_eq!(output.repeat_offsets, RepeatOffsets::new());
+}
+
+#[test]
+fn greedy_no_dict_uses_hash_chain_match() {
+    let data = b"abcde12345abcde12345-tail";
+
+    let output =
+        compress_block_greedy_no_dict(data, greedy_params(data.len()), RepeatOffsets::new());
+
+    assert_eq!(
+        output.sequences,
+        [StoredSequence::new(10, OffBase::Offset(10), 10)]
+    );
+    assert_eq!(output.last_literals, 5);
+    assert_eq!(output.repeat_offsets.as_offsets(), [10, 1, 8]);
+}
+
+#[test]
+fn greedy_no_dict_uses_row_matchfinder_when_window_is_large() {
+    let mut data = Vec::new();
+    data.extend_from_slice(b"abcdefghijklmnopqrst");
+    data.extend_from_slice(b"row-match-finder-window");
+    data.extend_from_slice(b"01234567890123456789");
+    data.extend_from_slice(b"row-match-finder-window");
+    data.extend_from_slice(b"-tail-with-room-for-cache");
+    let mut state = GreedyMatchState::new();
+
+    let output = compress_block_greedy_no_dict_with_state(
+        &data,
+        0..data.len(),
+        large_window_greedy_params(),
+        RepeatOffsets::new(),
+        &mut state,
+    );
+
+    assert!(!state.tag_table.is_empty());
+    assert!(output
+        .sequences
+        .iter()
+        .any(|sequence| { matches!(sequence.off_base, OffBase::Offset(43)) }));
+}
+
+#[test]
+fn greedy_row_matchfinder_stops_at_c_cache_limit() {
+    let data = b"abcde12345abcde12345-tail";
+    let mut state = GreedyMatchState::new();
+
+    let output = compress_block_greedy_no_dict_with_state(
+        data,
+        0..data.len(),
+        large_window_greedy_params(),
+        RepeatOffsets::new(),
+        &mut state,
+    );
+
+    assert!(output.sequences.is_empty());
+    assert!(!state.tag_table.is_empty());
+    assert_eq!(output.last_literals, data.len() as u32);
+}
+
+#[test]
+fn lazy_no_dict_uses_hash_chain_match() {
+    let data = b"abcde12345abcde12345-tail";
+
+    assert_eq!(lazy_params(data.len()).strategy, Strategy::Lazy);
+    let output = lazy_output(data);
+
+    assert_eq!(
+        output.sequences,
+        [StoredSequence::new(10, OffBase::Offset(10), 10)]
+    );
+    assert_eq!(output.last_literals, 5);
+    assert_eq!(output.repeat_offsets.as_offsets(), [10, 1, 8]);
+}
+
+#[test]
+fn lazy2_no_dict_uses_hash_chain_match() {
+    let data = b"abcde12345abcde12345-tail";
+
+    assert_eq!(lazy2_params(data.len()).strategy, Strategy::Lazy2);
+    let output = lazy2_output(data);
+
+    assert_eq!(
+        output.sequences,
+        [StoredSequence::new(10, OffBase::Offset(10), 10)]
+    );
+    assert_eq!(output.last_literals, 5);
+    assert_eq!(output.repeat_offsets.as_offsets(), [10, 1, 8]);
+}
+
+#[test]
+fn btlazy2_no_dict_uses_binary_tree_match() {
+    let data = b"abcde12345abcde12345-tail";
+
+    assert_eq!(btlazy2_params(data.len()).strategy, Strategy::BtLazy2);
+    let output = btlazy2_output(data);
+
+    assert_eq!(
+        output.sequences,
+        [StoredSequence::new(10, OffBase::Offset(10), 10)]
+    );
+    assert_eq!(output.last_literals, 5);
+    assert_eq!(output.repeat_offsets.as_offsets(), [10, 1, 8]);
+}
+
+#[test]
+fn greedy_no_dict_state_finds_previous_block_prefix_match() {
+    let marker = b"greedy-cross-block-marker:0123456789abcdef";
+    let mut data = deterministic_bytes(MAX_BLOCK_SIZE as usize);
+    for pos in [4096, 24576, MAX_BLOCK_SIZE as usize - 1536] {
+        data[pos..pos + marker.len()].copy_from_slice(marker);
+    }
+    let second_block_start = data.len();
+    data.extend_from_slice(marker);
+    data.extend_from_slice(&deterministic_bytes(512));
+
+    let params = greedy_params(data.len());
+    let mut state = GreedyMatchState::new();
+    let first = compress_block_greedy_no_dict_with_state(
+        &data,
+        0..second_block_start,
+        params,
+        RepeatOffsets::new(),
+        &mut state,
+    );
+    let second = compress_block_greedy_no_dict_with_state(
+        &data,
+        second_block_start..data.len(),
+        params,
+        first.repeat_offsets,
+        &mut state,
+    );
+
+    assert!(second.sequences.iter().any(|sequence| matches!(
+        sequence.off_base,
+        OffBase::Offset(offset) if sequence.lit_len == 0
+            && offset as usize >= marker.len()
+    )));
+}
+
+#[test]
+fn greedy_no_dict_prepared_block_resolves_sequences() {
+    let data = b"abcde12345abcde12345-tail";
+
+    let prepared =
+        prepare_block_greedy_no_dict(data, greedy_params(data.len()), RepeatOffsets::new());
+
+    assert_eq!(prepared.prepared.literals, b"abcde12345-tail");
+    assert_eq!(prepared.prepared.sequences.len(), 1);
+    let sequence = prepared.prepared.sequences[0];
+    assert_eq!(sequence.ll, 10);
+    assert_eq!(sequence.ml, 10);
+    assert_eq!(sequence.raw_offset, 10);
+    assert_eq!(prepared.repeat_offsets.as_offsets(), [10, 1, 8]);
+}
+
+#[test]
+fn greedy_hidden_block_emits_compressed_block() {
+    let data = b"abcde12345abcde12345-tail";
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_block_hash_chain_no_dict(
+        data,
+        true,
+        greedy_params(data.len()),
+        BlockCompressionConfig::for_level(CompressionLevel::Default),
+        RepeatOffsets::new(),
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        LazyBlockStrategy::Greedy,
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(last_block);
+    assert_eq!(block_type, BlockType::Compressed);
+    assert_eq!(block_size as usize, encoded.bytes.len() - 3);
+    assert_eq!(encoded.repeat_offsets.as_offsets(), [10, 1, 8]);
+}
+
+#[test]
+fn greedy_hidden_block_falls_back_to_raw_when_not_smaller() {
+    let data = b"abcdefgh";
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_block_hash_chain_no_dict(
+        data,
+        false,
+        greedy_params(data.len()),
+        BlockCompressionConfig::for_level(CompressionLevel::Default),
+        RepeatOffsets::new(),
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        LazyBlockStrategy::Greedy,
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(!last_block);
+    assert_eq!(block_type, BlockType::Raw);
+    assert_eq!(block_size as usize, data.len());
+    assert_eq!(&encoded.bytes[3..], data);
+    assert_eq!(encoded.repeat_offsets, RepeatOffsets::new());
+}
+
+#[test]
+fn greedy_hidden_block_emits_rle_for_single_byte_run() {
+    let data = [0x6D; 256];
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_block_hash_chain_no_dict(
+        &data,
+        true,
+        greedy_params(data.len()),
+        BlockCompressionConfig::for_level(CompressionLevel::Default),
+        RepeatOffsets::new(),
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        LazyBlockStrategy::Greedy,
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(last_block);
+    assert_eq!(block_type, BlockType::RLE);
+    assert_eq!(block_size as usize, data.len());
+    assert_eq!(encoded.bytes, [0x03, 0x08, 0x00, 0x6D]);
+    assert_eq!(encoded.repeat_offsets, RepeatOffsets::new());
+}
+
+#[test]
+fn greedy_hidden_tiny_rle_candidate_stays_raw_like_c() {
+    let data = [0x6D; 6];
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_block_hash_chain_no_dict(
+        &data,
+        true,
+        greedy_params(data.len()),
+        BlockCompressionConfig::for_level(CompressionLevel::Default),
+        RepeatOffsets::new(),
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        LazyBlockStrategy::Greedy,
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(last_block);
+    assert_eq!(block_type, BlockType::Raw);
+    assert_eq!(block_size as usize, data.len());
+    assert_eq!(&encoded.bytes[3..], data);
+}
+
+fn parse_block_header(bytes: &[u8]) -> (bool, BlockType, u32) {
+    assert!(bytes.len() >= 3);
+    let raw = u32::from(bytes[0]) | (u32::from(bytes[1]) << 8) | (u32::from(bytes[2]) << 16);
+    let block_type = match (raw >> 1) & 0b11 {
+        0 => BlockType::Raw,
+        1 => BlockType::RLE,
+        2 => BlockType::Compressed,
+        _ => BlockType::Reserved,
+    };
+    (raw & 1 != 0, block_type, raw >> 3)
+}
+
+fn lazy_output(data: &[u8]) -> GreedyBlockOutput {
+    let mut state = GreedyMatchState::new();
+    compress_block_lazy_no_dict_with_state(
+        data,
+        0..data.len(),
+        lazy_params(data.len()),
+        RepeatOffsets::new(),
+        &mut state,
+    )
+}
+
+fn lazy2_output(data: &[u8]) -> GreedyBlockOutput {
+    let mut state = GreedyMatchState::new();
+    compress_block_lazy2_no_dict_with_state(
+        data,
+        0..data.len(),
+        lazy2_params(data.len()),
+        RepeatOffsets::new(),
+        &mut state,
+    )
+}
+
+fn btlazy2_output(data: &[u8]) -> GreedyBlockOutput {
+    let mut state = GreedyMatchState::new();
+    compress_block_btlazy2_no_dict_with_state(
+        data,
+        0..data.len(),
+        btlazy2_params(data.len()),
+        RepeatOffsets::new(),
+        &mut state,
+    )
+}
+
+fn deterministic_bytes(len: usize) -> Vec<u8> {
+    let mut state = 0xA511_E9B3_u32;
+    let mut bytes = Vec::with_capacity(len);
+    for _ in 0..len {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        bytes.push(state as u8);
+    }
+    bytes
+}
