@@ -192,48 +192,76 @@ impl FSETable {
     }
 
     pub(crate) fn write_table<V: AsMut<Vec<u8>>>(&self, writer: &mut BitWriter<V>) {
-        let acc_log = self.acc_log();
-        writer.write_bits(acc_log - 5, 4);
-        let mut probability_counter = 0usize;
-        let probability_sum = 1 << acc_log;
-
-        let mut prob_idx = 0;
-        while probability_counter < probability_sum {
-            let max_remaining_value = probability_sum - probability_counter + 1;
-            let bits_to_write = max_remaining_value.ilog2() + 1;
-            let low_threshold = ((1 << bits_to_write) - 1) - (max_remaining_value);
-            let mask = (1 << (bits_to_write - 1)) - 1;
-
-            let prob = self.states[prob_idx].probability;
-            prob_idx += 1;
-            let value = (prob + 1) as u32;
-            if value < low_threshold as u32 {
-                writer.write_bits(value, bits_to_write as usize - 1);
-            } else if value > mask {
-                writer.write_bits(value + low_threshold as u32, bits_to_write as usize);
-            } else {
-                writer.write_bits(value, bits_to_write as usize);
-            }
-
-            if prob == -1 {
-                probability_counter += 1;
-            } else if prob > 0 {
-                probability_counter += prob as usize;
-            } else {
-                let mut zeros = 0u8;
-                while self.states[prob_idx].probability == 0 {
-                    zeros += 1;
-                    prob_idx += 1;
-                    if zeros == 3 {
-                        writer.write_bits(3u8, 2);
-                        zeros = 0;
-                    }
-                }
-                writer.write_bits(zeros, 2);
-            }
-        }
-        writer.write_bits(0u8, writer.misaligned());
+        write_normalized_probabilities(
+            (0..self.states.len()).map(|idx| self.states[idx].probability),
+            self.acc_log(),
+            writer,
+        );
     }
+}
+
+fn write_normalized_probabilities<V: AsMut<Vec<u8>>>(
+    mut probabilities: impl Iterator<Item = i32>,
+    acc_log: u8,
+    writer: &mut BitWriter<V>,
+) {
+    writer.write_bits(acc_log - 5, 4);
+    let mut probability_counter = 0usize;
+    let probability_sum = 1 << acc_log;
+    let mut pending_zero_probability = None;
+
+    while probability_counter < probability_sum {
+        let prob = pending_zero_probability.take().unwrap_or_else(|| {
+            probabilities
+                .next()
+                .expect("normalized probabilities must sum to the table size")
+        });
+        let max_remaining_value = probability_sum - probability_counter + 1;
+        let bits_to_write = max_remaining_value.ilog2() + 1;
+        let low_threshold = ((1 << bits_to_write) - 1) - max_remaining_value;
+        let mask = (1 << (bits_to_write - 1)) - 1;
+
+        let value = (prob + 1) as u32;
+        if value < low_threshold as u32 {
+            writer.write_bits(value, bits_to_write as usize - 1);
+        } else if value > mask {
+            writer.write_bits(value + low_threshold as u32, bits_to_write as usize);
+        } else {
+            writer.write_bits(value, bits_to_write as usize);
+        }
+
+        if prob == -1 {
+            probability_counter += 1;
+        } else if prob > 0 {
+            probability_counter += prob as usize;
+        } else {
+            let mut zeros = 0u8;
+            loop {
+                let next = probabilities
+                    .next()
+                    .expect("normalized probabilities must contain the next non-zero symbol");
+                if next != 0 {
+                    pending_zero_probability = Some(next);
+                    break;
+                }
+                zeros += 1;
+                if zeros == 3 {
+                    writer.write_bits(3u8, 2);
+                    zeros = 0;
+                }
+            }
+            writer.write_bits(zeros, 2);
+        }
+    }
+    writer.write_bits(0u8, writer.misaligned());
+}
+
+pub(crate) fn ncount_cost_from_probabilities(probs: &[i32], acc_log: u8) -> usize {
+    let mut bytes = Vec::new();
+    let mut writer = BitWriter::from(&mut bytes);
+    write_normalized_probabilities(probs.iter().copied(), acc_log, &mut writer);
+    writer.flush();
+    bytes.len() * 8
 }
 
 fn highbit32(value: u32) -> u32 {
@@ -301,9 +329,17 @@ pub fn build_table_from_data(
 }
 
 fn build_table_from_counts(counts: &[usize], max_log: u8, avoid_0_numbit: bool) -> FSETable {
+    let (probs, acc_log) = normalized_probabilities_from_counts(counts, max_log, avoid_0_numbit);
+    build_table_from_probabilities(&probs, acc_log)
+}
+
+pub(crate) fn normalized_probabilities_from_counts(
+    counts: &[usize],
+    max_log: u8,
+    avoid_0_numbit: bool,
+) -> (Vec<i32>, u8) {
     if max_log <= 6 {
-        let (probs, acc_log) = old_normalize_counts(counts, max_log, avoid_0_numbit);
-        return build_table_from_probabilities(&probs, acc_log);
+        return old_normalize_counts(counts, max_log, avoid_0_numbit);
     }
 
     let total = counts.iter().sum::<usize>();
@@ -312,10 +348,9 @@ fn build_table_from_counts(counts: &[usize], max_log: u8, avoid_0_numbit: bool) 
     let acc_log = optimal_table_log(max_log, total, max_symbol);
     let low_prob_count = if total >= 2048 { -1 } else { 1 };
     if let Some(probs) = normalize_counts(counts, acc_log, low_prob_count) {
-        build_table_from_probabilities(&probs, acc_log)
+        (probs, acc_log)
     } else {
-        let (probs, acc_log) = old_normalize_counts(counts, max_log, avoid_0_numbit);
-        build_table_from_probabilities(&probs, acc_log)
+        old_normalize_counts(counts, max_log, avoid_0_numbit)
     }
 }
 
@@ -691,9 +726,23 @@ pub(crate) fn default_of_table() -> FSETable {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_table_from_data, default_ll_table, default_ml_table, default_of_table,
-        normalize_counts, optimal_table_log,
+        build_table_from_data, build_table_from_probabilities, default_ll_table, default_ml_table,
+        default_of_table, ncount_cost_from_probabilities, normalize_counts, optimal_table_log,
     };
+    use crate::bit_io::BitWriter;
+    use alloc::vec::Vec;
+
+    #[test]
+    fn ncount_cost_matches_written_table_size() {
+        let probs = super::LL_DIST;
+        let table = build_table_from_probabilities(probs, 6);
+        let mut bytes = Vec::new();
+        let mut writer = BitWriter::from(&mut bytes);
+        table.write_table(&mut writer);
+        writer.flush();
+
+        assert_eq!(ncount_cost_from_probabilities(probs, 6), bytes.len() * 8);
+    }
 
     #[test]
     fn default_tables_cache_their_accuracy_log() {

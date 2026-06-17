@@ -1,6 +1,4 @@
-use alloc::vec::Vec;
-
-use crate::{bit_io::BitWriter, fse::fse_encoder::FSETable};
+use crate::fse::fse_encoder::FSETable;
 
 pub(super) struct CodeCounts {
     counts: [usize; 256],
@@ -34,6 +32,17 @@ impl CodeCounts {
 
     pub(super) fn total(&self) -> usize {
         self.total
+    }
+
+    pub(super) fn counts(&self) -> &[usize; 256] {
+        &self.counts
+    }
+
+    pub(super) fn max_symbol(&self) -> usize {
+        self.counts
+            .iter()
+            .rposition(|count| *count != 0)
+            .unwrap_or(0)
     }
 
     pub(super) fn default_allowed(&self, table: &FSETable) -> bool {
@@ -95,19 +104,7 @@ pub(super) fn repeat_table_cost(table: &FSETable, counts: &CodeCounts) -> Option
     Some(cost >> accuracy_log)
 }
 
-pub(super) fn compressed_table_cost(table: &FSETable, counts: &CodeCounts) -> usize {
-    ncount_cost(table) + entropy_cost(counts)
-}
-
-fn ncount_cost(table: &FSETable) -> usize {
-    let mut bytes = Vec::new();
-    let mut writer = BitWriter::from(&mut bytes);
-    table.write_table(&mut writer);
-    writer.flush();
-    bytes.len() * 8
-}
-
-fn entropy_cost(counts: &CodeCounts) -> usize {
+pub(super) fn entropy_cost(counts: &CodeCounts) -> usize {
     let mut cost = 0usize;
     let total = counts.total();
 

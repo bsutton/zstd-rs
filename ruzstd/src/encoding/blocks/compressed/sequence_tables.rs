@@ -2,12 +2,15 @@ use alloc::{vec, vec::Vec};
 
 use crate::{
     bit_io::BitWriter,
-    fse::fse_encoder::{build_table_from_data, FSETable},
+    fse::fse_encoder::{
+        build_table_from_data, build_table_from_probabilities, ncount_cost_from_probabilities,
+        normalized_probabilities_from_counts, FSETable,
+    },
 };
 
 use super::{
     encode_literal_length, encode_match_len, encode_offset, encode_sequences,
-    sequence_cost::{compressed_table_cost, cross_entropy_cost, repeat_table_cost, CodeCounts},
+    sequence_cost::{cross_entropy_cost, entropy_cost, repeat_table_cost, CodeCounts},
     EXACT_SEQUENCE_TABLE_MIN_LOG,
 };
 
@@ -235,8 +238,11 @@ fn choose_c_cost_table<'a>(
         };
     }
 
-    let encoded_table = build_table_from_data(sequences.iter().map(code), max_log, true);
-    let compressed_cost = compressed_table_cost(&encoded_table, &counts);
+    let max_symbol = counts.max_symbol();
+    let (encoded_probs, encoded_acc_log) =
+        normalized_probabilities_from_counts(&counts.counts()[..=max_symbol], max_log, true);
+    let compressed_cost =
+        ncount_cost_from_probabilities(&encoded_probs, encoded_acc_log) + entropy_cost(&counts);
     let basic_cost = default_allowed
         .then(|| cross_entropy_cost(default_table, &counts))
         .flatten();
@@ -254,7 +260,10 @@ fn choose_c_cost_table<'a>(
         }
     }
 
-    FseTableMode::Encoded(encoded_table)
+    FseTableMode::Encoded(build_table_from_probabilities(
+        &encoded_probs,
+        encoded_acc_log,
+    ))
 }
 
 fn most_frequent_code_count(
