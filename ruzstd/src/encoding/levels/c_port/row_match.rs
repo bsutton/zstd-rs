@@ -50,13 +50,17 @@ pub(super) fn row_find_best_match(
     let head = usize::from(state.tag_table[row_start] & row_mask as u8);
     let mut attempts = 0usize;
     let mut best_len = 3usize;
+    let mut matches = row_match_mask(
+        &state.tag_table[row_start..row_start + row_entries],
+        tag,
+        head,
+    );
 
-    for step in 0..row_entries {
-        if attempts == max_attempts {
-            break;
-        }
+    while matches != 0 && attempts < max_attempts {
+        let step = matches.trailing_zeros() as usize;
+        matches &= matches - 1;
         let pos = (head + step) & row_mask;
-        if pos == 0 || state.tag_table[row_start + pos] != tag {
+        if pos == 0 {
             continue;
         }
 
@@ -242,6 +246,43 @@ fn next_row_index(head: &mut u8, row_mask: usize) -> usize {
     next
 }
 
+fn row_match_mask(tag_row: &[u8], tag: u8, head: usize) -> u64 {
+    debug_assert!(matches!(tag_row.len(), 16 | 32 | 64));
+    debug_assert!(head < tag_row.len());
+
+    let mut matches = 0u64;
+    let splat = u64::from_le_bytes([tag; 8]);
+    let mut chunk_start = 0usize;
+    while chunk_start < tag_row.len() {
+        let chunk = read64(tag_row, chunk_start) ^ splat;
+        let mut zero_bytes =
+            chunk.wrapping_sub(0x0101_0101_0101_0101) & !chunk & 0x8080_8080_8080_8080;
+        while zero_bytes != 0 {
+            let byte = (zero_bytes.trailing_zeros() >> 3) as usize;
+            matches |= 1u64 << (chunk_start + byte);
+            zero_bytes &= zero_bytes - 1;
+        }
+        chunk_start += 8;
+    }
+
+    rotate_right_within(matches, head, tag_row.len())
+}
+
+fn rotate_right_within(value: u64, shift: usize, width: usize) -> u64 {
+    debug_assert!((1..=64).contains(&width));
+    debug_assert!(shift < width);
+    let mask = if width == 64 {
+        u64::MAX
+    } else {
+        (1u64 << width) - 1
+    };
+    if shift == 0 {
+        value & mask
+    } else {
+        ((value >> shift) | (value << (width - shift))) & mask
+    }
+}
+
 pub(super) fn row_log(params: CompressionParameters) -> u32 {
     params.search_log.clamp(4, 6)
 }
@@ -325,6 +366,26 @@ mod tests {
         assert_eq!(next_row_index(&mut head, 15), 15);
         assert_eq!(head, 15);
         assert_eq!(next_row_index(&mut head, 15), 14);
+    }
+
+    #[test]
+    fn row_match_mask_preserves_circular_scan_order() {
+        let mut row = [0u8; 16];
+        row[0] = 5;
+        row[2] = 7;
+        row[5] = 7;
+        row[9] = 7;
+        row[15] = 7;
+
+        let mut matches = row_match_mask(&row, 7, usize::from(row[0]));
+        let mut positions = vec![];
+        while matches != 0 {
+            let step = matches.trailing_zeros() as usize;
+            matches &= matches - 1;
+            positions.push((usize::from(row[0]) + step) & 15);
+        }
+
+        assert_eq!(positions, vec![5, 9, 15, 2]);
     }
 
     #[test]
