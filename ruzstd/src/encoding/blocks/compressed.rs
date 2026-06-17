@@ -185,17 +185,14 @@ pub(crate) fn compress_prepared_block(
             } else {
                 16
             };
-        let ll_previous = fse_tables.ll_previous.clone();
-        let ml_previous = fse_tables.ml_previous.clone();
-        let of_previous = fse_tables.of_previous.clone();
         let (ll_mode, ml_mode, of_mode) = choose_sequence_table_modes(
             &sequences,
             SequenceModeSearchConfig {
-                ll_previous: ll_previous.as_ref(),
+                ll_previous: fse_tables.ll_previous.as_ref(),
                 ll_default: &fse_tables.ll_default,
-                ml_previous: ml_previous.as_ref(),
+                ml_previous: fse_tables.ml_previous.as_ref(),
                 ml_default: &fse_tables.ml_default,
-                of_previous: of_previous.as_ref(),
+                of_previous: fse_tables.of_previous.as_ref(),
                 of_default: &fse_tables.of_default,
                 repeat_table_max_sequences: config.repeat_table_max_sequences,
                 llml_predefined_max_sequences:
@@ -216,28 +213,38 @@ pub(crate) fn compress_prepared_block(
 
         encode_sequences(&sequences, &mut writer, &ll_mode, &ml_mode, &of_mode);
 
-        match ll_mode {
-            FseTableMode::Encoded(table) => fse_tables.ll_previous = Some(table),
-            FseTableMode::Predefined(_) => fse_tables.ll_previous = None,
-            FseTableMode::Rle(_) => fse_tables.ll_previous = None,
-            FseTableMode::RepeatLast(_) => {}
-        }
-        match ml_mode {
-            FseTableMode::Encoded(table) => fse_tables.ml_previous = Some(table),
-            FseTableMode::Predefined(_) => fse_tables.ml_previous = None,
-            FseTableMode::Rle(_) => fse_tables.ml_previous = None,
-            FseTableMode::RepeatLast(_) => {}
-        }
-        match of_mode {
-            FseTableMode::Encoded(table) => fse_tables.of_previous = Some(table),
-            FseTableMode::Predefined(_) => fse_tables.of_previous = None,
-            FseTableMode::Rle(_) => fse_tables.of_previous = None,
-            FseTableMode::RepeatLast(_) => {}
-        }
+        let ll_update = fse_table_update(ll_mode);
+        let ml_update = fse_table_update(ml_mode);
+        let of_update = fse_table_update(of_mode);
+        apply_fse_table_update(&mut fse_tables.ll_previous, ll_update);
+        apply_fse_table_update(&mut fse_tables.ml_previous, ml_update);
+        apply_fse_table_update(&mut fse_tables.of_previous, of_update);
     }
     writer.flush();
     *offset_history = next_offset_history;
     new_huffman_table
+}
+
+enum FseTableUpdate {
+    Keep,
+    Clear,
+    Replace(FSETable),
+}
+
+fn fse_table_update(mode: FseTableMode<'_>) -> FseTableUpdate {
+    match mode {
+        FseTableMode::Encoded(table) => FseTableUpdate::Replace(table),
+        FseTableMode::Predefined(_) | FseTableMode::Rle(_) => FseTableUpdate::Clear,
+        FseTableMode::RepeatLast(_) => FseTableUpdate::Keep,
+    }
+}
+
+fn apply_fse_table_update(previous: &mut Option<FSETable>, update: FseTableUpdate) {
+    match update {
+        FseTableUpdate::Keep => {}
+        FseTableUpdate::Clear => *previous = None,
+        FseTableUpdate::Replace(table) => *previous = Some(table),
+    }
 }
 
 fn encode_sequences_for_history(
