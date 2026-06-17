@@ -20,7 +20,7 @@ use crate::{
         blocks::{
             compress_prepared_block, BlockCompressionConfig, PreparedBlock, PreparedSequence,
         },
-        frame_compressor::{FseTables, OffsetHistory},
+        frame_compressor::{FseTableSnapshot, FseTables, OffsetHistory},
     },
     huff0::huff0_encoder::HuffmanTable,
 };
@@ -194,7 +194,7 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_policy(
         return encoded;
     }
 
-    let previous_fse = context.fse_tables.clone();
+    let previous_fse = context.fse_tables.snapshot_previous();
     let previous_offsets = *context.offset_history;
     let prepared = prepare_block_hash_chain_no_dict(src, params, repeat_offsets, depth);
     encode_prepared_block(
@@ -278,7 +278,7 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy(
         return encoded;
     }
 
-    let previous_fse = context.fse_tables.clone();
+    let previous_fse = context.fse_tables.snapshot_previous();
     let previous_offsets = *context.offset_history;
     let prepared = prepare_block_hash_chain_no_dict_with_state(
         source.src,
@@ -310,7 +310,7 @@ pub(super) fn encode_prepared_block(
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
     prepared: GreedyPreparedBlock,
-    previous_fse: FseTables,
+    previous_fse: FseTableSnapshot,
     previous_offsets: OffsetHistory,
     context: GreedyBlockEncodeContext<'_, '_>,
     mut bytes: Vec<u8>,
@@ -332,7 +332,7 @@ pub(super) fn encode_prepared_block(
         || compressed_size > MAX_BLOCK_SIZE as usize
     {
         bytes.truncate(block_start);
-        *context.fse_tables = previous_fse;
+        context.fse_tables.restore_previous(previous_fse);
         *context.offset_history = previous_offsets;
         write_raw_block(last_block, block.len() as u32, block, &mut bytes);
         GreedyEncodedBlock {

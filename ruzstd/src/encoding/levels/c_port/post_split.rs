@@ -34,7 +34,6 @@ pub(super) fn encode_split_block(
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
     prepared: &GreedyPreparedBlock,
-    previous_fse: FseTables,
     previous_offsets: OffsetHistory,
     context: &mut GreedyBlockEncodeContext<'_, '_>,
 ) -> Option<GreedyEncodedBlock> {
@@ -42,7 +41,7 @@ pub(super) fn encode_split_block(
         block,
         &prepared.prepared,
         config,
-        &previous_fse,
+        context.fse_tables,
         previous_offsets,
         context.previous_huff_table,
     );
@@ -238,7 +237,7 @@ fn encode_partition(
     prepared: crate::encoding::blocks::PreparedBlockRef<'_>,
     context: PartitionEncodeContext<'_, '_>,
 ) -> GreedyEncodedBlock {
-    let previous_fse = context.fse_tables.clone();
+    let previous_fse = context.fse_tables.snapshot_previous();
     let previous_offsets = *context.offset_history;
     let mut bytes = Vec::new();
 
@@ -286,7 +285,7 @@ fn encode_partition(
         || compressed_size > MAX_BLOCK_SIZE as usize
     {
         bytes.truncate(block_start);
-        *context.fse_tables = previous_fse;
+        context.fse_tables.restore_previous(previous_fse);
         *context.offset_history = previous_offsets;
         write_raw_block(last_block, block.len() as u32, block, &mut bytes);
         GreedyEncodedBlock {

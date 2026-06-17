@@ -154,7 +154,7 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy(
         return encoded;
     }
 
-    let previous_fse = context.fse_tables.clone();
+    let previous_fse = context.fse_tables.snapshot_previous();
     let previous_offsets = *context.offset_history;
     let output = compress_block_opt_no_dict_with_state(
         source.src,
@@ -178,7 +178,6 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy(
             config,
             repeat_offsets,
             &prepared,
-            previous_fse.clone(),
             previous_offsets,
             &mut context,
         ) {
