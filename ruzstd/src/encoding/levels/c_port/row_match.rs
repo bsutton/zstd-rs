@@ -52,11 +52,11 @@ pub(super) fn row_find_best_match(
     let row_start = ((hash >> TAG_BITS) as usize) << row_log;
     let tag = (hash & TAG_MASK) as u8;
     let head = usize::from(state.tag_table[row_start] & row_mask as u8);
-    let mut matches = [0usize; 64];
-    let mut match_count = 0usize;
+    let mut attempts = 0usize;
+    let mut best_len = 3usize;
 
     for step in 0..row_entries {
-        if match_count == max_attempts {
+        if attempts == max_attempts {
             break;
         }
         let pos = (head + step) & row_mask;
@@ -68,19 +68,11 @@ pub(super) fn row_find_best_match(
         if match_index < low_limit {
             break;
         }
-        if match_index < curr {
-            matches[match_count] = match_index;
-            match_count += 1;
+        if match_index >= curr {
+            continue;
         }
-    }
+        attempts += 1;
 
-    let insert_pos = next_row_index(&mut state.tag_table[row_start], row_mask);
-    state.tag_table[row_start + insert_pos] = tag;
-    state.hash_table[row_start + insert_pos] = state.next_to_update as u32;
-    state.next_to_update += 1;
-
-    let mut best_len = 3usize;
-    for &match_index in matches.iter().take(match_count) {
         let mut current_len = 0usize;
         if read32(src, match_index + best_len - 3) == read32(src, ip + best_len - 3) {
             current_len = super::hash_chain_match::count_match(src, ip, match_index, block_end);
@@ -96,6 +88,11 @@ pub(super) fn row_find_best_match(
             }
         }
     }
+
+    let insert_pos = next_row_index(&mut state.tag_table[row_start], row_mask);
+    state.tag_table[row_start + insert_pos] = tag;
+    state.hash_table[row_start + insert_pos] = state.next_to_update as u32;
+    state.next_to_update += 1;
 
     best_len
 }
