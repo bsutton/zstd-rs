@@ -1,8 +1,6 @@
 //! Scalar row-based match finder ported from the no-dictionary row path in
 //! `zstd_lazy.c`.
 
-use core::convert::TryInto;
-
 use super::{greedy::GreedyMatchState, params::CompressionParameters, sequence_store::OffBase};
 
 const TAG_BITS: u32 = 8;
@@ -236,11 +234,25 @@ fn hash6(value: u64, h_bits: u32, salt: u64) -> u32 {
 }
 
 fn read32(src: &[u8], pos: usize) -> u32 {
-    u32::from_le_bytes(src[pos..pos + 4].try_into().expect("read32 in bounds"))
+    debug_assert!(pos + 4 <= src.len());
+    // SAFETY: row hashing and match probes bound positions before reading.
+    // Unaligned loads mirror zstd's MEM_read32() hot path.
+    unsafe {
+        u32::from_le(core::ptr::read_unaligned(
+            src.as_ptr().add(pos).cast::<u32>(),
+        ))
+    }
 }
 
 fn read64(src: &[u8], pos: usize) -> u64 {
-    u64::from_le_bytes(src[pos..pos + 8].try_into().expect("read64 in bounds"))
+    debug_assert!(pos + 8 <= src.len());
+    // SAFETY: row hashing bounds positions before reading. Unaligned loads
+    // mirror zstd's MEM_readST/MEM_read64() hot path.
+    unsafe {
+        u64::from_le(core::ptr::read_unaligned(
+            src.as_ptr().add(pos).cast::<u64>(),
+        ))
+    }
 }
 
 #[cfg(test)]
