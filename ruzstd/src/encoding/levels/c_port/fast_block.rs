@@ -136,7 +136,7 @@ pub(crate) fn encode_block_fast_no_dict_with_policy(
         }
     }
 
-    let previous_fse = context.fse_tables.clone();
+    let previous_fse = context.fse_tables.snapshot_previous();
     let previous_offsets = *context.offset_history;
     let prepared = prepare_block_fast_no_dict(src, params, repeat_offsets);
     let block_start = bytes.len();
@@ -156,7 +156,7 @@ pub(crate) fn encode_block_fast_no_dict_with_policy(
         || compressed_size > MAX_BLOCK_SIZE as usize
     {
         bytes.truncate(block_start);
-        *context.fse_tables = previous_fse;
+        context.fse_tables.restore_previous(previous_fse);
         *context.offset_history = previous_offsets;
         write_raw_block(last_block, src.len() as u32, src, &mut bytes);
         FastEncodedBlock {
@@ -241,7 +241,7 @@ pub(crate) fn encode_block_fast_no_dict_with_state_and_policy(
         }
     }
 
-    let previous_fse = context.fse_tables.clone();
+    let previous_fse = context.fse_tables.snapshot_previous();
     let previous_offsets = *context.offset_history;
     let prepared = prepare_block_fast_no_dict_with_state(
         source.src,
@@ -267,7 +267,7 @@ pub(crate) fn encode_block_fast_no_dict_with_state_and_policy(
         || compressed_size > MAX_BLOCK_SIZE as usize
     {
         bytes.truncate(block_start);
-        *context.fse_tables = previous_fse;
+        context.fse_tables.restore_previous(previous_fse);
         *context.offset_history = previous_offsets;
         write_raw_block(last_block, block.len() as u32, block, &mut bytes);
         FastEncodedBlock {

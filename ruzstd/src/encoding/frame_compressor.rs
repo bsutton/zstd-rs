@@ -63,6 +63,13 @@ pub(crate) struct FseTables {
     pub(crate) of_previous: Option<FSETable>,
 }
 
+#[derive(Clone)]
+pub(crate) struct FseTableSnapshot {
+    ll_previous: Option<FSETable>,
+    ml_previous: Option<FSETable>,
+    of_previous: Option<FSETable>,
+}
+
 impl FseTables {
     pub fn new() -> Self {
         Self {
@@ -79,6 +86,20 @@ impl FseTables {
         self.ll_previous = None;
         self.ml_previous = None;
         self.of_previous = None;
+    }
+
+    pub(crate) fn snapshot_previous(&self) -> FseTableSnapshot {
+        FseTableSnapshot {
+            ll_previous: self.ll_previous.clone(),
+            ml_previous: self.ml_previous.clone(),
+            of_previous: self.of_previous.clone(),
+        }
+    }
+
+    pub(crate) fn restore_previous(&mut self, snapshot: FseTableSnapshot) {
+        self.ll_previous = snapshot.ll_previous;
+        self.ml_previous = snapshot.ml_previous;
+        self.of_previous = snapshot.of_previous;
     }
 }
 
