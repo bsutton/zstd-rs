@@ -21,6 +21,7 @@ pub(crate) struct GreedyMatchState {
     pub(super) tag_table: Vec<u8>,
     pub(super) hash_salt: u64,
     pub(super) hash_salt_entropy: u32,
+    pub(super) row_hash_cache: [u32; 8],
 }
 
 impl GreedyMatchState {
@@ -39,6 +40,7 @@ impl GreedyMatchState {
             tag_table: Vec::new(),
             hash_salt: 0,
             hash_salt_entropy: 0,
+            row_hash_cache: [0; 8],
         }
     }
 
@@ -46,6 +48,7 @@ impl GreedyMatchState {
         self.next_to_update = 0;
         self.next_to_update3 = 0;
         self.lazy_skipping = false;
+        self.row_hash_cache = [0; 8];
         self.hash_table.fill(0);
         self.hash_table3.fill(0);
         self.chain_table.fill(0);
@@ -61,6 +64,7 @@ impl GreedyMatchState {
             self.hash_log = params.hash_log;
             self.hash_table.clear();
             self.next_to_update = 0;
+            self.row_hash_cache = [0; 8];
         }
         let hash_log3 = if params.min_match == 3 {
             params.window_log.min(17)
@@ -107,6 +111,7 @@ impl GreedyMatchState {
             self.row_log = row_log;
             self.tag_table.clear();
             self.next_to_update = 0;
+            self.row_hash_cache = [0; 8];
         }
         if row_match_enabled && self.tag_table.len() != hash_size {
             self.tag_table.resize(hash_size, 0);

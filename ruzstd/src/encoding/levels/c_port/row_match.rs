@@ -8,6 +8,8 @@ const TAG_MASK: u32 = (1 << TAG_BITS) - 1;
 const SKIP_THRESHOLD: usize = 384;
 const MAX_MATCH_START_POSITIONS_TO_UPDATE: usize = 96;
 const MAX_MATCH_END_POSITIONS_TO_UPDATE: usize = 32;
+const ROW_HASH_CACHE_SIZE: usize = 8;
+const ROW_HASH_CACHE_MASK: usize = ROW_HASH_CACHE_SIZE - 1;
 
 pub(super) fn row_find_best_match(
     src: &[u8],
@@ -38,13 +40,7 @@ pub(super) fn row_find_best_match(
         )
     } else {
         update_rows(src, curr, params, min_match, state);
-        hash_ptr_salted(
-            src,
-            curr,
-            row_hash_log + TAG_BITS,
-            min_match,
-            state.hash_salt,
-        )
+        next_cached_hash(src, curr, row_hash_log, min_match, state)
     };
 
     state.hash_salt_entropy = state.hash_salt_entropy.wrapping_add(hash);
@@ -107,6 +103,31 @@ fn update_rows(
     update_rows_internal(src, target, params, min_match, state, true);
 }
 
+pub(super) fn fill_hash_cache(
+    src: &[u8],
+    mut idx: usize,
+    limit: usize,
+    params: CompressionParameters,
+    min_match: u32,
+    state: &mut GreedyMatchState,
+) {
+    let row_log = row_log(params);
+    let row_hash_log = params.hash_log - row_log;
+    let end = idx
+        .saturating_add(ROW_HASH_CACHE_SIZE)
+        .min(limit.saturating_add(1));
+    while idx < end {
+        state.row_hash_cache[idx & ROW_HASH_CACHE_MASK] = hash_ptr_salted(
+            src,
+            idx,
+            row_hash_log + TAG_BITS,
+            min_match,
+            state.hash_salt,
+        );
+        idx += 1;
+    }
+}
+
 pub(super) fn load_dictionary_rows(
     src: &[u8],
     target: usize,
@@ -141,8 +162,10 @@ fn update_rows_internal(
             row_mask,
             min_match,
             state,
+            use_cache_skip,
         );
         idx = target - MAX_MATCH_END_POSITIONS_TO_UPDATE;
+        fill_hash_cache(src, idx, target, params, min_match, state);
     }
 
     update_rows_range(
@@ -154,6 +177,7 @@ fn update_rows_internal(
         row_mask,
         min_match,
         state,
+        use_cache_skip,
     );
     state.next_to_update = target;
 }
@@ -168,21 +192,45 @@ fn update_rows_range(
     row_mask: usize,
     min_match: u32,
     state: &mut GreedyMatchState,
+    use_cache: bool,
 ) {
     while idx < target {
-        let hash = hash_ptr_salted(
-            src,
-            idx,
-            row_hash_log + TAG_BITS,
-            min_match,
-            state.hash_salt,
-        );
+        let hash = if use_cache {
+            next_cached_hash(src, idx, row_hash_log, min_match, state)
+        } else {
+            hash_ptr_salted(
+                src,
+                idx,
+                row_hash_log + TAG_BITS,
+                min_match,
+                state.hash_salt,
+            )
+        };
         let row_start = ((hash >> TAG_BITS) as usize) << row_log;
         let pos = next_row_index(&mut state.tag_table[row_start], row_mask);
         state.tag_table[row_start + pos] = (hash & TAG_MASK) as u8;
         state.hash_table[row_start + pos] = idx as u32;
         idx += 1;
     }
+}
+
+fn next_cached_hash(
+    src: &[u8],
+    idx: usize,
+    row_hash_log: u32,
+    min_match: u32,
+    state: &mut GreedyMatchState,
+) -> u32 {
+    let new_hash = hash_ptr_salted(
+        src,
+        idx + ROW_HASH_CACHE_SIZE,
+        row_hash_log + TAG_BITS,
+        min_match,
+        state.hash_salt,
+    );
+    let cached = state.row_hash_cache[idx & ROW_HASH_CACHE_MASK];
+    state.row_hash_cache[idx & ROW_HASH_CACHE_MASK] = new_hash;
+    cached
 }
 
 fn next_row_index(head: &mut u8, row_mask: usize) -> usize {
@@ -286,6 +334,14 @@ mod tests {
         let params = params();
         state.ensure_tables(params);
         let mut off_base = 0;
+        fill_hash_cache(
+            data,
+            state.next_to_update,
+            data.len() - 16,
+            params,
+            4,
+            &mut state,
+        );
 
         let match_len =
             row_find_best_match(data, 8, data.len(), &mut off_base, params, 4, &mut state);
@@ -318,6 +374,14 @@ mod tests {
         let params = params();
         state.ensure_tables(params);
         let mut off_base = 0;
+        fill_hash_cache(
+            &data,
+            state.next_to_update,
+            data.len() - 16,
+            params,
+            4,
+            &mut state,
+        );
 
         let match_len =
             row_find_best_match(&data, 500, data.len(), &mut off_base, params, 4, &mut state);

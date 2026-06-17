@@ -9,7 +9,7 @@ use super::hash_chain_match::{
     count_match, hc_find_best_match, highbit32, lowest_prefix_index, read32,
 };
 use super::params::CompressionParameters;
-use super::row_match::{row_find_best_match, row_match_finder_enabled};
+use super::row_match::{fill_hash_cache, row_find_best_match, row_match_finder_enabled};
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 
 const HASH_READ_SIZE: usize = 8;
@@ -196,6 +196,9 @@ fn compress_block_lazy_generic_no_dict_with_state(
         min_match,
     };
     let mut ip = block_start + usize::from(block_start == prefix_lowest);
+    if matches!(search, LazySearch::RowHash) {
+        fill_hash_cache(src, state.next_to_update, ilimit, params, min_match, state);
+    }
     let mut anchor = block_start;
 
     let mut offset_1 = rep[0] as usize;
