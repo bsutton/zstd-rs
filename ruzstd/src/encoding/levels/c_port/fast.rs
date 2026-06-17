@@ -1,7 +1,7 @@
 //! No-dictionary fast block compressor ported from `zstd_fast.c`.
 
 use alloc::vec::Vec;
-use core::{convert::TryInto, ops::Range};
+use core::ops::Range;
 
 use super::params::CompressionParameters;
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
@@ -520,9 +520,25 @@ fn hash8(value: u64, h_bits: u32) -> usize {
 }
 
 fn read32(src: &[u8], pos: usize) -> u32 {
-    u32::from_le_bytes(src[pos..pos + 4].try_into().expect("read32 in bounds"))
+    debug_assert!(pos + 4 <= src.len());
+    // SAFETY: The C-port match finders only call read32() for positions that
+    // have already been bounded by the block/search limits. Unaligned loads are
+    // intentional here to mirror zstd's MEM_read32() hot path.
+    unsafe {
+        u32::from_le(core::ptr::read_unaligned(
+            src.as_ptr().add(pos).cast::<u32>(),
+        ))
+    }
 }
 
 fn read64(src: &[u8], pos: usize) -> u64 {
-    u64::from_le_bytes(src[pos..pos + 8].try_into().expect("read64 in bounds"))
+    debug_assert!(pos + 8 <= src.len());
+    // SAFETY: The C-port match finders only call read64() for positions that
+    // have already been bounded by the block/search limits. Unaligned loads are
+    // intentional here to mirror zstd's MEM_read64() hot path.
+    unsafe {
+        u64::from_le(core::ptr::read_unaligned(
+            src.as_ptr().add(pos).cast::<u64>(),
+        ))
+    }
 }
