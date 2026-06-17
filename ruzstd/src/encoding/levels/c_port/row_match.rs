@@ -20,11 +20,27 @@ pub(super) fn row_find_best_match(
     min_match: u32,
     state: &mut GreedyMatchState,
 ) -> usize {
-    let row_log = row_log(params);
-    let row_entries = 1usize << row_log;
+    match row_log(params) {
+        4 => row_find_best_match_impl::<4>(src, ip, block_end, off_base, params, min_match, state),
+        5 => row_find_best_match_impl::<5>(src, ip, block_end, off_base, params, min_match, state),
+        6 => row_find_best_match_impl::<6>(src, ip, block_end, off_base, params, min_match, state),
+        _ => unreachable!("row_log is clamped to 4..=6"),
+    }
+}
+
+fn row_find_best_match_impl<const ROW_LOG: u32>(
+    src: &[u8],
+    ip: usize,
+    block_end: usize,
+    off_base: &mut u32,
+    params: CompressionParameters,
+    min_match: u32,
+    state: &mut GreedyMatchState,
+) -> usize {
+    let row_entries = 1usize << ROW_LOG;
     let row_mask = row_entries - 1;
-    let row_hash_log = params.hash_log - row_log;
-    let max_attempts = 1usize << params.search_log.min(row_log);
+    let row_hash_log = params.hash_log - ROW_LOG;
+    let max_attempts = 1usize << params.search_log.min(ROW_LOG);
     let curr = ip;
     let max_distance = 1usize << params.window_log;
     let low_limit = curr.saturating_sub(max_distance);
@@ -39,13 +55,13 @@ pub(super) fn row_find_best_match(
             state.hash_salt,
         )
     } else {
-        update_rows(src, curr, params, min_match, state);
+        update_rows::<ROW_LOG>(src, curr, params, min_match, state);
         next_cached_hash(src, curr, row_hash_log, min_match, state)
     };
 
     state.hash_salt_entropy = state.hash_salt_entropy.wrapping_add(hash);
 
-    let row_start = ((hash >> TAG_BITS) as usize) << row_log;
+    let row_start = ((hash >> TAG_BITS) as usize) << ROW_LOG;
     let tag = (hash & TAG_MASK) as u8;
     let head = usize::from(state.tag_table[row_start] & row_mask as u8);
     let mut attempts = 0usize;
@@ -97,17 +113,33 @@ pub(super) fn row_find_best_match(
     best_len
 }
 
-fn update_rows(
+fn update_rows<const ROW_LOG: u32>(
     src: &[u8],
     target: usize,
     params: CompressionParameters,
     min_match: u32,
     state: &mut GreedyMatchState,
 ) {
-    update_rows_internal(src, target, params, min_match, state, true);
+    update_rows_internal::<ROW_LOG>(src, target, params, min_match, state, true);
 }
 
 pub(super) fn fill_hash_cache(
+    src: &[u8],
+    idx: usize,
+    limit: usize,
+    params: CompressionParameters,
+    min_match: u32,
+    state: &mut GreedyMatchState,
+) {
+    match row_log(params) {
+        4 => fill_hash_cache_impl::<4>(src, idx, limit, params, min_match, state),
+        5 => fill_hash_cache_impl::<5>(src, idx, limit, params, min_match, state),
+        6 => fill_hash_cache_impl::<6>(src, idx, limit, params, min_match, state),
+        _ => unreachable!("row_log is clamped to 4..=6"),
+    }
+}
+
+fn fill_hash_cache_impl<const ROW_LOG: u32>(
     src: &[u8],
     mut idx: usize,
     limit: usize,
@@ -115,8 +147,7 @@ pub(super) fn fill_hash_cache(
     min_match: u32,
     state: &mut GreedyMatchState,
 ) {
-    let row_log = row_log(params);
-    let row_hash_log = params.hash_log - row_log;
+    let row_hash_log = params.hash_log - ROW_LOG;
     let end = idx
         .saturating_add(ROW_HASH_CACHE_SIZE)
         .min(limit.saturating_add(1));
@@ -139,10 +170,15 @@ pub(super) fn load_dictionary_rows(
     min_match: u32,
     state: &mut GreedyMatchState,
 ) {
-    update_rows_internal(src, target, params, min_match, state, false);
+    match row_log(params) {
+        4 => update_rows_internal::<4>(src, target, params, min_match, state, false),
+        5 => update_rows_internal::<5>(src, target, params, min_match, state, false),
+        6 => update_rows_internal::<6>(src, target, params, min_match, state, false),
+        _ => unreachable!("row_log is clamped to 4..=6"),
+    }
 }
 
-fn update_rows_internal(
+fn update_rows_internal<const ROW_LOG: u32>(
     src: &[u8],
     target: usize,
     params: CompressionParameters,
@@ -150,9 +186,8 @@ fn update_rows_internal(
     state: &mut GreedyMatchState,
     use_cache_skip: bool,
 ) {
-    let row_log = row_log(params);
-    let row_mask = (1usize << row_log) - 1;
-    let row_hash_log = params.hash_log - row_log;
+    let row_mask = (1usize << ROW_LOG) - 1;
+    let row_hash_log = params.hash_log - ROW_LOG;
     let mut idx = state.next_to_update;
 
     if use_cache_skip && target.saturating_sub(idx) > SKIP_THRESHOLD {
@@ -162,7 +197,7 @@ fn update_rows_internal(
             idx,
             start_bound,
             row_hash_log,
-            row_log,
+            ROW_LOG,
             row_mask,
             min_match,
             state,
@@ -177,7 +212,7 @@ fn update_rows_internal(
         idx,
         target,
         row_hash_log,
-        row_log,
+        ROW_LOG,
         row_mask,
         min_match,
         state,
