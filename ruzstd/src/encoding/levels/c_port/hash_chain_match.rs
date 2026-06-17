@@ -84,24 +84,7 @@ pub(super) fn load_dictionary_hash_chain(
     let _ = insert_and_find_first_index(src, target, params, min_match, state);
 }
 
-pub(super) fn count_match(
-    src: &[u8],
-    mut pos: usize,
-    mut match_pos: usize,
-    match_limit: usize,
-) -> usize {
-    let start = pos;
-    while pos + 8 <= match_limit && read64(src, pos) == read64(src, match_pos) {
-        pos += 8;
-        match_pos += 8;
-    }
-    while pos < match_limit && src[pos] == src[match_pos] {
-        pos += 1;
-        match_pos += 1;
-    }
-    pos - start
-}
-
+pub(super) use super::match_count::count_match;
 pub(super) fn hash_ptr(src: &[u8], pos: usize, h_bits: u32, min_match: u32) -> usize {
     match min_match {
         5 => hash5(read64(src, pos), h_bits),

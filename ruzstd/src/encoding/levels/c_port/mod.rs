@@ -21,6 +21,7 @@ mod greedy_dict;
 mod greedy_frame;
 mod greedy_state;
 mod hash_chain_match;
+mod match_count;
 mod opt_block;
 mod opt_dict;
 mod opt_encode;
