@@ -78,6 +78,52 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut DFastMatchState,
 ) -> DFastBlockOutput {
+    match params.min_match {
+        4 => compress_block_double_fast_no_dict_with_state_mls::<4>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+        ),
+        5 => compress_block_double_fast_no_dict_with_state_mls::<5>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+        ),
+        6 => compress_block_double_fast_no_dict_with_state_mls::<6>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+        ),
+        7 => compress_block_double_fast_no_dict_with_state_mls::<7>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+        ),
+        _ => compress_block_double_fast_no_dict_with_state_mls::<4>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+        ),
+    }
+}
+
+fn compress_block_double_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut DFastMatchState,
+) -> DFastBlockOutput {
     debug_assert!(block_range.start <= block_range.end);
     debug_assert!(block_range.end <= src.len());
 
@@ -100,7 +146,6 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
     let hash_small = &mut state.hash_small;
     let h_bits_l = params.hash_log;
     let h_bits_s = params.chain_log;
-    let min_match = params.min_match;
     let prefix_lowest_index = lowest_prefix_index(block_end, params.window_log);
     let ilimit = block_end - HASH_READ_SIZE;
 
@@ -137,12 +182,12 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
             break;
         }
 
-        let mut hl0 = hash_ptr(src, ip, h_bits_l, 8);
+        let mut hl0 = hash8_ptr(src, ip, h_bits_l);
         let mut idxl0 = hash_long[hl0] as usize;
         let mut matchl0 = idxl0;
 
         loop {
-            let hs0 = hash_ptr(src, ip, h_bits_s, min_match);
+            let hs0 = hash_small_ptr::<MIN_MATCH>(src, ip, h_bits_s);
             let idxs0 = hash_small[hs0] as usize;
             let curr = ip;
             let mut matchs0 = idxs0;
@@ -164,16 +209,15 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
                     OffBase::Repeat(RepeatCode::First),
                     match_length,
                 );
-                complementary_insert(
-                    src, hash_long, hash_small, h_bits_l, h_bits_s, min_match, curr, ip, ilimit,
+                complementary_insert::<MIN_MATCH>(
+                    src, hash_long, hash_small, h_bits_l, h_bits_s, curr, ip, ilimit,
                 );
-                consume_immediate_repcodes(
+                consume_immediate_repcodes::<MIN_MATCH>(
                     src,
                     hash_long,
                     hash_small,
                     h_bits_l,
                     h_bits_s,
-                    min_match,
                     &mut sequences,
                     &mut anchor,
                     &mut ip,
@@ -185,7 +229,7 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
                 continue 'outer;
             }
 
-            let hl1 = hash_ptr(src, ip1, h_bits_l, 8);
+            let hl1 = hash8_ptr(src, ip1, h_bits_l);
 
             if idxl0 > prefix_lowest_index && read64(src, matchl0) == read64(src, ip) {
                 let mut match_length = count_match(src, ip + 8, matchl0 + 8, block_end) + 8;
@@ -211,16 +255,15 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
                     offset,
                     match_length,
                 );
-                complementary_insert(
-                    src, hash_long, hash_small, h_bits_l, h_bits_s, min_match, curr, ip, ilimit,
+                complementary_insert::<MIN_MATCH>(
+                    src, hash_long, hash_small, h_bits_l, h_bits_s, curr, ip, ilimit,
                 );
-                consume_immediate_repcodes(
+                consume_immediate_repcodes::<MIN_MATCH>(
                     src,
                     hash_long,
                     hash_small,
                     h_bits_l,
                     h_bits_s,
-                    min_match,
                     &mut sequences,
                     &mut anchor,
                     &mut ip,
@@ -271,16 +314,15 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
                     offset,
                     match_length,
                 );
-                complementary_insert(
-                    src, hash_long, hash_small, h_bits_l, h_bits_s, min_match, curr, ip, ilimit,
+                complementary_insert::<MIN_MATCH>(
+                    src, hash_long, hash_small, h_bits_l, h_bits_s, curr, ip, ilimit,
                 );
-                consume_immediate_repcodes(
+                consume_immediate_repcodes::<MIN_MATCH>(
                     src,
                     hash_long,
                     hash_small,
                     h_bits_l,
                     h_bits_s,
-                    min_match,
                     &mut sequences,
                     &mut anchor,
                     &mut ip,
@@ -331,13 +373,12 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn complementary_insert(
+fn complementary_insert<const MIN_MATCH: u32>(
     src: &[u8],
     hash_long: &mut [u32],
     hash_small: &mut [u32],
     h_bits_l: u32,
     h_bits_s: u32,
-    min_match: u32,
     curr: usize,
     ip: usize,
     ilimit: usize,
@@ -348,25 +389,25 @@ fn complementary_insert(
 
     let index_to_insert = curr + 2;
     if index_to_insert <= ilimit {
-        hash_long[hash_ptr(src, index_to_insert, h_bits_l, 8)] = index_to_insert as u32;
-        hash_small[hash_ptr(src, index_to_insert, h_bits_s, min_match)] = index_to_insert as u32;
+        hash_long[hash8_ptr(src, index_to_insert, h_bits_l)] = index_to_insert as u32;
+        hash_small[hash_small_ptr::<MIN_MATCH>(src, index_to_insert, h_bits_s)] =
+            index_to_insert as u32;
     }
     if let Some(index) = ip.checked_sub(2).filter(|index| *index <= ilimit) {
-        hash_long[hash_ptr(src, index, h_bits_l, 8)] = index as u32;
+        hash_long[hash8_ptr(src, index, h_bits_l)] = index as u32;
     }
     if let Some(index) = ip.checked_sub(1).filter(|index| *index <= ilimit) {
-        hash_small[hash_ptr(src, index, h_bits_s, min_match)] = index as u32;
+        hash_small[hash_small_ptr::<MIN_MATCH>(src, index, h_bits_s)] = index as u32;
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn consume_immediate_repcodes(
+fn consume_immediate_repcodes<const MIN_MATCH: u32>(
     src: &[u8],
     hash_long: &mut [u32],
     hash_small: &mut [u32],
     h_bits_l: u32,
     h_bits_s: u32,
-    min_match: u32,
     sequences: &mut Vec<StoredSequence>,
     anchor: &mut usize,
     ip: &mut usize,
@@ -382,8 +423,8 @@ fn consume_immediate_repcodes(
     {
         let repeat_length = count_match(src, *ip + 4, *ip + 4 - *offset_2, block_end) + 4;
         core::mem::swap(offset_1, offset_2);
-        hash_small[hash_ptr(src, *ip, h_bits_s, min_match)] = *ip as u32;
-        hash_long[hash_ptr(src, *ip, h_bits_l, 8)] = *ip as u32;
+        hash_small[hash_small_ptr::<MIN_MATCH>(src, *ip, h_bits_s)] = *ip as u32;
+        hash_long[hash8_ptr(src, *ip, h_bits_l)] = *ip as u32;
         store_match(
             sequences,
             anchor,
@@ -442,6 +483,25 @@ fn count_match(src: &[u8], mut pos: usize, mut match_pos: usize, match_limit: us
 fn lowest_prefix_index(end_index: usize, window_log: u32) -> usize {
     let window_size = 1_usize << window_log;
     end_index.saturating_sub(window_size)
+}
+
+fn hash8_ptr(src: &[u8], pos: usize, h_bits: u32) -> usize {
+    debug_assert!(h_bits <= 32);
+    debug_assert!(pos + HASH_READ_SIZE <= src.len());
+    hash8(read64(src, pos), h_bits)
+}
+
+fn hash_small_ptr<const MIN_MATCH: u32>(src: &[u8], pos: usize, h_bits: u32) -> usize {
+    debug_assert!(h_bits <= 32);
+    debug_assert!(pos + HASH_READ_SIZE <= src.len());
+
+    match MIN_MATCH {
+        5 => hash5(read64(src, pos), h_bits),
+        6 => hash6(read64(src, pos), h_bits),
+        7 => hash7(read64(src, pos), h_bits),
+        8 => hash8(read64(src, pos), h_bits),
+        _ => hash4(read32(src, pos), h_bits),
+    }
 }
 
 pub(super) fn hash_ptr(src: &[u8], pos: usize, h_bits: u32, min_match: u32) -> usize {
