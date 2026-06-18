@@ -731,12 +731,16 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
         let single_states = prob - double_states;
         let num_bits = acc_log - prob_log as u8;
         let mut baseline = (single_states as usize * (1 << (num_bits))) % (1 << acc_log);
+        let mut start_state_idx = 0usize;
         for (idx, state) in state.states.iter_mut().enumerate() {
             if (idx as u32) < double_states {
                 let num_bits = num_bits + 1;
                 state.baseline = baseline as u32;
                 state.num_bits = num_bits;
                 state.last_index = (baseline + ((1 << num_bits) - 1)) as u32;
+                if state.baseline == 0 {
+                    start_state_idx = idx;
+                }
 
                 baseline += 1 << num_bits;
                 baseline %= 1 << acc_log;
@@ -744,20 +748,15 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
                 state.baseline = baseline as u32;
                 state.num_bits = num_bits;
                 state.last_index = (baseline + ((1 << num_bits) - 1)) as u32;
+                if state.baseline == 0 {
+                    start_state_idx = idx;
+                }
                 baseline += 1 << num_bits;
             }
         }
 
         if (1usize << acc_log) <= DIRECT_STATE_LOOKUP_MAX_TABLE_SIZE {
-            if let Some(start_state_idx) = state
-                .states
-                .iter()
-                .enumerate()
-                .min_by_key(|(_, state)| state.baseline)
-                .map(|(idx, _)| idx)
-            {
-                state.states.swap(0, start_state_idx);
-            }
+            state.states.swap(0, start_state_idx);
             state.lookup = uninitialized_lookup(1usize << acc_log);
             for (state_idx, fse_state) in state.states.iter().enumerate() {
                 let state_idx = match u16::try_from(state_idx) {
