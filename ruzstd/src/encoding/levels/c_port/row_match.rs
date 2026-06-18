@@ -302,9 +302,16 @@ fn update_rows_range(
             )
         };
         let row_start = ((hash >> TAG_BITS) as usize) << row_log;
-        let pos = next_row_index(&mut state.tag_table[row_start], row_mask);
-        state.tag_table[row_start + pos] = (hash & TAG_MASK) as u8;
-        state.hash_table[row_start + pos] = idx as u32;
+        // SAFETY: hash contains row_hash_log row bits, and
+        // row_hash_log + row_log == params.hash_log. ensure_tables() sizes
+        // both row tables to 1 << params.hash_log, and pos is masked to the
+        // current row width.
+        unsafe {
+            let pos = next_row_index(state.tag_table.get_unchecked_mut(row_start), row_mask);
+            let row_pos = row_start + pos;
+            *state.tag_table.get_unchecked_mut(row_pos) = (hash & TAG_MASK) as u8;
+            *state.hash_table.get_unchecked_mut(row_pos) = idx as u32;
+        }
         idx += 1;
     }
 }
