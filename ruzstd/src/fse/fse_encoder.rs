@@ -660,9 +660,11 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
         lookup: Vec::new(),
         probability: 0,
     });
+    let table_size = 1usize << acc_log;
+    let mut spread_symbols = alloc::vec![0u8; table_size];
 
     // distribute -1 symbols
-    let mut negative_idx = (1 << acc_log) - 1;
+    let mut negative_idx = table_size - 1;
     for (symbol, _prob) in probs
         .iter()
         .copied()
@@ -683,7 +685,9 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
 
     // distribute other symbols
 
-    // Setup all needed states per symbol with their respective index
+    // First spread symbols by table index. We then walk the spread table in
+    // ascending index order so each per-symbol state list is already sorted by
+    // index, avoiding a hot per-symbol sort.
     let mut idx = 0;
     for (symbol, prob) in probs.iter().copied().enumerate() {
         if prob <= 0 {
@@ -693,19 +697,21 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
         symbol_states.probability = prob;
         symbol_states.states = Vec::with_capacity(prob as usize);
         for _ in 0..prob {
-            symbol_states.states.push(State {
-                num_bits: 0,
-                baseline: 0,
-                last_index: 0,
-                index: idx as u32,
-            });
-
-            idx = next_position(idx, 1 << acc_log);
+            spread_symbols[idx] = symbol as u8;
+            idx = next_position(idx, table_size);
             while idx > negative_idx {
-                idx = next_position(idx, 1 << acc_log);
+                idx = next_position(idx, table_size);
             }
         }
-        assert_eq!(symbol_states.states.len(), prob as usize);
+    }
+
+    for (idx, symbol) in spread_symbols[..=negative_idx].iter().copied().enumerate() {
+        states[usize::from(symbol)].states.push(State {
+            num_bits: 0,
+            baseline: 0,
+            last_index: 0,
+            index: idx as u32,
+        });
     }
 
     // After all states know their index we can determine the numbits and baselines
@@ -716,8 +722,7 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
         let prob = prob as u32;
         let state = &mut states[symbol];
 
-        // We process the states in their order in the table
-        state.states.sort_unstable_by_key(|l| l.index);
+        debug_assert_eq!(state.states.len(), prob as usize);
 
         let prob_log = if prob.is_power_of_two() {
             prob.ilog2()
@@ -776,7 +781,7 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
     }
 
     FSETable {
-        table_size: 1 << acc_log,
+        table_size,
         acc_log,
         states,
     }
