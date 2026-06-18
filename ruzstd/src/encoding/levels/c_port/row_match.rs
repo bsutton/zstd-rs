@@ -63,13 +63,15 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
 
     let row_start = ((hash >> TAG_BITS) as usize) << ROW_LOG;
     let tag = (hash & TAG_MASK) as u8;
-    let head = usize::from(state.tag_table[row_start] & row_mask as u8);
+    // SAFETY: row_start is derived from row_hash_log bits, shifted by ROW_LOG,
+    // and the row tables are sized to 1 << params.hash_log.
+    let tag_row = unsafe {
+        let row_ptr = state.tag_table.as_ptr().add(row_start);
+        core::slice::from_raw_parts(row_ptr, row_entries)
+    };
+    let head = usize::from(tag_row[0] & row_mask as u8);
     let mut best_len = 3usize;
-    let mut matches = row_match_mask(
-        &state.tag_table[row_start..row_start + row_entries],
-        tag,
-        head,
-    );
+    let mut matches = row_match_mask(tag_row, tag, head);
 
     #[cfg(target_arch = "x86_64")]
     {
@@ -85,7 +87,8 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
                 continue;
             }
 
-            let match_index = state.hash_table[row_start + pos] as usize;
+            // SAFETY: pos is masked to the current row width.
+            let match_index = unsafe { *state.hash_table.get_unchecked(row_start + pos) as usize };
             if match_index < low_limit {
                 break;
             }
@@ -132,7 +135,8 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
                 continue;
             }
 
-            let match_index = state.hash_table[row_start + pos] as usize;
+            // SAFETY: pos is masked to the current row width.
+            let match_index = unsafe { *state.hash_table.get_unchecked(row_start + pos) as usize };
             if match_index < low_limit {
                 break;
             }
@@ -158,9 +162,13 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
         }
     }
 
-    let insert_pos = next_row_index(&mut state.tag_table[row_start], row_mask);
-    state.tag_table[row_start + insert_pos] = tag;
-    state.hash_table[row_start + insert_pos] = state.next_to_update as u32;
+    // SAFETY: row_start is bounded as above and insert_pos is masked to the row.
+    unsafe {
+        let insert_pos = next_row_index(state.tag_table.get_unchecked_mut(row_start), row_mask);
+        let row_pos = row_start + insert_pos;
+        *state.tag_table.get_unchecked_mut(row_pos) = tag;
+        *state.hash_table.get_unchecked_mut(row_pos) = state.next_to_update as u32;
+    }
     state.next_to_update += 1;
 
     best_len
