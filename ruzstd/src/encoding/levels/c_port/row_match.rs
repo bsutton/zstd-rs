@@ -364,17 +364,16 @@ fn row_match_mask(tag_row: &[u8], tag: u8, head: usize) -> u64 {
     let mut chunk_start = 0usize;
     while chunk_start < tag_row.len() {
         let chunk = read64(tag_row, chunk_start) ^ splat;
-        let mut zero_bytes =
-            chunk.wrapping_sub(0x0101_0101_0101_0101) & !chunk & 0x8080_8080_8080_8080;
-        while zero_bytes != 0 {
-            let byte = (zero_bytes.trailing_zeros() >> 3) as usize;
-            matches |= 1u64 << (chunk_start + byte);
-            zero_bytes &= zero_bytes - 1;
-        }
+        let zero_bytes = chunk.wrapping_sub(0x0101_0101_0101_0101) & !chunk & 0x8080_8080_8080_8080;
+        matches |= byte_high_bits_to_mask(zero_bytes) << chunk_start;
         chunk_start += 8;
     }
 
     rotate_right_within(matches, head, tag_row.len())
+}
+
+fn byte_high_bits_to_mask(high_bits: u64) -> u64 {
+    ((high_bits >> 7).wrapping_mul(0x0102_0408_1020_4080) >> 56) & 0xff
 }
 
 fn rotate_right_within(value: u64, shift: usize, width: usize) -> u64 {
