@@ -346,6 +346,7 @@ fn prefetch_read<T>(ptr: *const T) {
     }
 }
 
+#[inline(always)]
 fn next_row_index(head: &mut u8, row_mask: usize) -> usize {
     let mut next = usize::from(head.wrapping_sub(1)) & row_mask;
     if next == 0 {
@@ -355,6 +356,7 @@ fn next_row_index(head: &mut u8, row_mask: usize) -> usize {
     next
 }
 
+#[inline(always)]
 fn row_match_mask(tag_row: &[u8], tag: u8, head: usize) -> u64 {
     debug_assert!(matches!(tag_row.len(), 16 | 32 | 64));
     debug_assert!(head < tag_row.len());
@@ -372,10 +374,12 @@ fn row_match_mask(tag_row: &[u8], tag: u8, head: usize) -> u64 {
     rotate_right_within(matches, head, tag_row.len())
 }
 
+#[inline(always)]
 fn byte_high_bits_to_mask(high_bits: u64) -> u64 {
     ((high_bits >> 7).wrapping_mul(0x0102_0408_1020_4080) >> 56) & 0xff
 }
 
+#[inline(always)]
 fn rotate_right_within(value: u64, shift: usize, width: usize) -> u64 {
     debug_assert!((1..=64).contains(&width));
     debug_assert!(shift < width);
@@ -404,6 +408,7 @@ pub(super) fn row_match_finder_enabled(params: CompressionParameters) -> bool {
     ) && params.window_log > 14
 }
 
+#[inline(always)]
 fn hash_ptr_salted(src: &[u8], pos: usize, h_bits: u32, min_match: u32, salt: u64) -> u32 {
     match min_match {
         5 => hash5(read64(src, pos), h_bits, salt),
@@ -412,21 +417,25 @@ fn hash_ptr_salted(src: &[u8], pos: usize, h_bits: u32, min_match: u32, salt: u6
     }
 }
 
+#[inline(always)]
 fn hash4(value: u32, h_bits: u32, salt: u32) -> u32 {
     const PRIME_4_BYTES: u32 = 2_654_435_761;
     (value.wrapping_mul(PRIME_4_BYTES) ^ salt).wrapping_shr(32 - h_bits)
 }
 
+#[inline(always)]
 fn hash5(value: u64, h_bits: u32, salt: u64) -> u32 {
     const PRIME_5_BYTES: u64 = 889_523_592_379;
     (((value << (64 - 40)).wrapping_mul(PRIME_5_BYTES) ^ salt) >> (64 - h_bits)) as u32
 }
 
+#[inline(always)]
 fn hash6(value: u64, h_bits: u32, salt: u64) -> u32 {
     const PRIME_6_BYTES: u64 = 227_718_039_650_203;
     (((value << (64 - 48)).wrapping_mul(PRIME_6_BYTES) ^ salt) >> (64 - h_bits)) as u32
 }
 
+#[inline(always)]
 fn read32(src: &[u8], pos: usize) -> u32 {
     debug_assert!(pos + 4 <= src.len());
     // SAFETY: row hashing and match probes bound positions before reading.
@@ -438,6 +447,7 @@ fn read32(src: &[u8], pos: usize) -> u32 {
     }
 }
 
+#[inline(always)]
 fn read64(src: &[u8], pos: usize) -> u64 {
     debug_assert!(pos + 8 <= src.len());
     // SAFETY: row hashing bounds positions before reading. Unaligned loads
