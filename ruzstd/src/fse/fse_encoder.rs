@@ -636,13 +636,15 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
         .enumerate()
         .filter(|prob| prob.1 == -1)
     {
-        states[symbol].states.push(State {
+        let symbol_states = &mut states[symbol];
+        symbol_states.states = Vec::with_capacity(1);
+        symbol_states.states.push(State {
             num_bits: acc_log,
             baseline: 0,
             last_index: (1 << acc_log) - 1,
             index: negative_idx,
         });
-        states[symbol].probability = -1;
+        symbol_states.probability = -1;
         negative_idx -= 1;
     }
 
@@ -654,10 +656,11 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
         if prob <= 0 {
             continue;
         }
-        states[symbol].probability = prob;
-        let states = &mut states[symbol].states;
+        let symbol_states = &mut states[symbol];
+        symbol_states.probability = prob;
+        symbol_states.states = Vec::with_capacity(prob as usize);
         for _ in 0..prob {
-            states.push(State {
+            symbol_states.states.push(State {
                 num_bits: 0,
                 baseline: 0,
                 last_index: 0,
@@ -669,7 +672,7 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
                 idx = next_position(idx, 1 << acc_log);
             }
         }
-        assert_eq!(states.len(), prob as usize);
+        assert_eq!(symbol_states.states.len(), prob as usize);
     }
 
     // After all states know their index we can determine the numbits and baselines
