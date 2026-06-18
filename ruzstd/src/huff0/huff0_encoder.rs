@@ -1,5 +1,4 @@
 use alloc::vec::Vec;
-use core::cmp::Ordering;
 
 use crate::{
     bit_io::BitWriter,
@@ -266,39 +265,19 @@ impl HuffmanTable {
     }
 
     pub fn build_from_weights(weights: &[usize]) -> Self {
-        let mut sorted = Vec::with_capacity(weights.len());
-        struct SortEntry {
-            symbol: u8,
-            weight: usize,
-        }
-
-        // TODO this doesn't need to be a temporary Vec, it could be done in a [_; 264]
-        // only non-zero weights are interesting here
-        for (symbol, weight) in weights.iter().copied().enumerate() {
-            if weight > 0 {
-                sorted.push(SortEntry {
-                    symbol: symbol as u8,
-                    weight,
-                });
-            }
-        }
-        // We process symbols ordered by weight and then ordered by symbol
-        sorted.sort_unstable_by(|left, right| match left.weight.cmp(&right.weight) {
-            Ordering::Equal => left.symbol.cmp(&right.symbol),
-            other => other,
-        });
-
         // Prepare huffman table with placeholders
         let mut table = HuffmanTable {
-            codes: Vec::with_capacity(weights.len()),
+            codes: alloc::vec![(0, 0); weights.len()],
             max_num_bits: 0,
         };
-        for _ in 0..weights.len() {
-            table.codes.push((0, 0));
-        }
 
         // Determine the number of bits needed for codes with the lowest weight
-        let weight_sum = sorted.iter().map(|e| 1 << (e.weight - 1)).sum::<usize>();
+        let mut weight_sum = 0usize;
+        let mut max_weight = 0usize;
+        for weight in weights.iter().copied().filter(|weight| *weight > 0) {
+            weight_sum += 1 << (weight - 1);
+            max_weight = max_weight.max(weight);
+        }
         if !weight_sum.is_power_of_two() {
             panic!("This is an internal error");
         }
@@ -308,19 +287,22 @@ impl HuffmanTable {
         let mut current_code = 0;
         let mut current_weight = 0;
         let mut current_num_bits = 0;
-        for entry in sorted.iter() {
-            // If the entry isn't the same weight as the last one we need to change a few things
-            if current_weight != entry.weight {
-                // The code shifts by the difference of the weights to allow for enough unique values
-                current_code >>= entry.weight - current_weight;
-                // Encoding a symbol of this weight will take less bits than the previous weight
-                current_num_bits = max_num_bits - entry.weight + 1;
-                // Run the next update when the weight changes again
-                current_weight = entry.weight;
+        // Process symbols ordered by weight and then by symbol without
+        // allocating and sorting a temporary symbol list.
+        for weight in 1..=max_weight {
+            for (symbol, symbol_weight) in weights.iter().copied().enumerate() {
+                if symbol_weight != weight {
+                    continue;
+                }
+                if current_weight != weight {
+                    current_code >>= weight - current_weight;
+                    current_num_bits = max_num_bits - weight + 1;
+                    current_weight = weight;
+                }
+                table.codes[symbol] = (current_code as u32, current_num_bits as u8);
+                table.max_num_bits = table.max_num_bits.max(current_num_bits as u8);
+                current_code += 1;
             }
-            table.codes[entry.symbol as usize] = (current_code as u32, current_num_bits as u8);
-            table.max_num_bits = table.max_num_bits.max(current_num_bits as u8);
-            current_code += 1;
         }
 
         table
