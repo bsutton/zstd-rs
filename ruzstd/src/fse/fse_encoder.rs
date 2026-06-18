@@ -257,11 +257,57 @@ fn write_normalized_probabilities<V: AsMut<Vec<u8>>>(
 }
 
 pub(crate) fn ncount_cost_from_probabilities(probs: &[i32], acc_log: u8) -> usize {
-    let mut bytes = Vec::new();
-    let mut writer = BitWriter::from(&mut bytes);
-    write_normalized_probabilities(probs.iter().copied(), acc_log, &mut writer);
-    writer.flush();
-    bytes.len() * 8
+    let mut probabilities = probs.iter().copied();
+    let mut bit_count = 4usize;
+    let mut probability_counter = 0usize;
+    let probability_sum = 1 << acc_log;
+    let mut pending_zero_probability = None;
+
+    while probability_counter < probability_sum {
+        let prob = pending_zero_probability.take().unwrap_or_else(|| {
+            probabilities
+                .next()
+                .expect("normalized probabilities must sum to the table size")
+        });
+        let max_remaining_value = probability_sum - probability_counter + 1;
+        let bits_to_write = max_remaining_value.ilog2() as usize + 1;
+        let low_threshold = ((1 << bits_to_write) - 1) - max_remaining_value;
+        let mask = (1 << (bits_to_write - 1)) - 1;
+
+        let value = (prob + 1) as u32;
+        bit_count += if value < low_threshold as u32 {
+            bits_to_write - 1
+        } else if value > mask {
+            bits_to_write
+        } else {
+            bits_to_write
+        };
+
+        if prob == -1 {
+            probability_counter += 1;
+        } else if prob > 0 {
+            probability_counter += prob as usize;
+        } else {
+            let mut zeros = 0u8;
+            loop {
+                let next = probabilities
+                    .next()
+                    .expect("normalized probabilities must contain the next non-zero symbol");
+                if next != 0 {
+                    pending_zero_probability = Some(next);
+                    break;
+                }
+                zeros += 1;
+                if zeros == 3 {
+                    bit_count += 2;
+                    zeros = 0;
+                }
+            }
+            bit_count += 2;
+        }
+    }
+
+    bit_count.next_multiple_of(8)
 }
 
 fn highbit32(value: u32) -> u32 {
@@ -734,14 +780,32 @@ mod tests {
 
     #[test]
     fn ncount_cost_matches_written_table_size() {
-        let probs = super::LL_DIST;
-        let table = build_table_from_probabilities(probs, 6);
-        let mut bytes = Vec::new();
-        let mut writer = BitWriter::from(&mut bytes);
-        table.write_table(&mut writer);
-        writer.flush();
+        fn assert_ncount_cost_matches_writer(probs: &[i32], acc_log: u8) {
+            let table = build_table_from_probabilities(probs, acc_log);
+            let mut bytes = Vec::new();
+            let mut writer = BitWriter::from(&mut bytes);
+            table.write_table(&mut writer);
+            writer.flush();
 
-        assert_eq!(ncount_cost_from_probabilities(probs, 6), bytes.len() * 8);
+            assert_eq!(
+                ncount_cost_from_probabilities(probs, acc_log),
+                bytes.len() * 8
+            );
+        }
+
+        assert_ncount_cost_matches_writer(super::LL_DIST, 6);
+        assert_ncount_cost_matches_writer(super::ML_DIST, 6);
+        assert_ncount_cost_matches_writer(super::OF_DIST, 5);
+
+        let cases = [
+            &[128, 64, 32, 16, 8, 4, 2, 1][..],
+            &[9, 0, 7, 0, 5, 3, 0, 2, 1][..],
+            &[4000, 31, 29, 23, 17, 11, 7, 5, 3, 1][..],
+        ];
+        for counts in cases {
+            let (probs, acc_log) = super::normalized_probabilities_from_counts(counts, 9, true);
+            assert_ncount_cost_matches_writer(&probs, acc_log);
+        }
     }
 
     #[test]
