@@ -73,58 +73,6 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
     let mut best_len = 3usize;
     let mut matches = row_match_mask(tag_row, tag, head);
 
-    #[cfg(target_arch = "x86_64")]
-    {
-        let mut attempts = 0usize;
-        let mut match_buffer = [const { core::mem::MaybeUninit::<usize>::uninit() }; 1 << 6];
-        let mut match_count = 0usize;
-
-        while matches != 0 && attempts < max_attempts {
-            let step = matches.trailing_zeros() as usize;
-            matches &= matches - 1;
-            let pos = (head + step) & row_mask;
-            if pos == 0 {
-                continue;
-            }
-
-            // SAFETY: pos is masked to the current row width.
-            let match_index = unsafe { *state.hash_table.get_unchecked(row_start + pos) as usize };
-            if match_index < low_limit {
-                break;
-            }
-            if match_index >= curr {
-                continue;
-            }
-            debug_assert!(match_count < match_buffer.len());
-            prefetch_read(src.as_ptr().wrapping_add(match_index));
-            match_buffer[match_count].write(match_index);
-            match_count += 1;
-            attempts += 1;
-        }
-
-        for match_index in match_buffer[..match_count]
-            .iter()
-            // SAFETY: entries below match_count are written before match_count is incremented.
-            .map(|entry| unsafe { entry.assume_init() })
-        {
-            let mut current_len = 0usize;
-            if read32(src, match_index + best_len - 3) == read32(src, ip + best_len - 3) {
-                current_len = super::hash_chain_match::count_match(src, ip, match_index, block_end);
-            }
-
-            if current_len > best_len {
-                best_len = current_len;
-                *off_base = OffBase::from_offset((curr - match_index) as u32)
-                    .expect("row match has non-zero offset")
-                    .to_c_value();
-                if ip + current_len == block_end {
-                    break;
-                }
-            }
-        }
-    }
-
-    #[cfg(not(target_arch = "x86_64"))]
     {
         let mut attempts = 0usize;
         while matches != 0 && attempts < max_attempts {
