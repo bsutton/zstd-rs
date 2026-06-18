@@ -134,11 +134,13 @@ pub struct FSETable {
 }
 
 impl FSETable {
+    #[inline(always)]
     pub(crate) fn next_state(&self, symbol: u8, idx: u32) -> &State {
         let states = &self.states[symbol as usize];
         states.get(idx, self.table_size)
     }
 
+    #[inline(always)]
     pub(crate) fn start_state(&self, symbol: u8) -> &State {
         let states = &self.states[symbol as usize];
         &states.states[0]
@@ -323,6 +325,7 @@ pub(super) struct SymbolStates {
 }
 
 impl SymbolStates {
+    #[inline(always)]
     fn get(&self, idx: u32, max_idx: usize) -> &State {
         let idx_usize = idx as usize;
         if !self.lookup.is_empty() {
@@ -352,6 +355,7 @@ pub(crate) struct State {
 }
 
 impl State {
+    #[inline(always)]
     fn contains(&self, idx: u32) -> bool {
         self.baseline <= idx && self.last_index >= idx
     }
