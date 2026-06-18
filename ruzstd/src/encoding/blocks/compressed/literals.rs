@@ -84,6 +84,7 @@ pub(super) fn compress_literals(
     let (size_format, size_bits) =
         compressed_literals_size_format(literals.len(), force_single_stream);
     let four_streams = size_format != 0;
+    let four_stream_counts = four_streams.then(|| huff0_encoder::four_stream_counts(literals));
     let header_len = compressed_literals_header_len(size_format);
     let new_encoder_table = if search_smallest_table {
         huff0_encoder::HuffmanTable::build_smallest_from_counts(
@@ -94,8 +95,8 @@ pub(super) fn compress_literals(
     } else {
         huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts())
     };
-    let new_len = if four_streams {
-        new_encoder_table.encoded_len(literals, true, true)
+    let new_len = if let Some(four_stream_counts) = &four_stream_counts {
+        new_encoder_table.encoded_len_from_stream_counts(four_stream_counts, true)
     } else {
         new_encoder_table.encoded_len_from_counts(literal_stats.counts(), true)
     };
@@ -113,6 +114,7 @@ pub(super) fn compress_literals(
                 previous_table,
                 &literal_stats,
                 literals,
+                four_stream_counts.as_ref(),
                 new_choice,
                 force_single_stream,
             )
@@ -166,6 +168,7 @@ fn repeat_huffman_choice<'table>(
     previous_table: &'table huff0_encoder::HuffmanTable,
     literal_stats: &LiteralStats,
     literals: &[u8],
+    four_stream_counts: Option<&[[usize; 256]; 4]>,
     new_choice: LiteralEncodingChoice<'_>,
     force_single_stream: bool,
 ) -> Option<LiteralEncodingChoice<'table>> {
@@ -178,7 +181,11 @@ fn repeat_huffman_choice<'table>(
     let header_len = compressed_literals_header_len(size_format);
     let four_streams = size_format != 0;
     let estimated_len = if four_streams {
-        previous_table.encoded_len(literals, false, true)
+        if let Some(four_stream_counts) = four_stream_counts {
+            previous_table.encoded_len_from_stream_counts(four_stream_counts, false)
+        } else {
+            previous_table.encoded_len(literals, false, true)
+        }
     } else {
         previous_table.encoded_len_from_counts(literal_stats.counts(), false)
     };

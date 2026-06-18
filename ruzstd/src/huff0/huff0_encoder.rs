@@ -211,9 +211,10 @@ impl HuffmanTable {
         four_streams: bool,
     ) -> Self {
         let mut best = Self::build_from_counts(counts);
+        let stream_counts = four_streams.then(|| four_stream_counts(data));
         let candidate_len = |table: &Self| {
-            if four_streams {
-                table.encoded_len(data, true, true)
+            if let Some(stream_counts) = &stream_counts {
+                table.encoded_len_from_stream_counts(stream_counts, true)
             } else {
                 table.encoded_len_from_counts(counts, true)
             }
@@ -364,6 +365,24 @@ impl HuffmanTable {
         table_len + self.stream_encoded_len_from_counts(counts)
     }
 
+    pub(crate) fn encoded_len_from_stream_counts(
+        &self,
+        stream_counts: &[[usize; 256]; 4],
+        with_table: bool,
+    ) -> usize {
+        let table_len = if with_table {
+            self.table_description_len()
+        } else {
+            0
+        };
+        table_len
+            + 6
+            + stream_counts
+                .iter()
+                .map(|counts| self.stream_encoded_len_from_counts(counts))
+                .sum::<usize>()
+    }
+
     fn table_description_len(&self) -> usize {
         let mut encoded = Vec::new();
         let mut writer = BitWriter::from(&mut encoded);
@@ -389,6 +408,22 @@ impl HuffmanTable {
             .sum::<usize>();
         bit_len / 8 + 1
     }
+}
+
+pub(crate) fn four_stream_counts(data: &[u8]) -> [[usize; 256]; 4] {
+    let mut counts = [[0usize; 256]; 4];
+    let split_size = data.len().div_ceil(4);
+    for (stream_idx, stream_counts) in counts.iter_mut().enumerate() {
+        let start = split_size * stream_idx;
+        if start >= data.len() {
+            break;
+        }
+        let end = (start + split_size).min(data.len());
+        for symbol in &data[start..end] {
+            stream_counts[usize::from(*symbol)] += 1;
+        }
+    }
+    counts
 }
 
 fn is_flat_distribution(counts: &[usize]) -> bool {
@@ -1101,6 +1136,7 @@ fn adaptive_weight_table_fse_max_log_is_never_worse_than_fixed_six() {
 fn encoded_len_matches_four_stream_encoder() {
     let data = b"tenant=alpha path=/v1/archive status=200 tenant=beta path=/v1/search status=404";
     let table = HuffmanTable::build_from_data(data);
+    let counts = four_stream_counts(data);
 
     assert_eq!(
         table.encoded_len(data, true, true),
@@ -1109,6 +1145,14 @@ fn encoded_len_matches_four_stream_encoder() {
     assert_eq!(
         table.encoded_len(data, false, true),
         actual_encoded_len(&table, data, false, true)
+    );
+    assert_eq!(
+        table.encoded_len_from_stream_counts(&counts, true),
+        table.encoded_len(data, true, true)
+    );
+    assert_eq!(
+        table.encoded_len_from_stream_counts(&counts, false),
+        table.encoded_len(data, false, true)
     );
 }
 
