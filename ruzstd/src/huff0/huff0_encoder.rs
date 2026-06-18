@@ -211,11 +211,18 @@ impl HuffmanTable {
         four_streams: bool,
     ) -> Self {
         let mut best = Self::build_from_counts(counts);
-        let mut best_len = best.encoded_len(data, true, four_streams);
+        let candidate_len = |table: &Self| {
+            if four_streams {
+                table.encoded_len(data, true, true)
+            } else {
+                table.encoded_len_from_counts(counts, true)
+            }
+        };
+        let mut best_len = candidate_len(&best);
 
         let rank_limited = Self::build_from_weights(&rank_limited_weights(counts));
         if rank_limited.can_encode_counts(counts) {
-            let rank_limited_len = rank_limited.encoded_len(data, true, four_streams);
+            let rank_limited_len = candidate_len(&rank_limited);
             if rank_limited_len < best_len {
                 best = rank_limited;
                 best_len = rank_limited_len;
@@ -237,7 +244,7 @@ impl HuffmanTable {
             let Some(candidate) = Self::build_from_counts_with_max_bits(counts, max_bits) else {
                 continue;
             };
-            let candidate_len = candidate.encoded_len(data, true, four_streams);
+            let candidate_len = candidate_len(&candidate);
             if candidate_len < best_len {
                 best = candidate;
                 best_len = candidate_len;
@@ -348,6 +355,15 @@ impl HuffmanTable {
         table_len + data_len
     }
 
+    pub(crate) fn encoded_len_from_counts(&self, counts: &[usize], with_table: bool) -> usize {
+        let table_len = if with_table {
+            self.table_description_len()
+        } else {
+            0
+        };
+        table_len + self.stream_encoded_len_from_counts(counts)
+    }
+
     fn table_description_len(&self) -> usize {
         let mut encoded = Vec::new();
         let mut writer = BitWriter::from(&mut encoded);
@@ -361,6 +377,16 @@ impl HuffmanTable {
         for symbol in data {
             bit_len += self.codes[*symbol as usize].1 as usize;
         }
+        bit_len / 8 + 1
+    }
+
+    fn stream_encoded_len_from_counts(&self, counts: &[usize]) -> usize {
+        let bit_len = counts
+            .iter()
+            .copied()
+            .zip(self.codes.iter().copied())
+            .map(|(count, (_, num_bits))| count * usize::from(num_bits))
+            .sum::<usize>();
         bit_len / 8 + 1
     }
 }
@@ -1022,6 +1048,10 @@ fn from_data() {
 fn encoded_len_matches_single_stream_encoder() {
     let data = b"abbcccddddeeeee";
     let table = HuffmanTable::build_from_data(data);
+    let mut counts = [0usize; 256];
+    for byte in data {
+        counts[usize::from(*byte)] += 1;
+    }
 
     assert_eq!(
         table.encoded_len(data, true, false),
@@ -1030,6 +1060,14 @@ fn encoded_len_matches_single_stream_encoder() {
     assert_eq!(
         table.encoded_len(data, false, false),
         actual_encoded_len(&table, data, false, false)
+    );
+    assert_eq!(
+        table.encoded_len_from_counts(&counts, true),
+        table.encoded_len(data, true, false)
+    );
+    assert_eq!(
+        table.encoded_len_from_counts(&counts, false),
+        table.encoded_len(data, false, false)
     );
 }
 

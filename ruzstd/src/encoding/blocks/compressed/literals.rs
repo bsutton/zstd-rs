@@ -94,7 +94,11 @@ pub(super) fn compress_literals(
     } else {
         huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts())
     };
-    let new_len = new_encoder_table.encoded_len(literals, true, four_streams);
+    let new_len = if four_streams {
+        new_encoder_table.encoded_len(literals, true, true)
+    } else {
+        new_encoder_table.encoded_len_from_counts(literal_stats.counts(), true)
+    };
     let new_choice = LiteralEncodingChoice {
         encoder_table: &new_encoder_table,
         new_table: true,
@@ -173,7 +177,11 @@ fn repeat_huffman_choice<'table>(
         compressed_literals_repeat_size_format(literals.len(), force_single_stream);
     let header_len = compressed_literals_header_len(size_format);
     let four_streams = size_format != 0;
-    let estimated_len = previous_table.encoded_len(literals, false, four_streams);
+    let estimated_len = if four_streams {
+        previous_table.encoded_len(literals, false, true)
+    } else {
+        previous_table.encoded_len_from_counts(literal_stats.counts(), false)
+    };
     if estimated_len < literals.len()
         && estimated_len + header_len <= new_choice.total_estimated_len()
     {
