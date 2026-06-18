@@ -748,9 +748,16 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
             }
         }
 
-        // For encoding we use the states ordered by the indexes they target
-        state.states.sort_unstable_by_key(|l| l.baseline);
         if (1usize << acc_log) <= DIRECT_STATE_LOOKUP_MAX_TABLE_SIZE {
+            if let Some(start_state_idx) = state
+                .states
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, state)| state.baseline)
+                .map(|(idx, _)| idx)
+            {
+                state.states.swap(0, start_state_idx);
+            }
             state.lookup = uninitialized_lookup(1usize << acc_log);
             for (state_idx, fse_state) in state.states.iter().enumerate() {
                 let state_idx = match u16::try_from(state_idx) {
@@ -762,6 +769,10 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
                 }
             }
             debug_assert!(state.lookup.iter().all(|idx| *idx != u16::MAX));
+        } else {
+            // The fallback lookup searches by baseline, so keep larger tables
+            // ordered by the indexes they target.
+            state.states.sort_unstable_by_key(|state| state.baseline);
         }
     }
 
