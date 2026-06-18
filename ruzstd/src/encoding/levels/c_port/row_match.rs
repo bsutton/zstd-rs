@@ -74,7 +74,7 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
     #[cfg(target_arch = "x86_64")]
     {
         let mut attempts = 0usize;
-        let mut match_buffer = [0usize; 1 << 6];
+        let mut match_buffer = [const { core::mem::MaybeUninit::<usize>::uninit() }; 1 << 6];
         let mut match_count = 0usize;
 
         while matches != 0 && attempts < max_attempts {
@@ -94,12 +94,16 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
             }
             debug_assert!(match_count < match_buffer.len());
             prefetch_read(src.as_ptr().wrapping_add(match_index));
-            match_buffer[match_count] = match_index;
+            match_buffer[match_count].write(match_index);
             match_count += 1;
             attempts += 1;
         }
 
-        for &match_index in &match_buffer[..match_count] {
+        for match_index in match_buffer[..match_count]
+            .iter()
+            // SAFETY: entries below match_count are written before match_count is incremented.
+            .map(|entry| unsafe { entry.assume_init() })
+        {
             let mut current_len = 0usize;
             if read32(src, match_index + best_len - 3) == read32(src, ip + best_len - 3) {
                 current_len = super::hash_chain_match::count_match(src, ip, match_index, block_end);
