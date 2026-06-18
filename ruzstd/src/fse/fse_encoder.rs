@@ -356,6 +356,34 @@ impl State {
     }
 }
 
+#[cfg(debug_assertions)]
+fn uninitialized_lookup(table_size: usize) -> Vec<u16> {
+    alloc::vec![u16::MAX; table_size]
+}
+
+#[cfg(not(debug_assertions))]
+fn uninitialized_lookup(table_size: usize) -> Vec<u16> {
+    let mut lookup = Vec::with_capacity(table_size);
+    // SAFETY: callers immediately write every entry before the table is used.
+    unsafe {
+        lookup.set_len(table_size);
+    }
+    lookup
+}
+
+#[cfg(debug_assertions)]
+fn write_lookup(lookup: &mut [u16], idx: usize, state_idx: u16) {
+    lookup[idx] = state_idx;
+}
+
+#[cfg(not(debug_assertions))]
+fn write_lookup(lookup: &mut [u16], idx: usize, state_idx: u16) {
+    // SAFETY: idx is produced from FSE state ranges bounded by table_size.
+    unsafe {
+        lookup.as_mut_ptr().add(idx).write(state_idx);
+    }
+}
+
 pub fn build_table_from_data(
     data: impl Iterator<Item = u8>,
     max_log: u8,
@@ -718,16 +746,17 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
         // For encoding we use the states ordered by the indexes they target
         state.states.sort_unstable_by_key(|l| l.baseline);
         if (1usize << acc_log) <= DIRECT_STATE_LOOKUP_MAX_TABLE_SIZE {
-            state.lookup.resize(1usize << acc_log, u16::MAX);
+            state.lookup = uninitialized_lookup(1usize << acc_log);
             for (state_idx, fse_state) in state.states.iter().enumerate() {
                 let state_idx = match u16::try_from(state_idx) {
                     Ok(state_idx) => state_idx,
                     Err(_) => unreachable!("small FSE direct lookup state indexes fit in u16"),
                 };
                 for idx in fse_state.baseline..=fse_state.last_index {
-                    state.lookup[idx] = state_idx;
+                    write_lookup(&mut state.lookup, idx, state_idx);
                 }
             }
+            debug_assert!(state.lookup.iter().all(|idx| *idx != u16::MAX));
         }
     }
 
