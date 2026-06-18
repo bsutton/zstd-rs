@@ -100,9 +100,7 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
 
             if current_len > best_len {
                 best_len = current_len;
-                *off_base = OffBase::from_offset((curr - match_index) as u32)
-                    .expect("row match has non-zero offset")
-                    .to_c_value();
+                *off_base = OffBase::offset_to_c_value((curr - match_index) as u32);
                 if ip + current_len == block_end {
                     break;
                 }

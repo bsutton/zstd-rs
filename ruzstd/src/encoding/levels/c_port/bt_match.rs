@@ -130,9 +130,7 @@ fn dubt_find_best_match(
                 highbit32((curr - match_index + 1) as u32) as i32 - highbit32(*off_base) as i32;
             if (4 * (match_length - best_length)) as i32 > gain_delta {
                 best_length = match_length;
-                *off_base = OffBase::from_offset((curr - match_index) as u32)
-                    .expect("binary-tree match has non-zero offset")
-                    .to_c_value();
+                *off_base = OffBase::offset_to_c_value((curr - match_index) as u32);
             }
             if ip + match_length == block_end {
                 break;

@@ -43,10 +43,15 @@ impl OffBase {
         (offset > 0).then_some(Self::Offset(offset))
     }
 
+    pub(crate) fn offset_to_c_value(offset: u32) -> u32 {
+        debug_assert!(offset > 0);
+        offset + REPCODE_COUNT
+    }
+
     pub(crate) fn to_c_value(self) -> u32 {
         match self {
             Self::Repeat(repeat) => repeat.to_c_value(),
-            Self::Offset(offset) => offset + REPCODE_COUNT,
+            Self::Offset(offset) => Self::offset_to_c_value(offset),
         }
     }
 }

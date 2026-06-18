@@ -33,9 +33,7 @@ pub(super) fn hc_find_best_match(
 
         if current_ml > ml {
             ml = current_ml;
-            *off_base = OffBase::from_offset((curr - match_index) as u32)
-                .expect("hash-chain match has non-zero offset")
-                .to_c_value();
+            *off_base = OffBase::offset_to_c_value((curr - match_index) as u32);
             if ip + current_ml == block_end {
                 break;
             }
