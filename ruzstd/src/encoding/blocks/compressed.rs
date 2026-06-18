@@ -385,7 +385,7 @@ fn update_fse_state<'a>(
         if let Some(current) = *state {
             let next = table.next_state(symbol, current.index);
             let diff = current.index - next.baseline;
-            writer.write_bits(diff as u64, next.num_bits as usize);
+            writer.write_bits(u64::from(diff), next.num_bits as usize);
             *state = Some(next);
         } else {
             unreachable!("non-RLE FSE mode must have a state");
@@ -400,7 +400,7 @@ fn flush_fse_state(
 ) {
     if let Some(table) = table {
         if let Some(state) = state {
-            writer.write_bits(state.index as u64, table.acc_log() as usize);
+            writer.write_bits(u64::from(state.index), table.acc_log() as usize);
         } else {
             unreachable!("non-RLE FSE mode must have a state");
         }

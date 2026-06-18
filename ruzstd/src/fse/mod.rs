@@ -35,9 +35,9 @@ fn check_tables(dec_table: &fse_decoder::FSETable, enc_table: &fse_encoder::FSET
         let enc_state = enc_states
             .states
             .iter()
-            .find(|state| state.index == idx)
+            .find(|state| state.index as usize == idx)
             .unwrap();
-        assert_eq!(enc_state.baseline, dec_state.base_line as usize);
+        assert_eq!(enc_state.baseline as usize, dec_state.base_line as usize);
         assert_eq!(enc_state.num_bits, dec_state.num_bits);
     }
 }

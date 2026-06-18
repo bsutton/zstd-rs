@@ -134,7 +134,7 @@ pub struct FSETable {
 }
 
 impl FSETable {
-    pub(crate) fn next_state(&self, symbol: u8, idx: usize) -> &State {
+    pub(crate) fn next_state(&self, symbol: u8, idx: u32) -> &State {
         let states = &self.states[symbol as usize];
         states.get(idx, self.table_size)
     }
@@ -323,14 +323,15 @@ pub(super) struct SymbolStates {
 }
 
 impl SymbolStates {
-    fn get(&self, idx: usize, max_idx: usize) -> &State {
+    fn get(&self, idx: u32, max_idx: usize) -> &State {
+        let idx_usize = idx as usize;
         if !self.lookup.is_empty() {
-            let state_idx = self.lookup[idx] as usize;
+            let state_idx = self.lookup[idx_usize] as usize;
             debug_assert_ne!(state_idx, u16::MAX as usize);
             return &self.states[state_idx];
         }
 
-        let start_search_at = (idx * self.states.len()) / max_idx;
+        let start_search_at = (idx_usize * self.states.len()) / max_idx;
         self.states[start_search_at..]
             .iter()
             .find(|state| state.contains(idx))
@@ -343,15 +344,15 @@ pub(crate) struct State {
     /// How many bits the range of this state needs to be encoded as
     pub(crate) num_bits: u8,
     /// The first index targeted by this state
-    pub(crate) baseline: usize,
+    pub(crate) baseline: u32,
     /// The last index targeted by this state (baseline + the maximum number with numbits bits allows)
-    pub(crate) last_index: usize,
+    pub(crate) last_index: u32,
     /// Index of this state in the decoding table
-    pub(crate) index: usize,
+    pub(crate) index: u32,
 }
 
 impl State {
-    fn contains(&self, idx: usize) -> bool {
+    fn contains(&self, idx: u32) -> bool {
         self.baseline <= idx && self.last_index >= idx
     }
 }
@@ -669,8 +670,8 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
         symbol_states.states.push(State {
             num_bits: acc_log,
             baseline: 0,
-            last_index: (1 << acc_log) - 1,
-            index: negative_idx,
+            last_index: ((1 << acc_log) - 1) as u32,
+            index: negative_idx as u32,
         });
         symbol_states.probability = -1;
         negative_idx -= 1;
@@ -692,7 +693,7 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
                 num_bits: 0,
                 baseline: 0,
                 last_index: 0,
-                index: idx,
+                index: idx as u32,
             });
 
             idx = next_position(idx, 1 << acc_log);
@@ -729,16 +730,16 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
         for (idx, state) in state.states.iter_mut().enumerate() {
             if (idx as u32) < double_states {
                 let num_bits = num_bits + 1;
-                state.baseline = baseline;
+                state.baseline = baseline as u32;
                 state.num_bits = num_bits;
-                state.last_index = baseline + ((1 << num_bits) - 1);
+                state.last_index = (baseline + ((1 << num_bits) - 1)) as u32;
 
                 baseline += 1 << num_bits;
                 baseline %= 1 << acc_log;
             } else {
-                state.baseline = baseline;
+                state.baseline = baseline as u32;
                 state.num_bits = num_bits;
-                state.last_index = baseline + ((1 << num_bits) - 1);
+                state.last_index = (baseline + ((1 << num_bits) - 1)) as u32;
                 baseline += 1 << num_bits;
             }
         }
@@ -753,7 +754,7 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
                     Err(_) => unreachable!("small FSE direct lookup state indexes fit in u16"),
                 };
                 for idx in fse_state.baseline..=fse_state.last_index {
-                    write_lookup(&mut state.lookup, idx, state_idx);
+                    write_lookup(&mut state.lookup, idx as usize, state_idx);
                 }
             }
             debug_assert!(state.lookup.iter().all(|idx| *idx != u16::MAX));
