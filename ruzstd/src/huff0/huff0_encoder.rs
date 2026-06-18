@@ -104,21 +104,8 @@ impl<V: AsMut<Vec<u8>>> HuffmanEncoder<'_, '_, V> {
         }
     }
 
-    pub(super) fn weights(&self) -> Vec<u8> {
-        let max = self.table.max_num_bits;
-        let weights = self
-            .table
-            .codes
-            .iter()
-            .copied()
-            .map(|(_, nb)| if nb == 0 { 0 } else { max - nb + 1 })
-            .collect::<Vec<u8>>();
-
-        weights
-    }
-
     fn write_table(&mut self) {
-        let weights = self.weights();
+        let weights = weights_from_codes(&self.table.codes, self.table.max_num_bits);
         let weights = &weights[..weights.len() - 1]; // dont encode last weight
         if weights.len() > 16 {
             for byte in encoded_weight_table_bytes(weights) {
@@ -154,6 +141,29 @@ fn encoded_weight_table_bytes(weights: &[u8]) -> Vec<u8> {
     best
 }
 
+fn table_description_len_from_weights(weights: &[u8]) -> usize {
+    let weights = &weights[..weights.len() - 1];
+    if weights.len() > 16 {
+        encoded_weight_table_bytes(weights).len()
+    } else {
+        1 + weights.len().div_ceil(2)
+    }
+}
+
+fn weights_from_codes(codes: &[(u32, u8)], max_num_bits: u8) -> Vec<u8> {
+    codes
+        .iter()
+        .copied()
+        .map(|(_, num_bits)| {
+            if num_bits == 0 {
+                0
+            } else {
+                max_num_bits - num_bits + 1
+            }
+        })
+        .collect()
+}
+
 fn encode_weight_table_fse_bytes(weights: &[u8], max_log: u8) -> Vec<u8> {
     let mut encoded = Vec::new();
     let mut writer = BitWriter::from(&mut encoded);
@@ -177,6 +187,7 @@ pub struct HuffmanTable {
     /// Index is the symbol, values are the bitstring in the lower bits of the u32 and the amount of bits in the u8
     codes: Vec<(u32, u8)>,
     max_num_bits: u8,
+    table_description_len: usize,
 }
 
 impl HuffmanTable {
@@ -269,6 +280,7 @@ impl HuffmanTable {
         let mut table = HuffmanTable {
             codes: alloc::vec![(0, 0); weights.len()],
             max_num_bits: 0,
+            table_description_len: 0,
         };
 
         // Determine the number of bits needed for codes with the lowest weight
@@ -284,7 +296,7 @@ impl HuffmanTable {
         let max_num_bits = highest_bit_set(weight_sum) - 1; // this is a log_2 of a clean power of two
 
         // Starting at the symbols with the lowest weight we update the placeholders in the table
-        let mut current_code = 0;
+        let mut current_code = 0u32;
         let mut current_weight = 0;
         let mut current_num_bits = 0;
         // Process symbols ordered by weight and then by symbol without
@@ -299,11 +311,15 @@ impl HuffmanTable {
                     current_num_bits = max_num_bits - weight + 1;
                     current_weight = weight;
                 }
-                table.codes[symbol] = (current_code as u32, current_num_bits as u8);
+                table.codes[symbol] = (current_code, current_num_bits as u8);
                 table.max_num_bits = table.max_num_bits.max(current_num_bits as u8);
                 current_code += 1;
             }
         }
+        table.table_description_len = table_description_len_from_weights(&weights_from_codes(
+            &table.codes,
+            table.max_num_bits,
+        ));
 
         table
     }
@@ -366,11 +382,7 @@ impl HuffmanTable {
     }
 
     fn table_description_len(&self) -> usize {
-        let mut encoded = Vec::new();
-        let mut writer = BitWriter::from(&mut encoded);
-        HuffmanEncoder::new(self, &mut writer).write_table();
-        writer.flush();
-        encoded.len()
+        self.table_description_len
     }
 
     fn stream_encoded_len(&self, data: &[u8]) -> usize {
