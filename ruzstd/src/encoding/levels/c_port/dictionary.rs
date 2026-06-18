@@ -1,6 +1,6 @@
 //! Dictionary metadata handling ported from `ZSTD_compress_insertDictionary()`.
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, rc::Rc};
 use core::fmt;
 
 use crate::decoding::dictionary::{Dictionary, MAGIC_NUM};
@@ -150,18 +150,18 @@ fn parse_full_dictionary(
 
 fn dictionary_entropy(decoded: &Dictionary) -> DictionaryEntropy {
     let mut fse_tables = FseTables::new();
-    fse_tables.ll_previous = Some(fse_encoder::build_table_from_probabilities(
+    fse_tables.ll_previous = Some(Rc::new(fse_encoder::build_table_from_probabilities(
         decoded.fse.literal_lengths.symbol_probabilities(),
         decoded.fse.literal_lengths.accuracy_log,
-    ));
-    fse_tables.ml_previous = Some(fse_encoder::build_table_from_probabilities(
+    )));
+    fse_tables.ml_previous = Some(Rc::new(fse_encoder::build_table_from_probabilities(
         decoded.fse.match_lengths.symbol_probabilities(),
         decoded.fse.match_lengths.accuracy_log,
-    ));
-    fse_tables.of_previous = Some(fse_encoder::build_table_from_probabilities(
+    )));
+    fse_tables.of_previous = Some(Rc::new(fse_encoder::build_table_from_probabilities(
         decoded.fse.offsets.symbol_probabilities(),
         decoded.fse.offsets.accuracy_log,
-    ));
+    )));
 
     DictionaryEntropy {
         huffman_table: huff0_encoder::HuffmanTable::build_from_weights(

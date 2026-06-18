@@ -1,3 +1,4 @@
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
 
@@ -188,11 +189,11 @@ pub(crate) fn compress_prepared_block(
         let (ll_mode, ml_mode, of_mode) = choose_sequence_table_modes(
             &sequences,
             SequenceModeSearchConfig {
-                ll_previous: fse_tables.ll_previous.as_ref(),
+                ll_previous: fse_tables.ll_previous.as_deref(),
                 ll_default: &fse_tables.ll_default,
-                ml_previous: fse_tables.ml_previous.as_ref(),
+                ml_previous: fse_tables.ml_previous.as_deref(),
                 ml_default: &fse_tables.ml_default,
-                of_previous: fse_tables.of_previous.as_ref(),
+                of_previous: fse_tables.of_previous.as_deref(),
                 of_default: &fse_tables.of_default,
                 repeat_table_max_sequences: config.repeat_table_max_sequences,
                 llml_predefined_max_sequences:
@@ -239,11 +240,11 @@ fn fse_table_update(mode: FseTableMode<'_>) -> FseTableUpdate {
     }
 }
 
-fn apply_fse_table_update(previous: &mut Option<FSETable>, update: FseTableUpdate) {
+fn apply_fse_table_update(previous: &mut Option<Rc<FSETable>>, update: FseTableUpdate) {
     match update {
         FseTableUpdate::Keep => {}
         FseTableUpdate::Clear => *previous = None,
-        FseTableUpdate::Replace(table) => *previous = Some(table),
+        FseTableUpdate::Replace(table) => *previous = Some(Rc::new(table)),
     }
 }
 

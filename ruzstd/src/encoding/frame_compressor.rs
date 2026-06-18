@@ -20,6 +20,7 @@ use super::{
     CompressionLevel, Matcher,
 };
 use crate::fse::fse_encoder::{default_ll_table, default_ml_table, default_of_table, FSETable};
+use alloc::rc::Rc;
 
 use crate::io::{Read, Write};
 
@@ -56,18 +57,18 @@ pub struct FrameCompressor<R: Read, W: Write, M: Matcher> {
 #[derive(Clone)]
 pub(crate) struct FseTables {
     pub(crate) ll_default: FSETable,
-    pub(crate) ll_previous: Option<FSETable>,
+    pub(crate) ll_previous: Option<Rc<FSETable>>,
     pub(crate) ml_default: FSETable,
-    pub(crate) ml_previous: Option<FSETable>,
+    pub(crate) ml_previous: Option<Rc<FSETable>>,
     pub(crate) of_default: FSETable,
-    pub(crate) of_previous: Option<FSETable>,
+    pub(crate) of_previous: Option<Rc<FSETable>>,
 }
 
 #[derive(Clone)]
 pub(crate) struct FseTableSnapshot {
-    ll_previous: Option<FSETable>,
-    ml_previous: Option<FSETable>,
-    of_previous: Option<FSETable>,
+    ll_previous: Option<Rc<FSETable>>,
+    ml_previous: Option<Rc<FSETable>>,
+    of_previous: Option<Rc<FSETable>>,
 }
 
 impl FseTables {
