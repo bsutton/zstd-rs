@@ -56,7 +56,7 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
         )
     } else {
         update_rows::<ROW_LOG>(src, curr, params, min_match, state);
-        next_cached_hash(src, curr, row_hash_log, min_match, state)
+        next_cached_hash(src, curr, row_hash_log, ROW_LOG, min_match, state)
     };
 
     state.hash_salt_entropy = state.hash_salt_entropy.wrapping_add(hash);
@@ -64,7 +64,6 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
     let row_start = ((hash >> TAG_BITS) as usize) << ROW_LOG;
     let tag = (hash & TAG_MASK) as u8;
     let head = usize::from(state.tag_table[row_start] & row_mask as u8);
-    let mut attempts = 0usize;
     let mut best_len = 3usize;
     let mut matches = row_match_mask(
         &state.tag_table[row_start..row_start + row_entries],
@@ -72,35 +71,85 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
         head,
     );
 
-    while matches != 0 && attempts < max_attempts {
-        let step = matches.trailing_zeros() as usize;
-        matches &= matches - 1;
-        let pos = (head + step) & row_mask;
-        if pos == 0 {
-            continue;
-        }
+    #[cfg(target_arch = "x86_64")]
+    {
+        let mut attempts = 0usize;
+        let mut match_buffer = [0usize; 1 << 6];
+        let mut match_count = 0usize;
 
-        let match_index = state.hash_table[row_start + pos] as usize;
-        if match_index < low_limit {
-            break;
-        }
-        if match_index >= curr {
-            continue;
-        }
-        attempts += 1;
+        while matches != 0 && attempts < max_attempts {
+            let step = matches.trailing_zeros() as usize;
+            matches &= matches - 1;
+            let pos = (head + step) & row_mask;
+            if pos == 0 {
+                continue;
+            }
 
-        let mut current_len = 0usize;
-        if read32(src, match_index + best_len - 3) == read32(src, ip + best_len - 3) {
-            current_len = super::hash_chain_match::count_match(src, ip, match_index, block_end);
-        }
-
-        if current_len > best_len {
-            best_len = current_len;
-            *off_base = OffBase::from_offset((curr - match_index) as u32)
-                .expect("row match has non-zero offset")
-                .to_c_value();
-            if ip + current_len == block_end {
+            let match_index = state.hash_table[row_start + pos] as usize;
+            if match_index < low_limit {
                 break;
+            }
+            if match_index >= curr {
+                continue;
+            }
+            debug_assert!(match_count < match_buffer.len());
+            prefetch_read(src.as_ptr().wrapping_add(match_index));
+            match_buffer[match_count] = match_index;
+            match_count += 1;
+            attempts += 1;
+        }
+
+        for &match_index in &match_buffer[..match_count] {
+            let mut current_len = 0usize;
+            if read32(src, match_index + best_len - 3) == read32(src, ip + best_len - 3) {
+                current_len = super::hash_chain_match::count_match(src, ip, match_index, block_end);
+            }
+
+            if current_len > best_len {
+                best_len = current_len;
+                *off_base = OffBase::from_offset((curr - match_index) as u32)
+                    .expect("row match has non-zero offset")
+                    .to_c_value();
+                if ip + current_len == block_end {
+                    break;
+                }
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let mut attempts = 0usize;
+        while matches != 0 && attempts < max_attempts {
+            let step = matches.trailing_zeros() as usize;
+            matches &= matches - 1;
+            let pos = (head + step) & row_mask;
+            if pos == 0 {
+                continue;
+            }
+
+            let match_index = state.hash_table[row_start + pos] as usize;
+            if match_index < low_limit {
+                break;
+            }
+            if match_index >= curr {
+                continue;
+            }
+            attempts += 1;
+
+            let mut current_len = 0usize;
+            if read32(src, match_index + best_len - 3) == read32(src, ip + best_len - 3) {
+                current_len = super::hash_chain_match::count_match(src, ip, match_index, block_end);
+            }
+
+            if current_len > best_len {
+                best_len = current_len;
+                *off_base = OffBase::from_offset((curr - match_index) as u32)
+                    .expect("row match has non-zero offset")
+                    .to_c_value();
+                if ip + current_len == block_end {
+                    break;
+                }
             }
         }
     }
@@ -152,13 +201,16 @@ fn fill_hash_cache_impl<const ROW_LOG: u32>(
         .saturating_add(ROW_HASH_CACHE_SIZE)
         .min(limit.saturating_add(1));
     while idx < end {
-        state.row_hash_cache[idx & ROW_HASH_CACHE_MASK] = hash_ptr_salted(
+        let hash = hash_ptr_salted(
             src,
             idx,
             row_hash_log + TAG_BITS,
             min_match,
             state.hash_salt,
         );
+        #[cfg(target_arch = "x86_64")]
+        prefetch_row(state, ((hash >> TAG_BITS) as usize) << ROW_LOG);
+        state.row_hash_cache[idx & ROW_HASH_CACHE_MASK] = hash;
         idx += 1;
     }
 }
@@ -235,7 +287,7 @@ fn update_rows_range(
 ) {
     while idx < target {
         let hash = if use_cache {
-            next_cached_hash(src, idx, row_hash_log, min_match, state)
+            next_cached_hash(src, idx, row_hash_log, row_log, min_match, state)
         } else {
             hash_ptr_salted(
                 src,
@@ -257,6 +309,7 @@ fn next_cached_hash(
     src: &[u8],
     idx: usize,
     row_hash_log: u32,
+    row_log: u32,
     min_match: u32,
     state: &mut GreedyMatchState,
 ) -> u32 {
@@ -267,9 +320,26 @@ fn next_cached_hash(
         min_match,
         state.hash_salt,
     );
+    #[cfg(target_arch = "x86_64")]
+    prefetch_row(state, ((new_hash >> TAG_BITS) as usize) << row_log);
     let cached = state.row_hash_cache[idx & ROW_HASH_CACHE_MASK];
     state.row_hash_cache[idx & ROW_HASH_CACHE_MASK] = new_hash;
     cached
+}
+
+#[cfg(target_arch = "x86_64")]
+fn prefetch_row(state: &GreedyMatchState, row_start: usize) {
+    prefetch_read(state.hash_table.as_ptr().wrapping_add(row_start));
+    prefetch_read(state.tag_table.as_ptr().wrapping_add(row_start));
+}
+
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+fn prefetch_read<T>(ptr: *const T) {
+    unsafe {
+        use core::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+        _mm_prefetch(ptr.cast::<i8>(), _MM_HINT_T0);
+    }
 }
 
 fn next_row_index(head: &mut u8, row_mask: usize) -> usize {
