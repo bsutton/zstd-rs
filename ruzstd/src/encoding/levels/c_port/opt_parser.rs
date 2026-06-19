@@ -87,12 +87,13 @@ pub(crate) fn compress_block_opt_no_dict_with_state(
                 rep,
             }]
         } else {
-            seed_match_prices(min_match, match_count, opt_level, state);
+            let seeded_last_pos = seed_match_prices(min_match, match_count, opt_level, state);
             let result = forward_pass(
                 src,
                 ip,
                 block_end,
                 ilimit,
+                seeded_last_pos,
                 min_match,
                 sufficient_len,
                 params,
@@ -193,7 +194,7 @@ fn seed_match_prices(
     match_count: usize,
     opt_level: OptLevel,
     state: &mut OptBlockState,
-) {
+) -> usize {
     let litlen = state.opt[0].litlen;
     let rep = state.opt[0].rep;
     for pos in 1..min_match as usize {
@@ -225,6 +226,7 @@ fn seed_match_prices(
 
     let last_pos = last_len.saturating_sub(1) as usize;
     state.opt[last_pos + 1] = Optimal::default();
+    last_pos
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -233,17 +235,20 @@ fn forward_pass(
     ip: usize,
     block_end: usize,
     ilimit: usize,
+    mut last_pos: usize,
     min_match: u32,
     sufficient_len: u32,
     params: CompressionParameters,
     opt_level: OptLevel,
     state: &mut OptBlockState,
 ) -> ForwardResult {
-    let mut last_pos = seeded_last_pos(state);
     let mut last_stretch = None;
     let mut cur = 1_usize;
 
     while cur <= last_pos {
+        if cur > ZSTD_OPT_NUM {
+            break;
+        }
         update_literal_price(src, ip, block_end, cur, &mut last_pos, opt_level, state);
         refresh_node_reps(cur, state);
 
@@ -429,14 +434,6 @@ fn update_match_prices(
     }
 }
 
-fn seeded_last_pos(state: &OptBlockState) -> usize {
-    let mut last_pos = 1_usize;
-    while state.opt[last_pos].price != ZSTD_MAX_PRICE {
-        last_pos += 1;
-    }
-    last_pos - 1
-}
-
 fn select_path(
     last_pos: usize,
     last_stretch: Option<Optimal>,
@@ -444,7 +441,7 @@ fn select_path(
     state: &mut OptBlockState,
 ) -> Vec<Optimal> {
     let mut path = Vec::new();
-    let stretch = last_stretch.unwrap_or(state.opt[last_pos]);
+    let stretch = last_stretch.unwrap_or_else(|| state.opt[last_pos]);
     let mut cur = last_pos - stretch.mlen as usize;
 
     if stretch.litlen == 0 {
