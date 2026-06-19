@@ -1207,6 +1207,59 @@ fn c_cost_sequence_model_encodes_new_table_when_cheapest() {
     assert!(matches!(ll_mode, FseTableMode::Encoded(_)));
 }
 
+#[test]
+fn encoded_sequence_table_removes_repeated_last_code_from_counts() {
+    let ll_default = default_ll_table();
+    let ml_default = default_ml_table();
+    let of_default = default_of_table();
+    let mut lengths = Vec::new();
+    lengths.extend(core::iter::repeat_n(0, 2));
+    lengths.extend(core::iter::repeat_n(64, 2));
+    lengths.push(0);
+    let sequences = sequences_for_literal_lengths(lengths.iter().copied());
+
+    let (ll_mode, _, _) = choose_sequence_table_modes(
+        &sequences,
+        SequenceModeSearchConfig {
+            ll_previous: None,
+            ll_default: &ll_default,
+            ml_previous: None,
+            ml_default: &ml_default,
+            of_previous: None,
+            of_default: &of_default,
+            repeat_table_max_sequences: 0,
+            llml_predefined_max_sequences: 0,
+            of_predefined_max_sequences: 0,
+            of_max_log: 8,
+            exact_sequence_mode_search: false,
+            c_fast_heuristics: false,
+            c_cost_model: false,
+        },
+    );
+
+    let FseTableMode::Encoded(table) = ll_mode else {
+        panic!("forced encoded table");
+    };
+    let code_0 = encode_literal_length(0).0;
+    let code_64 = encode_literal_length(64).0;
+    let unadjusted_table = build_table_from_data(
+        sequences
+            .iter()
+            .map(|sequence| encode_literal_length(sequence.ll).0),
+        9,
+        true,
+    );
+
+    assert_eq!(
+        table.normalized_probability(code_0),
+        table.normalized_probability(code_64)
+    );
+    assert_ne!(
+        unadjusted_table.normalized_probability(code_0),
+        unadjusted_table.normalized_probability(code_64)
+    );
+}
+
 fn c_cost_config<'a>(
     ll_default: &'a crate::fse::fse_encoder::FSETable,
     ll_previous: Option<&'a crate::fse::fse_encoder::FSETable>,

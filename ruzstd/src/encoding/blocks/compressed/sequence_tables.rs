@@ -3,7 +3,7 @@ use alloc::{vec, vec::Vec};
 use crate::{
     bit_io::BitWriter,
     fse::fse_encoder::{
-        build_table_from_data, build_table_from_probabilities, ncount_cost_from_probabilities,
+        build_table_from_probabilities, ncount_cost_from_probabilities,
         normalized_probabilities_from_counts, FSETable,
     },
 };
@@ -160,11 +160,7 @@ fn choose_table_with_policy<'a>(
         }
     }
 
-    FseTableMode::Encoded(build_table_from_data(
-        sequences.iter().map(code),
-        max_log,
-        true,
-    ))
+    FseTableMode::Encoded(build_sequence_table(sequences, code, max_log))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -211,11 +207,7 @@ fn choose_c_fast_table<'a>(
         }
     }
 
-    FseTableMode::Encoded(build_table_from_data(
-        sequences.iter().map(code),
-        max_log,
-        true,
-    ))
+    FseTableMode::Encoded(build_sequence_table(sequences, code, max_log))
 }
 
 fn choose_c_cost_table<'a>(
@@ -260,10 +252,52 @@ fn choose_c_cost_table<'a>(
         }
     }
 
-    FseTableMode::Encoded(build_table_from_probabilities(
-        &encoded_probs,
-        encoded_acc_log,
-    ))
+    let last_code = code(&sequences[sequences.len() - 1]);
+    let encoded_table = if counts.counts()[usize::from(last_code)] > 1 {
+        build_sequence_table_from_counts(&counts, last_code, max_log)
+    } else {
+        build_table_from_probabilities(&encoded_probs, encoded_acc_log)
+    };
+    FseTableMode::Encoded(encoded_table)
+}
+
+fn build_sequence_table(
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    code: impl Fn(&crate::blocks::sequence_section::Sequence) -> u8 + Copy,
+    max_log: u8,
+) -> FSETable {
+    let mut counts = [0usize; 256];
+    for sequence in sequences {
+        counts[usize::from(code(sequence))] += 1;
+    }
+
+    let last_code = usize::from(code(&sequences[sequences.len() - 1]));
+    build_sequence_table_from_raw_counts(&mut counts, last_code, max_log)
+}
+
+fn build_sequence_table_from_counts(counts: &CodeCounts, last_code: u8, max_log: u8) -> FSETable {
+    let mut counts = *counts.counts();
+    build_sequence_table_from_raw_counts(&mut counts, usize::from(last_code), max_log)
+}
+
+fn build_sequence_table_from_raw_counts(
+    counts: &mut [usize; 256],
+    last_code: usize,
+    max_log: u8,
+) -> FSETable {
+    // The final sequence initializes the FSE state. C zstd removes one
+    // duplicated final code before normalizing compressed sequence tables.
+    if counts[last_code] > 1 {
+        counts[last_code] -= 1;
+    }
+
+    let max_symbol = counts
+        .iter()
+        .rposition(|count| *count != 0)
+        .unwrap_or(last_code);
+    let (probs, acc_log) =
+        normalized_probabilities_from_counts(&counts[..=max_symbol], max_log, true);
+    build_table_from_probabilities(&probs, acc_log)
 }
 
 fn most_frequent_code_count(
@@ -331,10 +365,10 @@ fn candidate_table_modes<'a>(
             config.max_log
         };
         for candidate_max_log in exact_min_log..=config.max_log {
-            candidates.push(FseTableMode::Encoded(build_table_from_data(
-                sequences.iter().map(code),
+            candidates.push(FseTableMode::Encoded(build_sequence_table(
+                sequences,
+                code,
                 candidate_max_log,
-                true,
             )));
         }
     }
