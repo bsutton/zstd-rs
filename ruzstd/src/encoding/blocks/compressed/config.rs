@@ -11,6 +11,7 @@ pub(super) const FILE_TYPE_SINGLE_STREAM_HUFFMAN_MAX_LITERALS: usize = 1024;
 #[derive(Clone, Copy)]
 pub(crate) struct BlockCompressionConfig {
     pub(super) huffman_table_search: HuffmanTableSearch,
+    pub(super) literal_compression_min_size: usize,
     pub(super) repeat_table_max_sequences: usize,
     pub(super) offset_table_max_log: u8,
     pub(super) offset_predefined_max_sequences: usize,
@@ -108,12 +109,12 @@ impl BlockCompressionTuningOverrides {
 
 impl BlockCompressionConfig {
     pub(crate) fn for_c_strategy(strategy: u8) -> Self {
+        let literal_compression_min_size = c_min_literals_to_compress(strategy);
         let fastish = strategy < 4;
         if !fastish {
-            // C uses a cost model for lazy and stronger strategies. Keep the
-            // existing bounded search until that model is ported.
             return Self {
                 huffman_table_search: HuffmanTableSearch::FileTypeSmall,
+                literal_compression_min_size,
                 repeat_table_max_sequences: 64,
                 offset_table_max_log: 8,
                 offset_predefined_max_sequences: 16,
@@ -131,6 +132,7 @@ impl BlockCompressionConfig {
 
         Self {
             huffman_table_search: HuffmanTableSearch::FileTypeSmall,
+            literal_compression_min_size,
             repeat_table_max_sequences: 1000,
             offset_table_max_log: 8,
             offset_predefined_max_sequences,
@@ -189,6 +191,7 @@ impl BlockCompressionConfig {
         };
         let mut config = Self {
             huffman_table_search,
+            literal_compression_min_size: super::literals::COMPRESS_LITERALS_SIZE_MIN,
             repeat_table_max_sequences,
             offset_table_max_log: if matches!(file_type, CompressionFileType::DictionaryText)
                 || (matches!(file_type, CompressionFileType::Unknown)
@@ -275,4 +278,9 @@ impl BlockCompressionConfig {
         self.offset_table_max_log = 7;
         self.offset_predefined_max_sequences = 64;
     }
+}
+
+fn c_min_literals_to_compress(strategy: u8) -> usize {
+    let shift = usize::from(9u8.saturating_sub(strategy)).min(3);
+    8usize << shift
 }

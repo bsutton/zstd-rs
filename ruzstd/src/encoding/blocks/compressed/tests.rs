@@ -275,14 +275,32 @@ fn choose_table_uses_rle_for_repeated_codes() {
 
 #[test]
 fn previous_huffman_table_lowers_literal_compression_threshold() {
-    assert!(!should_compress_literals(COMPRESS_LITERALS_SIZE_MIN, false));
     assert!(should_compress_literals(
-        COMPRESS_LITERALS_SIZE_MIN + 1,
-        false
+        COMPRESS_LITERALS_SIZE_MIN,
+        false,
+        COMPRESS_LITERALS_SIZE_MIN
+    ));
+    assert!(!should_compress_literals(
+        COMPRESS_LITERALS_SIZE_MIN - 1,
+        false,
+        COMPRESS_LITERALS_SIZE_MIN
     ));
 
-    assert!(!should_compress_literals(REPEAT_LITERALS_SIZE_MIN, true));
-    assert!(should_compress_literals(REPEAT_LITERALS_SIZE_MIN + 1, true));
+    assert!(should_compress_literals(
+        REPEAT_LITERALS_SIZE_MIN + 1,
+        true,
+        COMPRESS_LITERALS_SIZE_MIN
+    ));
+    assert!(should_compress_literals(
+        REPEAT_LITERALS_SIZE_MIN,
+        true,
+        COMPRESS_LITERALS_SIZE_MIN
+    ));
+    assert!(!should_compress_literals(
+        REPEAT_LITERALS_SIZE_MIN - 1,
+        true,
+        COMPRESS_LITERALS_SIZE_MIN
+    ));
 }
 
 #[test]
@@ -954,6 +972,30 @@ fn fastest_config_text_enables_small_single_stream_huffman_override() {
         )
         .file_type_single_stream_huffman_max_literals,
         None
+    );
+}
+
+#[test]
+fn c_strategy_literal_thresholds_match_zstd_min_literals_to_compress() {
+    assert_eq!(
+        BlockCompressionConfig::for_c_strategy(1).literal_compression_min_size,
+        64
+    );
+    assert_eq!(
+        BlockCompressionConfig::for_c_strategy(5).literal_compression_min_size,
+        64
+    );
+    assert_eq!(
+        BlockCompressionConfig::for_c_strategy(7).literal_compression_min_size,
+        32
+    );
+    assert_eq!(
+        BlockCompressionConfig::for_c_strategy(8).literal_compression_min_size,
+        16
+    );
+    assert_eq!(
+        BlockCompressionConfig::for_c_strategy(9).literal_compression_min_size,
+        8
     );
 }
 

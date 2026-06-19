@@ -2,19 +2,23 @@ use alloc::vec::Vec;
 
 use crate::{bit_io::BitWriter, huff0::huff0_encoder};
 
-pub(super) const COMPRESS_LITERALS_SIZE_MIN: usize = 63;
+pub(super) const COMPRESS_LITERALS_SIZE_MIN: usize = 64;
 pub(super) const REPEAT_LITERALS_SIZE_MIN: usize = 6;
 pub(super) const HUFFMAN_4_STREAMS_MIN: usize = 256;
 pub(super) const REPEAT_SINGLE_STREAM_LITERALS_MAX: usize = 1024;
 pub(super) const FAST_LITERAL_MIN_GAIN_LOG: u32 = 6;
 
-pub(super) fn should_compress_literals(len: usize, has_previous_table: bool) -> bool {
+pub(super) fn should_compress_literals(
+    len: usize,
+    has_previous_table: bool,
+    compression_min_size: usize,
+) -> bool {
     let min_size = if has_previous_table {
         REPEAT_LITERALS_SIZE_MIN
     } else {
-        COMPRESS_LITERALS_SIZE_MIN
+        compression_min_size
     };
-    len > min_size
+    len >= min_size
 }
 
 pub(super) fn raw_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>) {
