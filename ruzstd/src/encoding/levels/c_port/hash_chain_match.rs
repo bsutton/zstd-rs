@@ -99,8 +99,11 @@ pub(super) fn hash3_ptr(src: &[u8], pos: usize, h_bits: u32) -> usize {
 }
 
 pub(super) fn equal_min_match(src: &[u8], left: usize, right: usize, min_match: u32) -> bool {
-    let len = min_match as usize;
-    src[left..left + len] == src[right..right + len]
+    debug_assert!(matches!(min_match, 3 | 4));
+    if min_match == 3 {
+        return (read32(src, left) << 8) == (read32(src, right) << 8);
+    }
+    read32(src, left) == read32(src, right)
 }
 
 pub(super) fn read32(src: &[u8], pos: usize) -> u32 {
@@ -133,4 +136,17 @@ fn hash6(value: u64, h_bits: u32) -> usize {
 
 fn read64(src: &[u8], pos: usize) -> u64 {
     u64::from_le_bytes(src[pos..pos + 8].try_into().expect("read64 in bounds"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::equal_min_match;
+
+    #[test]
+    fn min_match_three_ignores_fourth_byte_like_c() {
+        let data = b"abcXabcY";
+
+        assert!(equal_min_match(data, 0, 4, 3));
+        assert!(!equal_min_match(data, 0, 4, 4));
+    }
 }
