@@ -24,9 +24,9 @@ pub fn find_min_size(val: u64) -> usize {
 /// Returned vector will be 1, 2, 4, or 8 bytes in length. Zero is represented as 1 byte.
 ///
 /// Operates in **little-endian**.
-pub fn minify_val(val: u64) -> Vec<u8> {
+pub fn minify_val(val: u64) -> impl Iterator<Item = u8> {
     let new_size = find_min_size(val);
-    val.to_le_bytes()[0..new_size].to_vec()
+    IntoIterator::into_iter(val.to_le_bytes()).take(new_size)
 }
 
 pub(crate) fn likely_incompressible(data: &[u8]) -> bool {
@@ -259,12 +259,15 @@ mod tests {
 
     #[test]
     fn bytes_minified() {
-        assert_eq!(minify_val(0), vec![0]);
-        assert_eq!(minify_val(0xff), vec![0xff]);
-        assert_eq!(minify_val(0xff_ff), vec![0xff, 0xff]);
-        assert_eq!(minify_val(0xff_ff_ff_ff), vec![0xff, 0xff, 0xff, 0xff]);
+        assert_eq!(minify_val(0).collect::<Vec<_>>(), vec![0]);
+        assert_eq!(minify_val(0xff).collect::<Vec<_>>(), vec![0xff]);
+        assert_eq!(minify_val(0xff_ff).collect::<Vec<_>>(), vec![0xff, 0xff]);
         assert_eq!(
-            minify_val(0xffff_ffff_ffff_ffff),
+            minify_val(0xff_ff_ff_ff).collect::<Vec<_>>(),
+            vec![0xff, 0xff, 0xff, 0xff]
+        );
+        assert_eq!(
+            minify_val(0xffff_ffff_ffff_ffff).collect::<Vec<_>>(),
             vec![0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]
         );
     }
