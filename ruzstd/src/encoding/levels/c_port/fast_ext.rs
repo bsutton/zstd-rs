@@ -4,7 +4,9 @@ use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::{
-    fast::{FastBlockOutput, FastMatchState},
+    fast::{
+        compress_block_fast_no_dict_with_state_and_loaded_dict, FastBlockOutput, FastMatchState,
+    },
     fast_helpers::{hash_small_ptr, lowest_prefix_index_with_loaded_dict, read32},
     params::CompressionParameters,
     sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence},
@@ -104,6 +106,16 @@ fn compress_block_fast_ext_dict_with_state_mls<const MIN_MATCH: u32>(
     let dict_start_index =
         lowest_prefix_index_with_loaded_dict(block_end, params.window_log, loaded_dict_end);
     let prefix_start_index = dict_limit.max(dict_start_index);
+    if prefix_start_index == dict_start_index {
+        return compress_block_fast_no_dict_with_state_and_loaded_dict(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+            0,
+        );
+    }
     let ilimit = block_end - HASH_READ_SIZE;
 
     let hash_table = state.table_for(hlog);

@@ -4,7 +4,10 @@ use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::{
-    dfast::{DFastBlockOutput, DFastMatchState},
+    dfast::{
+        compress_block_double_fast_no_dict_with_state_and_loaded_dict, DFastBlockOutput,
+        DFastMatchState,
+    },
     dfast_helpers::{
         count_match, hash8_ptr, hash_small_ptr, lowest_prefix_index_with_loaded_dict, read32,
         read64, store_match, HASH_READ_SIZE,
@@ -106,6 +109,16 @@ fn compress_block_double_fast_ext_dict_with_state_mls<const MIN_MATCH: u32>(
     let dict_start_index =
         lowest_prefix_index_with_loaded_dict(block_end, params.window_log, loaded_dict_end);
     let prefix_start_index = dict_limit.max(dict_start_index);
+    if prefix_start_index == dict_start_index {
+        return compress_block_double_fast_no_dict_with_state_and_loaded_dict(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+            0,
+        );
+    }
     let ilimit = block_end - HASH_READ_SIZE;
 
     let mut anchor = block_start;
