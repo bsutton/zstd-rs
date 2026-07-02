@@ -7,9 +7,10 @@ use super::block_policy::{
     compressed_block_is_worthwhile, should_skip_sequence_build, BlockEncodingPolicy,
 };
 use super::greedy::{
-    compress_block_btlazy2_no_dict_with_state, compress_block_greedy_no_dict_with_state,
-    compress_block_lazy2_no_dict_with_state, compress_block_lazy_no_dict_with_state,
-    GreedyBlockOutput, GreedyMatchState,
+    compress_block_btlazy2_no_dict_with_state_and_loaded_dict,
+    compress_block_greedy_no_dict_with_state_and_loaded_dict,
+    compress_block_lazy2_no_dict_with_state_and_loaded_dict,
+    compress_block_lazy_no_dict_with_state_and_loaded_dict, GreedyBlockOutput, GreedyMatchState,
 };
 use super::params::CompressionParameters;
 use super::sequence_store::RepeatOffsets;
@@ -45,6 +46,7 @@ pub(crate) struct GreedyBlockEncodeContext<'a, 'table> {
 pub(crate) struct GreedyBlockSource<'a> {
     pub(crate) src: &'a [u8],
     pub(crate) block_range: Range<usize>,
+    pub(crate) loaded_dict_end: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -77,6 +79,7 @@ fn prepare_block_hash_chain_no_dict(
         repeat_offsets,
         &mut state,
         depth,
+        0,
     );
     let prepared = prepare_from_greedy_output(src, repeat_offsets, &output);
 
@@ -100,6 +103,7 @@ pub(crate) fn prepare_block_greedy_no_dict_with_state(
         repeat_offsets,
         state,
         LazyBlockStrategy::Greedy,
+        0,
     )
 }
 
@@ -110,10 +114,18 @@ fn prepare_block_hash_chain_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
     depth: LazyBlockStrategy,
+    loaded_dict_end: usize,
 ) -> GreedyPreparedBlock {
     let block = &src[block_range.clone()];
-    let output =
-        compress_block_for_depth_with_state(src, block_range, params, repeat_offsets, state, depth);
+    let output = compress_block_for_depth_with_state(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        depth,
+        loaded_dict_end,
+    );
     let prepared = prepare_from_greedy_output(block, repeat_offsets, &output);
 
     GreedyPreparedBlock {
@@ -129,27 +141,40 @@ fn compress_block_for_depth_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
     depth: LazyBlockStrategy,
+    loaded_dict_end: usize,
 ) -> GreedyBlockOutput {
     match depth {
-        LazyBlockStrategy::Greedy => compress_block_greedy_no_dict_with_state(
+        LazyBlockStrategy::Greedy => compress_block_greedy_no_dict_with_state_and_loaded_dict(
             src,
             block_range,
             params,
             repeat_offsets,
             state,
+            loaded_dict_end,
         ),
-        LazyBlockStrategy::Lazy => {
-            compress_block_lazy_no_dict_with_state(src, block_range, params, repeat_offsets, state)
-        }
-        LazyBlockStrategy::Lazy2 => {
-            compress_block_lazy2_no_dict_with_state(src, block_range, params, repeat_offsets, state)
-        }
-        LazyBlockStrategy::BtLazy2 => compress_block_btlazy2_no_dict_with_state(
+        LazyBlockStrategy::Lazy => compress_block_lazy_no_dict_with_state_and_loaded_dict(
             src,
             block_range,
             params,
             repeat_offsets,
             state,
+            loaded_dict_end,
+        ),
+        LazyBlockStrategy::Lazy2 => compress_block_lazy2_no_dict_with_state_and_loaded_dict(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+            loaded_dict_end,
+        ),
+        LazyBlockStrategy::BtLazy2 => compress_block_btlazy2_no_dict_with_state_and_loaded_dict(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+            loaded_dict_end,
         ),
     }
 }
@@ -282,11 +307,12 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy(
     let previous_offsets = *context.offset_history;
     let prepared = prepare_block_hash_chain_no_dict_with_state(
         source.src,
-        source.block_range,
+        source.block_range.clone(),
         params,
         repeat_offsets,
         match_state,
         depth,
+        source.loaded_dict_end,
     );
     encode_prepared_block(
         block,

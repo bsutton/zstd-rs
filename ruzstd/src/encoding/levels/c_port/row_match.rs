@@ -1,7 +1,10 @@
 //! Scalar row-based match finder ported from the no-dictionary row path in
 //! `zstd_lazy.c`.
 
-use super::{greedy::GreedyMatchState, params::CompressionParameters, sequence_store::OffBase};
+use super::{
+    greedy::GreedyMatchState, hash_chain_match::MatchSearchConfig, params::CompressionParameters,
+    sequence_store::OffBase,
+};
 
 const TAG_BITS: u32 = 8;
 const TAG_MASK: u32 = (1 << TAG_BITS) - 1;
@@ -16,14 +19,14 @@ pub(super) fn row_find_best_match(
     ip: usize,
     block_end: usize,
     off_base: &mut u32,
-    params: CompressionParameters,
-    min_match: u32,
     state: &mut GreedyMatchState,
+    config: MatchSearchConfig,
 ) -> usize {
+    let params = config.params;
     match row_log(params) {
-        4 => row_find_best_match_impl::<4>(src, ip, block_end, off_base, params, min_match, state),
-        5 => row_find_best_match_impl::<5>(src, ip, block_end, off_base, params, min_match, state),
-        6 => row_find_best_match_impl::<6>(src, ip, block_end, off_base, params, min_match, state),
+        4 => row_find_best_match_impl::<4>(src, ip, block_end, off_base, state, config),
+        5 => row_find_best_match_impl::<5>(src, ip, block_end, off_base, state, config),
+        6 => row_find_best_match_impl::<6>(src, ip, block_end, off_base, state, config),
         _ => unreachable!("row_log is clamped to 4..=6"),
     }
 }
@@ -33,17 +36,17 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
     ip: usize,
     block_end: usize,
     off_base: &mut u32,
-    params: CompressionParameters,
-    min_match: u32,
     state: &mut GreedyMatchState,
+    config: MatchSearchConfig,
 ) -> usize {
+    let params = config.params;
+    let min_match = config.min_match;
     let row_entries = 1usize << ROW_LOG;
     let row_mask = row_entries - 1;
     let row_hash_log = params.hash_log - ROW_LOG;
     let max_attempts = 1usize << params.search_log.min(ROW_LOG);
     let curr = ip;
-    let max_distance = 1usize << params.window_log;
-    let low_limit = curr.saturating_sub(max_distance);
+    let low_limit = config.lowest_prefix_index(curr);
 
     let hash = if state.lazy_skipping {
         state.next_to_update = curr;
@@ -422,6 +425,7 @@ fn read64(src: &[u8], pos: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use super::super::hash_chain_match::MatchSearchConfig;
     use super::*;
     use crate::encoding::levels::c_port::params::Strategy;
     use alloc::vec;
@@ -483,8 +487,14 @@ mod tests {
             &mut state,
         );
 
-        let match_len =
-            row_find_best_match(data, 8, data.len(), &mut off_base, params, 4, &mut state);
+        let match_len = row_find_best_match(
+            data,
+            8,
+            data.len(),
+            &mut off_base,
+            &mut state,
+            MatchSearchConfig::new(params, 4, 0),
+        );
 
         assert!(match_len >= 8);
         assert_eq!(off_base, 11);
@@ -523,8 +533,14 @@ mod tests {
             &mut state,
         );
 
-        let match_len =
-            row_find_best_match(&data, 500, data.len(), &mut off_base, params, 4, &mut state);
+        let match_len = row_find_best_match(
+            &data,
+            500,
+            data.len(),
+            &mut off_base,
+            &mut state,
+            MatchSearchConfig::new(params, 4, 0),
+        );
 
         assert_eq!(match_len, 3);
         assert_eq!(off_base, 0);

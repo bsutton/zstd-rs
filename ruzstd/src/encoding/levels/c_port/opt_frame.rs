@@ -121,6 +121,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
             GreedyBlockSource {
                 src,
                 block_range: 0..0,
+                loaded_dict_end: 0,
             },
             true,
             params,
@@ -158,6 +159,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
             GreedyBlockSource {
                 src,
                 block_range: block_start..block_end,
+                loaded_dict_end: 0,
             },
             block_end == src.len(),
             params,
@@ -229,6 +231,7 @@ fn encode_frame_opt_with_dictionary(
             GreedyBlockSource {
                 src,
                 block_range: 0..0,
+                loaded_dict_end: context.dict_len,
             },
             true,
             params,
@@ -275,6 +278,7 @@ fn encode_frame_opt_with_dictionary(
             GreedyBlockSource {
                 src: &context.combined,
                 block_range: block_start..block_end,
+                loaded_dict_end: context.dict_len,
             },
             block_end == src_end,
             params,

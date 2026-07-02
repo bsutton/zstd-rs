@@ -2,7 +2,7 @@
 
 use super::{
     greedy::GreedyMatchState,
-    hash_chain_match::{count_match, hash_ptr, highbit32, lowest_prefix_index},
+    hash_chain_match::{count_match, hash_ptr, highbit32, MatchSearchConfig},
     params::CompressionParameters,
     sequence_store::OffBase,
 };
@@ -14,16 +14,15 @@ pub(super) fn bt_find_best_match(
     ip: usize,
     block_end: usize,
     off_base: &mut u32,
-    params: CompressionParameters,
-    min_match: u32,
     state: &mut GreedyMatchState,
+    config: MatchSearchConfig,
 ) -> usize {
     if ip < state.next_to_update {
         return 0;
     }
 
-    update_dubt(src, ip, params, min_match, state);
-    dubt_find_best_match(src, ip, block_end, off_base, params, min_match, state)
+    update_dubt(src, ip, config.params, config.min_match, state);
+    dubt_find_best_match(src, ip, block_end, off_base, state, config)
 }
 
 fn update_dubt(
@@ -55,14 +54,14 @@ fn dubt_find_best_match(
     ip: usize,
     block_end: usize,
     off_base: &mut u32,
-    params: CompressionParameters,
-    min_match: u32,
     state: &mut GreedyMatchState,
+    config: MatchSearchConfig,
 ) -> usize {
-    let hash = hash_ptr(src, ip, params.hash_log, min_match);
+    let params = config.params;
+    let hash = hash_ptr(src, ip, params.hash_log, config.min_match);
     let mut match_index = state.hash_table[hash] as usize;
     let curr = ip;
-    let window_low = lowest_prefix_index(curr, params.window_log);
+    let window_low = config.lowest_prefix_index(curr);
     let mask = bt_mask(params);
     let bt_low = curr.saturating_sub(mask);
     let unsort_limit = bt_low.max(window_low);
@@ -94,8 +93,8 @@ fn dubt_find_best_match(
             block_end,
             nb_candidates,
             unsort_limit,
-            params,
             state,
+            config,
         );
         match_index = next_index;
         nb_candidates += 1;
@@ -170,11 +169,12 @@ fn insert_dubt1(
     block_end: usize,
     mut nb_compares: usize,
     bt_low: usize,
-    params: CompressionParameters,
     state: &mut GreedyMatchState,
+    config: MatchSearchConfig,
 ) {
+    let params = config.params;
     let mask = bt_mask(params);
-    let window_low = lowest_prefix_index(curr, params.window_log);
+    let window_low = config.lowest_prefix_index(curr);
     let mut common_smaller = 0_usize;
     let mut common_larger = 0_usize;
     let curr_slot = tree_slot(curr, mask);

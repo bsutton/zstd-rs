@@ -1,9 +1,12 @@
 use alloc::vec::Vec;
 
 use super::greedy::{
-    compress_block_btlazy2_no_dict_with_state, compress_block_greedy_no_dict,
-    compress_block_greedy_no_dict_with_state, compress_block_lazy2_no_dict_with_state,
-    compress_block_lazy_no_dict_with_state, GreedyBlockOutput, GreedyMatchState,
+    compress_block_btlazy2_no_dict_with_state,
+    compress_block_btlazy2_no_dict_with_state_and_loaded_dict, compress_block_greedy_no_dict,
+    compress_block_greedy_no_dict_with_state,
+    compress_block_greedy_no_dict_with_state_and_loaded_dict,
+    compress_block_lazy2_no_dict_with_state, compress_block_lazy_no_dict_with_state,
+    GreedyBlockOutput, GreedyMatchState,
 };
 use super::greedy_block::{
     encode_block_hash_chain_no_dict, prepare_block_greedy_no_dict, GreedyBlockEncodeContext,
@@ -247,6 +250,88 @@ fn greedy_no_dict_state_finds_previous_block_prefix_match() {
 }
 
 #[test]
+fn greedy_loaded_dictionary_keeps_full_dictionary_valid_like_c() {
+    let marker = b"early-greedy-dictionary-marker-0123456789abcdef";
+    let mut dictionary = deterministic_bytes(2048);
+    dictionary[30..30 + marker.len()].copy_from_slice(marker);
+    let source = [marker.as_slice(), b"-payload-tail".as_slice()].concat();
+    let mut combined = dictionary.clone();
+    combined.extend_from_slice(&source);
+    let params = loaded_dictionary_params(Strategy::Greedy);
+    let block_range = dictionary.len()..combined.len();
+
+    let mut no_loaded_state = GreedyMatchState::new();
+    super::greedy_dict::load_prefix(&mut no_loaded_state, &combined, dictionary.len(), params);
+    let no_loaded = compress_block_greedy_no_dict_with_state(
+        &combined,
+        block_range.clone(),
+        params,
+        RepeatOffsets::new(),
+        &mut no_loaded_state,
+    );
+
+    let mut loaded_state = GreedyMatchState::new();
+    super::greedy_dict::load_prefix(&mut loaded_state, &combined, dictionary.len(), params);
+    let loaded = compress_block_greedy_no_dict_with_state_and_loaded_dict(
+        &combined,
+        block_range,
+        params,
+        RepeatOffsets::new(),
+        &mut loaded_state,
+        dictionary.len(),
+    );
+
+    assert!(!has_loaded_dictionary_match(&no_loaded, params));
+    assert_loaded_dictionary_match(&loaded, params);
+}
+
+#[test]
+fn btlazy2_loaded_dictionary_keeps_full_dictionary_valid_like_c() {
+    let marker = b"early-binary-tree-dictionary-marker-0123456789abcdef";
+    let mut dictionary = deterministic_bytes(2048);
+    dictionary[30..30 + marker.len()].copy_from_slice(marker);
+    let source = [marker.as_slice(), b"-payload-tail".as_slice()].concat();
+    let mut combined = dictionary.clone();
+    combined.extend_from_slice(&source);
+    let params = loaded_dictionary_params(Strategy::BtLazy2);
+    let block_range = dictionary.len()..combined.len();
+
+    let mut no_loaded_state = GreedyMatchState::new();
+    super::greedy_dict::load_binary_tree_prefix(
+        &mut no_loaded_state,
+        &combined,
+        dictionary.len(),
+        params,
+    );
+    let no_loaded = compress_block_btlazy2_no_dict_with_state(
+        &combined,
+        block_range.clone(),
+        params,
+        RepeatOffsets::new(),
+        &mut no_loaded_state,
+    );
+
+    let mut loaded_state = GreedyMatchState::new();
+    super::greedy_dict::load_binary_tree_prefix(
+        &mut loaded_state,
+        &combined,
+        dictionary.len(),
+        params,
+    );
+    let loaded = compress_block_btlazy2_no_dict_with_state_and_loaded_dict(
+        &combined,
+        block_range,
+        params,
+        RepeatOffsets::new(),
+        &mut loaded_state,
+        dictionary.len(),
+    );
+
+    assert!(!has_loaded_dictionary_match(&no_loaded, params));
+    assert_loaded_dictionary_match(&loaded, params);
+}
+
+#[test]
 fn greedy_no_dict_prepared_block_resolves_sequences() {
     let data = b"abcde12345abcde12345-tail";
 
@@ -415,6 +500,31 @@ fn btlazy2_output(data: &[u8]) -> GreedyBlockOutput {
         RepeatOffsets::new(),
         &mut state,
     )
+}
+
+fn loaded_dictionary_params(strategy: Strategy) -> CompressionParameters {
+    CompressionParameters {
+        window_log: 10,
+        chain_log: 13,
+        hash_log: 12,
+        search_log: 4,
+        min_match: 4,
+        target_length: 0,
+        strategy,
+    }
+}
+
+fn assert_loaded_dictionary_match(output: &GreedyBlockOutput, params: CompressionParameters) {
+    assert!(has_loaded_dictionary_match(output, params));
+}
+
+fn has_loaded_dictionary_match(output: &GreedyBlockOutput, params: CompressionParameters) -> bool {
+    output.sequences.iter().any(|sequence| {
+        matches!(
+            sequence.off_base,
+            OffBase::Offset(offset) if offset as usize > (1_usize << params.window_log)
+        )
+    })
 }
 
 fn deterministic_bytes(len: usize) -> Vec<u8> {

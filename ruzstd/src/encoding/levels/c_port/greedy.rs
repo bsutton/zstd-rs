@@ -6,7 +6,8 @@ use core::ops::Range;
 use super::bt_match::bt_find_best_match;
 pub(crate) use super::greedy_state::GreedyMatchState;
 use super::hash_chain_match::{
-    count_match, hc_find_best_match, highbit32, lowest_prefix_index, read32,
+    count_match, hc_find_best_match, highbit32, lowest_prefix_index_with_loaded_dict, read32,
+    MatchSearchConfig,
 };
 use super::params::CompressionParameters;
 use super::row_match::{fill_hash_cache, row_find_best_match, row_match_finder_enabled};
@@ -24,13 +25,6 @@ pub(crate) struct GreedyBlockOutput {
     pub(crate) repeat_offsets: RepeatOffsets,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum LazySearch {
-    HashChain,
-    BinaryTree,
-    RowHash,
-}
-
 const SEARCH_HASH_CHAIN: u8 = 0;
 const SEARCH_BINARY_TREE: u8 = 1;
 const SEARCH_ROW_HASH: u8 = 2;
@@ -38,8 +32,7 @@ const SEARCH_ROW_HASH: u8 = 2;
 struct LazySearchContext<'a> {
     src: &'a [u8],
     block_end: usize,
-    params: CompressionParameters,
-    min_match: u32,
+    config: MatchSearchConfig,
 }
 
 pub(crate) fn compress_block_greedy_no_dict(
@@ -58,29 +51,33 @@ pub(crate) fn compress_block_greedy_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
 ) -> GreedyBlockOutput {
-    let search = if row_match_finder_enabled(params) {
-        LazySearch::RowHash
-    } else {
-        LazySearch::HashChain
-    };
-    match search {
-        LazySearch::RowHash => compress_block_lazy_generic_no_dict_with_state::<SEARCH_ROW_HASH>(
-            src,
-            block_range,
-            params,
-            repeat_offsets,
-            state,
-            0,
-        ),
-        _ => compress_block_lazy_generic_no_dict_with_state::<SEARCH_HASH_CHAIN>(
-            src,
-            block_range,
-            params,
-            repeat_offsets,
-            state,
-            0,
-        ),
-    }
+    compress_block_greedy_no_dict_with_state_and_loaded_dict(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        0,
+    )
+}
+
+pub(crate) fn compress_block_greedy_no_dict_with_state_and_loaded_dict(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut GreedyMatchState,
+    loaded_dict_end: usize,
+) -> GreedyBlockOutput {
+    compress_block_hash_or_row_no_dict_with_state(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        0,
+        loaded_dict_end,
+    )
 }
 
 pub(crate) fn compress_block_lazy_no_dict_with_state(
@@ -90,29 +87,33 @@ pub(crate) fn compress_block_lazy_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
 ) -> GreedyBlockOutput {
-    let search = if row_match_finder_enabled(params) {
-        LazySearch::RowHash
-    } else {
-        LazySearch::HashChain
-    };
-    match search {
-        LazySearch::RowHash => compress_block_lazy_generic_no_dict_with_state::<SEARCH_ROW_HASH>(
-            src,
-            block_range,
-            params,
-            repeat_offsets,
-            state,
-            1,
-        ),
-        _ => compress_block_lazy_generic_no_dict_with_state::<SEARCH_HASH_CHAIN>(
-            src,
-            block_range,
-            params,
-            repeat_offsets,
-            state,
-            1,
-        ),
-    }
+    compress_block_lazy_no_dict_with_state_and_loaded_dict(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        0,
+    )
+}
+
+pub(crate) fn compress_block_lazy_no_dict_with_state_and_loaded_dict(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut GreedyMatchState,
+    loaded_dict_end: usize,
+) -> GreedyBlockOutput {
+    compress_block_hash_or_row_no_dict_with_state(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        1,
+        loaded_dict_end,
+    )
 }
 
 pub(crate) fn compress_block_lazy2_no_dict_with_state(
@@ -122,29 +123,33 @@ pub(crate) fn compress_block_lazy2_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
 ) -> GreedyBlockOutput {
-    let search = if row_match_finder_enabled(params) {
-        LazySearch::RowHash
-    } else {
-        LazySearch::HashChain
-    };
-    match search {
-        LazySearch::RowHash => compress_block_lazy_generic_no_dict_with_state::<SEARCH_ROW_HASH>(
-            src,
-            block_range,
-            params,
-            repeat_offsets,
-            state,
-            2,
-        ),
-        _ => compress_block_lazy_generic_no_dict_with_state::<SEARCH_HASH_CHAIN>(
-            src,
-            block_range,
-            params,
-            repeat_offsets,
-            state,
-            2,
-        ),
-    }
+    compress_block_lazy2_no_dict_with_state_and_loaded_dict(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        0,
+    )
+}
+
+pub(crate) fn compress_block_lazy2_no_dict_with_state_and_loaded_dict(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut GreedyMatchState,
+    loaded_dict_end: usize,
+) -> GreedyBlockOutput {
+    compress_block_hash_or_row_no_dict_with_state(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        2,
+        loaded_dict_end,
+    )
 }
 
 pub(crate) fn compress_block_btlazy2_no_dict_with_state(
@@ -154,6 +159,24 @@ pub(crate) fn compress_block_btlazy2_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
 ) -> GreedyBlockOutput {
+    compress_block_btlazy2_no_dict_with_state_and_loaded_dict(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        0,
+    )
+}
+
+pub(crate) fn compress_block_btlazy2_no_dict_with_state_and_loaded_dict(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut GreedyMatchState,
+    loaded_dict_end: usize,
+) -> GreedyBlockOutput {
     compress_block_lazy_generic_no_dict_with_state::<SEARCH_BINARY_TREE>(
         src,
         block_range,
@@ -161,6 +184,7 @@ pub(crate) fn compress_block_btlazy2_no_dict_with_state(
         repeat_offsets,
         state,
         2,
+        loaded_dict_end,
     )
 }
 
@@ -179,7 +203,40 @@ fn compress_block_hash_chain_no_dict_with_state(
         repeat_offsets,
         state,
         depth,
+        0,
     )
+}
+
+fn compress_block_hash_or_row_no_dict_with_state(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut GreedyMatchState,
+    depth: u32,
+    loaded_dict_end: usize,
+) -> GreedyBlockOutput {
+    if row_match_finder_enabled(params) {
+        compress_block_lazy_generic_no_dict_with_state::<SEARCH_ROW_HASH>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+            depth,
+            loaded_dict_end,
+        )
+    } else {
+        compress_block_lazy_generic_no_dict_with_state::<SEARCH_HASH_CHAIN>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+            depth,
+            loaded_dict_end,
+        )
+    }
 }
 
 fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
@@ -189,6 +246,7 @@ fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
     repeat_offsets: RepeatOffsets,
     state: &mut GreedyMatchState,
     depth: u32,
+    loaded_dict_end: usize,
 ) -> GreedyBlockOutput {
     debug_assert!(block_range.start <= block_range.end);
     debug_assert!(block_range.end <= src.len());
@@ -213,13 +271,14 @@ fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
     state.lazy_skipping = false;
 
     let min_match = params.min_match.clamp(4, 6);
-    let prefix_lowest = lowest_prefix_index(block_end, params.window_log);
+    let search_config = MatchSearchConfig::new(params, min_match, loaded_dict_end);
+    let prefix_lowest =
+        lowest_prefix_index_with_loaded_dict(block_end, params.window_log, loaded_dict_end);
     let ilimit = block_end - search_read_size;
     let search_context = LazySearchContext {
         src,
         block_end,
-        params,
-        min_match,
+        config: search_config,
     };
     let mut ip = block_start + usize::from(block_start == prefix_lowest);
     if SEARCH == SEARCH_ROW_HASH {
@@ -232,7 +291,7 @@ fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
     let mut offset_saved1 = 0_usize;
     let mut offset_saved2 = 0_usize;
 
-    let window_low = lowest_prefix_index(ip, params.window_log);
+    let window_low = lowest_prefix_index_with_loaded_dict(ip, params.window_log, loaded_dict_end);
     let max_rep = ip - window_low;
     if offset_2 > max_rep {
         offset_saved2 = offset_2;
@@ -430,27 +489,24 @@ fn search_max<const SEARCH: u8>(
             ip,
             context.block_end,
             off_base,
-            context.params,
-            context.min_match,
             state,
+            context.config,
         ),
         SEARCH_ROW_HASH => row_find_best_match(
             context.src,
             ip,
             context.block_end,
             off_base,
-            context.params,
-            context.min_match,
             state,
+            context.config,
         ),
         SEARCH_BINARY_TREE => bt_find_best_match(
             context.src,
             ip,
             context.block_end,
             off_base,
-            context.params,
-            context.min_match,
             state,
+            context.config,
         ),
         _ => unreachable!("unknown lazy search kind"),
     }

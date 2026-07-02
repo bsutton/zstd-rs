@@ -4,24 +4,48 @@ use core::convert::TryInto;
 
 use super::{greedy::GreedyMatchState, params::CompressionParameters, sequence_store::OffBase};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct MatchSearchConfig {
+    pub(super) params: CompressionParameters,
+    pub(super) min_match: u32,
+    pub(super) loaded_dict_end: usize,
+}
+
+impl MatchSearchConfig {
+    pub(super) fn new(
+        params: CompressionParameters,
+        min_match: u32,
+        loaded_dict_end: usize,
+    ) -> Self {
+        Self {
+            params,
+            min_match,
+            loaded_dict_end,
+        }
+    }
+
+    pub(super) fn lowest_prefix_index(self, pos: usize) -> usize {
+        lowest_prefix_index_with_loaded_dict(pos, self.params.window_log, self.loaded_dict_end)
+    }
+}
+
 pub(super) fn hc_find_best_match(
     src: &[u8],
     ip: usize,
     block_end: usize,
     off_base: &mut u32,
-    params: CompressionParameters,
-    min_match: u32,
     state: &mut GreedyMatchState,
+    config: MatchSearchConfig,
 ) -> usize {
+    let params = config.params;
     let chain_size = 1_usize << params.chain_log;
     let chain_mask = chain_size - 1;
     let curr = ip;
-    let max_distance = 1_usize << params.window_log;
-    let low_limit = curr.saturating_sub(max_distance);
+    let low_limit = config.lowest_prefix_index(curr);
     let min_chain = curr.saturating_sub(chain_size);
     let mut attempts = 1_usize << params.search_log;
     let mut ml = 3_usize;
-    let mut match_index = insert_and_find_first_index(src, ip, params, min_match, state);
+    let mut match_index = insert_and_find_first_index(src, ip, params, config.min_match, state);
 
     while match_index >= low_limit && attempts > 0 {
         attempts -= 1;
@@ -112,6 +136,19 @@ pub(super) fn read32(src: &[u8], pos: usize) -> u32 {
 
 pub(super) fn lowest_prefix_index(pos: usize, window_log: u32) -> usize {
     pos.saturating_sub(1_usize << window_log)
+}
+
+pub(super) fn lowest_prefix_index_with_loaded_dict(
+    pos: usize,
+    window_log: u32,
+    loaded_dict_end: usize,
+) -> usize {
+    let window_size = 1_usize << window_log;
+    if loaded_dict_end != 0 && pos <= loaded_dict_end.saturating_add(window_size) {
+        0
+    } else {
+        pos.saturating_sub(window_size)
+    }
 }
 
 pub(super) fn highbit32(value: u32) -> u32 {
