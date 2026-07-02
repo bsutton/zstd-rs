@@ -5,6 +5,7 @@ use super::{LdmEntry, LdmHashTable, LdmRollingHashState, LDM_BATCH_SIZE};
 use crate::encoding::levels::c_port::{cctx_params::LdmParameters, match_count::count_match};
 
 const HASH_READ_SIZE: usize = 8;
+const LDM_MAX_CHUNK_SIZE: usize = 1 << 20;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct LdmRawSequence {
@@ -95,6 +96,46 @@ fn generate_sequences_in_range(
     debug_assert!(dict_low_limit <= dict_limit);
     debug_assert!(dict_limit <= source_range.start);
 
+    let mut sequences = Vec::new();
+    let mut last_literals = 0;
+    let mut chunk_start = source_range.start;
+    while chunk_start < source_range.end {
+        let chunk_end = (chunk_start + LDM_MAX_CHUNK_SIZE).min(source_range.end);
+        let chunk_result = generate_sequences_in_chunk(
+            src,
+            chunk_start..chunk_end,
+            dict_low_limit,
+            dict_limit,
+            params,
+            table,
+        );
+
+        if chunk_result.sequences.is_empty() {
+            last_literals += chunk_result.last_literals;
+        } else {
+            let sequence_start = sequences.len();
+            sequences.extend(chunk_result.sequences);
+            sequences[sequence_start].lit_length += to_u32(last_literals);
+            last_literals = chunk_result.last_literals;
+        }
+
+        chunk_start = chunk_end;
+    }
+
+    LdmSequenceResult {
+        sequences,
+        last_literals,
+    }
+}
+
+fn generate_sequences_in_chunk(
+    src: &[u8],
+    source_range: Range<usize>,
+    dict_low_limit: usize,
+    dict_limit: usize,
+    params: LdmParameters,
+    table: &mut LdmHashTable,
+) -> LdmSequenceResult {
     let min_match_length = params.min_match_length as usize;
     let source_len = source_range.len();
     if source_len < min_match_length || source_len <= HASH_READ_SIZE {

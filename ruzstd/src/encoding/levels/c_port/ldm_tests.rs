@@ -284,6 +284,39 @@ fn ldm_source_prefix_match_does_not_extend_back_into_dictionary() {
 }
 
 #[test]
+fn ldm_chunking_prepends_previous_leftover_literals_like_c() {
+    let params = LdmParameters {
+        enable_ldm: ParamSwitch::Enable,
+        window_log: 22,
+        hash_log: 10,
+        min_match_length: 16,
+        bucket_size_log: 3,
+        hash_rate_log: 0,
+    };
+    let chunk_size = 1 << 20;
+    let mut data = Vec::with_capacity(chunk_size + 96);
+    let mut value = 0x1234_5678_u32;
+    for _ in 0..chunk_size {
+        value ^= value << 13;
+        value ^= value >> 17;
+        value ^= value << 5;
+        data.push(value as u8);
+    }
+    let repeat = data[chunk_size - 128..chunk_size - 32].to_vec();
+    data.extend_from_slice(&repeat);
+    let mut table = LdmHashTable::new(params);
+
+    let result = generate_sequences_no_dict(&data, params, &mut table);
+
+    assert!(!result.sequences.is_empty());
+    assert!(
+        result.sequences[0].lit_length >= chunk_size as u32,
+        "{:?}",
+        result.sequences.first()
+    );
+}
+
+#[test]
 fn ldm_raw_seq_store_skips_bytes_like_c_opt_ldm() {
     let sequences = [
         LdmRawSequence {
