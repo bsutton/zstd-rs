@@ -2,10 +2,10 @@ use super::{
     ldm::{opt::LdmOptCursor, sequence::LdmRawSequence},
     opt_block::{compress_block_btopt_no_dict, compress_block_btultra_no_dict},
     opt_match::OptMatch,
-    opt_parser::collect_matches,
-    opt_state::OptBlockState,
+    opt_parser::{collect_matches, compress_block_opt_no_dict_with_state_and_ldm},
+    opt_state::{OptBlockState, OptParserStrategy},
     params::{CompressionParameters, Strategy},
-    sequence_store::RepeatOffsets,
+    sequence_store::{OffBase, RepeatOffsets},
 };
 use alloc::vec::Vec;
 
@@ -166,6 +166,7 @@ fn opt_match_collection_appends_ldm_candidate_like_c() {
         &mut state,
         0,
         Some(&mut cursor),
+        0,
     );
 
     assert_eq!(count, 1);
@@ -178,10 +179,84 @@ fn opt_match_collection_appends_ldm_candidate_like_c() {
     );
 }
 
+#[test]
+fn btopt_loaded_dictionary_keeps_full_dictionary_valid_like_c() {
+    let marker = b"early-opt-dictionary-marker-0123456789abcdef";
+    let mut dictionary = deterministic_bytes(2048);
+    dictionary[30..30 + marker.len()].copy_from_slice(marker);
+    let source = [marker.as_slice(), b"-payload-tail".as_slice()].concat();
+    let mut combined = dictionary.clone();
+    combined.extend_from_slice(&source);
+    let params = loaded_dictionary_params();
+    let block_range = dictionary.len()..combined.len();
+
+    let mut no_loaded_state = OptBlockState::new();
+    super::opt_dict::load_prefix(&mut no_loaded_state, &combined, dictionary.len(), params);
+    let no_loaded = super::opt_block::compress_block_btopt_no_dict_with_state(
+        &combined,
+        block_range.clone(),
+        params,
+        RepeatOffsets::new(),
+        &mut no_loaded_state,
+    );
+
+    let mut loaded_state = OptBlockState::new();
+    super::opt_dict::load_prefix(&mut loaded_state, &combined, dictionary.len(), params);
+    let loaded = compress_block_opt_no_dict_with_state_and_ldm(
+        &combined,
+        block_range,
+        params,
+        RepeatOffsets::new(),
+        &mut loaded_state,
+        OptParserStrategy::BtOpt,
+        None,
+        dictionary.len(),
+    );
+
+    assert!(!has_loaded_dictionary_match(&no_loaded, params));
+    assert!(has_loaded_dictionary_match(&loaded, params));
+}
+
 fn btopt_params(src_size: usize) -> CompressionParameters {
     let params = CompressionParameters::for_level(11, src_size as u64, 0);
     assert_eq!(params.strategy, Strategy::BtOpt);
     params
+}
+
+fn loaded_dictionary_params() -> CompressionParameters {
+    CompressionParameters {
+        window_log: 10,
+        chain_log: 13,
+        hash_log: 12,
+        search_log: 4,
+        min_match: 4,
+        target_length: 16,
+        strategy: Strategy::BtOpt,
+    }
+}
+
+fn has_loaded_dictionary_match(
+    output: &super::greedy::GreedyBlockOutput,
+    params: CompressionParameters,
+) -> bool {
+    output.sequences.iter().any(|sequence| {
+        matches!(
+            sequence.off_base,
+            OffBase::Offset(offset) if offset as usize > (1_usize << params.window_log)
+        )
+    })
+}
+
+fn deterministic_bytes(len: usize) -> Vec<u8> {
+    let mut state = 0x50B7_0C4D_u32;
+    let mut bytes = Vec::with_capacity(len);
+    for _ in 0..len {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        bytes.push(state as u8);
+    }
+    bytes
 }
 
 fn btultra_params(src_size: usize) -> CompressionParameters {

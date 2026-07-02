@@ -4,7 +4,9 @@ use alloc::vec::Vec;
 
 use super::{
     greedy::GreedyMatchState,
-    hash_chain_match::{count_match, equal_min_match, hash3_ptr, hash_ptr, lowest_prefix_index},
+    hash_chain_match::{
+        count_match, equal_min_match, hash3_ptr, hash_ptr, lowest_prefix_index_with_loaded_dict,
+    },
     params::CompressionParameters,
     sequence_store::{OffBase, RepeatCode, RepeatOffsets},
 };
@@ -26,6 +28,7 @@ pub(super) struct BtMatchRequest<'a> {
     pub(super) ll0: bool,
     pub(super) length_to_beat: u32,
     pub(super) params: CompressionParameters,
+    pub(super) loaded_dict_end: usize,
 }
 
 pub(super) fn bt_get_all_matches_no_dict(
@@ -46,11 +49,12 @@ pub(super) fn bt_get_all_matches_no_dict(
         ll0,
         length_to_beat,
         params,
+        loaded_dict_end,
     } = request;
 
     state.ensure_tables(params);
     let mls = params.min_match.clamp(3, 6);
-    update_tree_no_dict(src, ip, block_end, mls, params, state);
+    update_tree_no_dict(src, ip, block_end, mls, params, state, loaded_dict_end);
     insert_bt_and_get_all_matches_no_dict(
         matches,
         src,
@@ -62,6 +66,7 @@ pub(super) fn bt_get_all_matches_no_dict(
         mls,
         params,
         state,
+        loaded_dict_end,
     );
 }
 
@@ -72,10 +77,12 @@ pub(super) fn update_tree_no_dict(
     mls: u32,
     params: CompressionParameters,
     state: &mut GreedyMatchState,
+    loaded_dict_end: usize,
 ) {
+    let config = super::hash_chain_match::MatchSearchConfig::new(params, mls, loaded_dict_end);
     let mut idx = state.next_to_update;
     while idx < target {
-        let forward = insert_bt1_no_dict(src, idx, block_end, target, mls, params, state);
+        let forward = insert_bt1_no_dict(src, idx, block_end, target, state, config);
         debug_assert!(forward > 0);
         idx += forward;
     }
@@ -87,15 +94,15 @@ fn insert_bt1_no_dict(
     ip: usize,
     block_end: usize,
     target: usize,
-    mls: u32,
-    params: CompressionParameters,
     state: &mut GreedyMatchState,
+    config: super::hash_chain_match::MatchSearchConfig,
 ) -> usize {
-    let hash = hash_ptr(src, ip, params.hash_log, mls);
+    let params = config.params;
+    let hash = hash_ptr(src, ip, params.hash_log, config.min_match);
     let mut match_index = state.hash_table[hash] as usize;
     let mask = bt_mask(params);
     let bt_low = ip.saturating_sub(mask);
-    let window_low = lowest_prefix_index(target, params.window_log).max(1);
+    let window_low = config.lowest_prefix_index(target).max(1);
     let mut common_smaller = 0_usize;
     let mut common_larger = 0_usize;
     let mut smaller_slot = Some(tree_slot(ip, mask));
@@ -168,6 +175,7 @@ fn insert_bt_and_get_all_matches_no_dict(
     mls: u32,
     params: CompressionParameters,
     state: &mut GreedyMatchState,
+    loaded_dict_end: usize,
 ) {
     let sufficient_len = params.target_length.min((ZSTD_OPT_NUM - 1) as u32) as usize;
     let min_match = if mls == 3 { 3 } else { 4 };
@@ -175,7 +183,7 @@ fn insert_bt_and_get_all_matches_no_dict(
     let mut match_index = state.hash_table[hash] as usize;
     let mask = bt_mask(params);
     let bt_low = ip.saturating_sub(mask);
-    let window_low = lowest_prefix_index(ip, params.window_log);
+    let window_low = lowest_prefix_index_with_loaded_dict(ip, params.window_log, loaded_dict_end);
     let match_low = window_low.max(1);
     let mut common_smaller = 0_usize;
     let mut common_larger = 0_usize;

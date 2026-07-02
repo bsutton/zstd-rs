@@ -27,6 +27,7 @@ pub(crate) fn load_prefix(
         min_match,
         params,
         &mut state.match_state,
+        prefix_len,
     );
     state.match_state.next_to_update = prefix_len;
     state.match_state.next_to_update3 = prefix_len;

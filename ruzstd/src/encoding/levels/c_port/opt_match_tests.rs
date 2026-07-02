@@ -108,5 +108,6 @@ fn request<'a>(
         ll0,
         length_to_beat,
         params,
+        loaded_dict_end: 0,
     }
 }

@@ -199,12 +199,13 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm(
     let previous_offsets = *context.offset_history;
     let output = compress_block_opt_no_dict_with_state_and_ldm(
         source.src,
-        source.block_range,
+        source.block_range.clone(),
         params,
         repeat_offsets,
         opt_state,
         strategy,
         ldm_cursor,
+        source.loaded_dict_end,
     );
     let prepared = prepare_from_greedy_output(block, repeat_offsets, &output);
     let prepared = GreedyPreparedBlock {

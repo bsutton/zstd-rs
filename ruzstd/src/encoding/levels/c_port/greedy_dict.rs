@@ -50,7 +50,9 @@ pub(crate) fn load_binary_tree_prefix(
     state.ensure_tables(params);
     let target = prefix_len - HASH_READ_SIZE;
     let min_match = params.min_match.clamp(4, 6);
-    update_tree_no_dict(src, target, prefix_len, min_match, params, state);
+    update_tree_no_dict(
+        src, target, prefix_len, min_match, params, state, prefix_len,
+    );
     state.next_to_update = prefix_len;
     state.next_to_update3 = prefix_len;
 }

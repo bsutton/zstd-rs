@@ -5,7 +5,7 @@ use core::convert::TryFrom;
 
 use super::{
     greedy::GreedyBlockOutput,
-    hash_chain_match::lowest_prefix_index,
+    hash_chain_match::lowest_prefix_index_with_loaded_dict,
     ldm::opt::LdmOptCursor,
     opt_match::{bt_get_all_matches_no_dict, BtMatchRequest, OptMatch},
     opt_path::{select_path, update_reps},
@@ -33,6 +33,7 @@ pub(crate) fn compress_block_opt_no_dict_with_state(
         state,
         strategy,
         None,
+        0,
     )
 }
 
@@ -45,6 +46,7 @@ pub(crate) fn compress_block_opt_no_dict_with_state_and_ldm(
     state: &mut OptBlockState,
     strategy: OptParserStrategy,
     mut ldm_cursor: Option<&mut LdmOptCursor<'_>>,
+    loaded_dict_end: usize,
 ) -> GreedyBlockOutput {
     debug_assert!(block_range.start <= block_range.end);
     debug_assert!(block_range.end <= src.len());
@@ -71,7 +73,8 @@ pub(crate) fn compress_block_opt_no_dict_with_state_and_ldm(
         .price_state
         .rescale_freqs(&src[block_range], opt_level);
 
-    let prefix_lowest = lowest_prefix_index(block_end, params.window_log);
+    let prefix_lowest =
+        lowest_prefix_index_with_loaded_dict(block_end, params.window_log, loaded_dict_end);
     let ilimit = block_end - HASH_READ_SIZE;
     let sufficient_len = params.target_length.min((ZSTD_OPT_NUM - 1) as u32);
     let min_match = if params.min_match == 3 { 3 } else { 4 };
@@ -92,6 +95,7 @@ pub(crate) fn compress_block_opt_no_dict_with_state_and_ldm(
             state,
             block_start,
             ldm_cursor.as_deref_mut(),
+            loaded_dict_end,
         );
 
         if match_count == 0 {
@@ -126,6 +130,7 @@ pub(crate) fn compress_block_opt_no_dict_with_state_and_ldm(
                 state,
                 block_start,
                 ldm_cursor.as_deref_mut(),
+                loaded_dict_end,
             );
 
             let empty_stretch = match result.last_stretch {
@@ -184,6 +189,7 @@ pub(super) fn collect_matches(
     state: &mut OptBlockState,
     block_start: usize,
     ldm_cursor: Option<&mut LdmOptCursor<'_>>,
+    loaded_dict_end: usize,
 ) -> usize {
     bt_get_all_matches_no_dict(
         &mut state.matches,
@@ -195,6 +201,7 @@ pub(super) fn collect_matches(
             ll0,
             length_to_beat,
             params,
+            loaded_dict_end,
         },
         &mut state.match_state,
     );
@@ -281,6 +288,7 @@ fn forward_pass(
     state: &mut OptBlockState,
     block_start: usize,
     mut ldm_cursor: Option<&mut LdmOptCursor<'_>>,
+    loaded_dict_end: usize,
 ) -> ForwardResult {
     let mut last_stretch = None;
     let mut cur = 1_usize;
@@ -319,6 +327,7 @@ fn forward_pass(
             state,
             block_start,
             ldm_cursor.as_deref_mut(),
+            loaded_dict_end,
         );
         if match_count == 0 {
             cur += 1;
