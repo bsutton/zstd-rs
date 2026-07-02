@@ -11,6 +11,7 @@ use super::{
     dictionary_frame::DictionaryFrameContext,
     frame_state::FrameBlockState,
     greedy_block::{GreedyBlockEncodeContext, GreedyBlockSource},
+    greedy_ext_block::GreedyExtDictBlockSource,
     ldm::{
         opt::{LdmOptCursor, LdmRawSeqStore},
         sequence::{
@@ -23,6 +24,7 @@ use super::{
     opt_encode::{
         encode_block_btopt_no_dict_with_state_and_policy,
         encode_block_btultra_no_dict_with_state_and_policy,
+        encode_block_opt_ext_dict_with_state_and_policy_and_ldm,
         encode_block_opt_no_dict_with_state_and_policy_and_ldm,
     },
     opt_state::OptBlockState,
@@ -93,6 +95,15 @@ fn selected_opt_frame_strategy(strategy: Strategy) -> OptFrameStrategy {
         Strategy::BtUltra => OptFrameStrategy::BtUltra,
         Strategy::BtUltra2 => OptFrameStrategy::BtUltra2,
         _ => unreachable!("only optimal strategies route through opt_frame"),
+    }
+}
+
+fn opt_parser_strategy(strategy: OptFrameStrategy) -> super::opt_state::OptParserStrategy {
+    match strategy {
+        OptFrameStrategy::BtOpt => super::opt_state::OptParserStrategy::BtOpt,
+        OptFrameStrategy::BtUltra | OptFrameStrategy::BtUltra2 => {
+            super::opt_state::OptParserStrategy::BtUltra
+        }
     }
 }
 
@@ -274,10 +285,11 @@ fn encode_frame_opt_with_dictionary(
         let mut ldm_cursor =
             ldm_store.map(|store| LdmOptCursor::from_store_for_block(store, block_size as u32));
 
-        let encoded_block = encode_block_opt_no_dict_with_state(
-            GreedyBlockSource {
+        let encoded_block = encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
+            GreedyExtDictBlockSource {
                 src: &context.combined,
                 block_range: block_start..block_end,
+                dict_limit: context.dict_len,
                 loaded_dict_end: context.dict_len,
             },
             block_end == src_end,
@@ -290,7 +302,7 @@ fn encode_frame_opt_with_dictionary(
                 fse_tables: &mut context.frame_state.fse_tables,
                 offset_history: &mut context.frame_state.offset_history,
             },
-            strategy,
+            opt_parser_strategy(strategy),
             post_block_splitter,
             FrameBlockState::block_policy(block_start == context.dict_len),
             ldm_cursor.as_mut(),

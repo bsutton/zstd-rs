@@ -8,8 +8,12 @@ use super::{
         encode_prepared_block, encode_special_block, prepare_from_greedy_output,
         GreedyBlockEncodeContext, GreedyBlockSource, GreedyEncodedBlock, GreedyPreparedBlock,
     },
+    greedy_ext_block::GreedyExtDictBlockSource,
     ldm::opt::LdmOptCursor,
-    opt_parser::compress_block_opt_no_dict_with_state_and_ldm,
+    opt_parser::{
+        compress_block_opt_ext_dict_with_state_and_ldm,
+        compress_block_opt_no_dict_with_state_and_ldm,
+    },
     opt_state::{OptBlockState, OptParserStrategy},
     params::CompressionParameters,
     post_split::encode_split_block,
@@ -200,6 +204,77 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm(
     let output = compress_block_opt_no_dict_with_state_and_ldm(
         source.src,
         source.block_range.clone(),
+        params,
+        repeat_offsets,
+        opt_state,
+        strategy,
+        ldm_cursor,
+        source.loaded_dict_end,
+    );
+    let prepared = prepare_from_greedy_output(block, repeat_offsets, &output);
+    let prepared = GreedyPreparedBlock {
+        prepared,
+        repeat_offsets: output.repeat_offsets,
+    };
+    if post_block_splitter {
+        if let Some(encoded) = encode_split_block(
+            block,
+            last_block,
+            policy,
+            params.strategy,
+            config,
+            repeat_offsets,
+            &prepared,
+            previous_offsets,
+            &mut context,
+        ) {
+            return encoded;
+        }
+    }
+
+    encode_prepared_block(
+        block,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        prepared,
+        previous_fse,
+        previous_offsets,
+        context,
+        bytes,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
+    source: GreedyExtDictBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    opt_state: &mut OptBlockState,
+    mut context: GreedyBlockEncodeContext<'_, '_>,
+    strategy: OptParserStrategy,
+    post_block_splitter: bool,
+    policy: BlockEncodingPolicy,
+    ldm_cursor: Option<&mut LdmOptCursor<'_>>,
+) -> GreedyEncodedBlock {
+    let block = &source.src[source.block_range.clone()];
+    let mut bytes = Vec::new();
+
+    if let Some(encoded) =
+        encode_special_block(block, last_block, repeat_offsets, policy, &mut bytes)
+    {
+        return encoded;
+    }
+
+    let previous_fse = context.fse_tables.snapshot_previous();
+    let previous_offsets = *context.offset_history;
+    let output = compress_block_opt_ext_dict_with_state_and_ldm(
+        source.src,
+        source.block_range.clone(),
+        source.dict_limit,
         params,
         repeat_offsets,
         opt_state,

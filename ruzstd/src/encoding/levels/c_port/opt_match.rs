@@ -28,7 +28,101 @@ pub(super) struct BtMatchRequest<'a> {
     pub(super) ll0: bool,
     pub(super) length_to_beat: u32,
     pub(super) params: CompressionParameters,
-    pub(super) loaded_dict_end: usize,
+    pub(super) bounds: OptMatchBounds,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct OptMatchBounds {
+    dict_limit: usize,
+    prefix_start_index: usize,
+    loaded_dict_end: usize,
+    ext_dict: bool,
+}
+
+impl OptMatchBounds {
+    pub(super) fn no_dict(
+        block_end: usize,
+        params: CompressionParameters,
+        loaded_dict_end: usize,
+    ) -> Self {
+        let prefix_start_index =
+            lowest_prefix_index_with_loaded_dict(block_end, params.window_log, loaded_dict_end);
+        Self {
+            dict_limit: prefix_start_index,
+            prefix_start_index,
+            loaded_dict_end,
+            ext_dict: false,
+        }
+    }
+
+    pub(super) fn ext_dict(
+        block_end: usize,
+        dict_limit: usize,
+        params: CompressionParameters,
+        loaded_dict_end: usize,
+    ) -> Self {
+        let dict_start_index =
+            lowest_prefix_index_with_loaded_dict(block_end, params.window_log, loaded_dict_end);
+        Self {
+            dict_limit,
+            prefix_start_index: dict_limit.max(dict_start_index),
+            loaded_dict_end,
+            ext_dict: true,
+        }
+    }
+
+    pub(super) fn prefix_start_index(self) -> usize {
+        self.prefix_start_index
+    }
+
+    fn lowest_match_index(self, pos: usize, params: CompressionParameters) -> usize {
+        lowest_prefix_index_with_loaded_dict(pos, params.window_log, self.loaded_dict_end)
+    }
+
+    fn rep_match_length(
+        self,
+        src: &[u8],
+        ip: usize,
+        rep_offset: usize,
+        min_match: u32,
+        params: CompressionParameters,
+        block_end: usize,
+    ) -> Option<usize> {
+        if rep_offset == 0 || rep_offset > ip {
+            return None;
+        }
+        let rep_index = ip - rep_offset;
+        let window_low = self.lowest_match_index(ip, params);
+        if self.ext_dict {
+            if rep_index >= self.dict_limit {
+                if rep_index < window_low {
+                    return None;
+                }
+            } else if rep_offset > ip.saturating_sub(window_low)
+                || !index_overlap_check(self.dict_limit, rep_index)
+            {
+                return None;
+            }
+        } else if rep_index < window_low {
+            return None;
+        }
+
+        if rep_index + min_match as usize > src.len()
+            || ip + min_match as usize > src.len()
+            || !equal_min_match(src, ip, rep_index, min_match)
+        {
+            return None;
+        }
+
+        Some(
+            count_match(
+                src,
+                ip + min_match as usize,
+                rep_index + min_match as usize,
+                block_end,
+            ) + min_match as usize,
+        )
+    }
 }
 
 pub(super) fn bt_get_all_matches_no_dict(
@@ -49,12 +143,20 @@ pub(super) fn bt_get_all_matches_no_dict(
         ll0,
         length_to_beat,
         params,
-        loaded_dict_end,
+        bounds,
     } = request;
 
     state.ensure_tables(params);
     let mls = params.min_match.clamp(3, 6);
-    update_tree_no_dict(src, ip, block_end, mls, params, state, loaded_dict_end);
+    update_tree_no_dict(
+        src,
+        ip,
+        block_end,
+        mls,
+        params,
+        state,
+        bounds.loaded_dict_end,
+    );
     insert_bt_and_get_all_matches_no_dict(
         matches,
         src,
@@ -66,7 +168,7 @@ pub(super) fn bt_get_all_matches_no_dict(
         mls,
         params,
         state,
-        loaded_dict_end,
+        bounds,
     );
 }
 
@@ -175,7 +277,7 @@ fn insert_bt_and_get_all_matches_no_dict(
     mls: u32,
     params: CompressionParameters,
     state: &mut GreedyMatchState,
-    loaded_dict_end: usize,
+    bounds: OptMatchBounds,
 ) {
     let sufficient_len = params.target_length.min((ZSTD_OPT_NUM - 1) as u32) as usize;
     let min_match = if mls == 3 { 3 } else { 4 };
@@ -183,7 +285,7 @@ fn insert_bt_and_get_all_matches_no_dict(
     let mut match_index = state.hash_table[hash] as usize;
     let mask = bt_mask(params);
     let bt_low = ip.saturating_sub(mask);
-    let window_low = lowest_prefix_index_with_loaded_dict(ip, params.window_log, loaded_dict_end);
+    let window_low = bounds.lowest_match_index(ip, params);
     let match_low = window_low.max(1);
     let mut common_smaller = 0_usize;
     let mut common_larger = 0_usize;
@@ -201,7 +303,8 @@ fn insert_bt_and_get_all_matches_no_dict(
         rep,
         ll0,
         min_match,
-        window_low,
+        params,
+        bounds,
         sufficient_len,
         &mut best_length,
     );
@@ -296,7 +399,8 @@ fn collect_repcode_matches(
     rep: RepeatOffsets,
     ll0: bool,
     min_match: u32,
-    window_low: usize,
+    params: CompressionParameters,
+    bounds: OptMatchBounds,
     sufficient_len: usize,
     best_length: &mut usize,
 ) {
@@ -309,20 +413,11 @@ fn collect_repcode_matches(
         } else {
             offsets[rep_code]
         } as usize;
-        if rep_offset == 0 || rep_offset > ip {
+        let Some(rep_len) =
+            bounds.rep_match_length(src, ip, rep_offset, min_match, params, block_end)
+        else {
             continue;
-        }
-        let rep_index = ip - rep_offset;
-        if rep_index < window_low || !equal_min_match(src, ip, rep_index, min_match) {
-            continue;
-        }
-
-        let rep_len = count_match(
-            src,
-            ip + min_match as usize,
-            rep_index + min_match as usize,
-            block_end,
-        ) + min_match as usize;
+        };
         if rep_len > *best_length {
             *best_length = rep_len;
             matches.push(OptMatch {
@@ -374,6 +469,10 @@ fn repcode_to_off_base(code: usize) -> u32 {
         _ => unreachable!("C repcode value is between 1 and 3"),
     }
     .to_c_value()
+}
+
+fn index_overlap_check(prefix_lowest_index: usize, rep_index: usize) -> bool {
+    prefix_lowest_index.wrapping_sub(1).wrapping_sub(rep_index) >= 3
 }
 
 fn bt_mask(params: CompressionParameters) -> usize {

@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use super::{
     greedy::GreedyMatchState,
-    opt_match::{bt_get_all_matches_no_dict, BtMatchRequest, OptMatch},
+    opt_match::{bt_get_all_matches_no_dict, BtMatchRequest, OptMatch, OptMatchBounds},
     params::{CompressionParameters, Strategy},
     sequence_store::{OffBase, RepeatCode, RepeatOffsets},
 };
@@ -108,6 +108,6 @@ fn request<'a>(
         ll0,
         length_to_beat,
         params,
-        loaded_dict_end: 0,
+        bounds: OptMatchBounds::no_dict(src.len(), params, 0),
     }
 }

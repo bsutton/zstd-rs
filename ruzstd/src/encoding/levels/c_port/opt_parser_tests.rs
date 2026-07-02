@@ -1,8 +1,11 @@
 use super::{
     ldm::{opt::LdmOptCursor, sequence::LdmRawSequence},
     opt_block::{compress_block_btopt_no_dict, compress_block_btultra_no_dict},
-    opt_match::OptMatch,
-    opt_parser::{collect_matches, compress_block_opt_no_dict_with_state_and_ldm},
+    opt_match::{OptMatch, OptMatchBounds},
+    opt_parser::{
+        collect_matches, compress_block_opt_ext_dict_with_state_and_ldm,
+        compress_block_opt_no_dict_with_state_and_ldm,
+    },
     opt_state::{OptBlockState, OptParserStrategy},
     params::{CompressionParameters, Strategy},
     sequence_store::{OffBase, RepeatOffsets},
@@ -166,7 +169,7 @@ fn opt_match_collection_appends_ldm_candidate_like_c() {
         &mut state,
         0,
         Some(&mut cursor),
-        0,
+        OptMatchBounds::no_dict(data.len(), params, 0),
     );
 
     assert_eq!(count, 1);
@@ -215,6 +218,64 @@ fn btopt_loaded_dictionary_keeps_full_dictionary_valid_like_c() {
 
     assert!(!has_loaded_dictionary_match(&no_loaded, params));
     assert!(has_loaded_dictionary_match(&loaded, params));
+}
+
+#[test]
+fn btopt_ext_dict_rejects_overlap_repcode_like_c() {
+    let dict = b"abcdefgh";
+    let source = b"XfghXabcdefgh";
+    let mut combined = Vec::new();
+    combined.extend_from_slice(dict);
+    combined.extend_from_slice(source);
+
+    let params = loaded_dictionary_params();
+    let mut state = OptBlockState::new();
+    super::opt_dict::load_prefix(&mut state, &combined, dict.len(), params);
+    let output = compress_block_opt_ext_dict_with_state_and_ldm(
+        &combined,
+        dict.len()..combined.len(),
+        dict.len(),
+        params,
+        RepeatOffsets::from_offsets(4, 3, 7),
+        &mut state,
+        OptParserStrategy::BtOpt,
+        None,
+        dict.len(),
+    );
+
+    assert!(!output
+        .sequences
+        .first()
+        .is_some_and(|seq| matches!(seq.off_base, OffBase::Repeat(_))));
+}
+
+#[test]
+fn btopt_ext_dict_finds_dictionary_offset_match() {
+    let dict = b"prefix:shared-payload";
+    let source = b"shared-payload shared-payload";
+    let mut combined = Vec::new();
+    combined.extend_from_slice(dict);
+    combined.extend_from_slice(source);
+
+    let params = loaded_dictionary_params();
+    let mut state = OptBlockState::new();
+    super::opt_dict::load_prefix(&mut state, &combined, dict.len(), params);
+    let output = compress_block_opt_ext_dict_with_state_and_ldm(
+        &combined,
+        dict.len()..combined.len(),
+        dict.len(),
+        params,
+        RepeatOffsets::new(),
+        &mut state,
+        OptParserStrategy::BtOpt,
+        None,
+        dict.len(),
+    );
+
+    assert!(output
+        .sequences
+        .iter()
+        .any(|seq| matches!(seq.off_base, OffBase::Offset(_))));
 }
 
 fn btopt_params(src_size: usize) -> CompressionParameters {
