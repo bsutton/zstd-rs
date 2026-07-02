@@ -254,6 +254,36 @@ fn ldm_prefix_sequence_generation_emits_source_relative_literals() {
 }
 
 #[test]
+fn ldm_source_prefix_match_does_not_extend_back_into_dictionary() {
+    let params = LdmParameters {
+        enable_ldm: ParamSwitch::Enable,
+        window_log: 12,
+        hash_log: 8,
+        min_match_length: 4,
+        bucket_size_log: 3,
+        hash_rate_log: 0,
+    };
+    let dictionary = b"dictionary-tail-D".to_vec();
+    let source = b"YZABCDYZABCD-padding".to_vec();
+    let mut combined = dictionary.clone();
+    combined.extend_from_slice(&source);
+    let source_start = dictionary.len();
+    let mut table = LdmHashTable::new(params);
+
+    fill_prefix_hash_table(&combined, 0..source_start, params, &mut table);
+    let result =
+        generate_sequences_with_prefix(&combined, source_start..combined.len(), params, &mut table);
+
+    assert!(
+        result.sequences.iter().any(|sequence| {
+            sequence.lit_length == 6 && sequence.match_length == 6 && sequence.offset == 6
+        }),
+        "{:?}",
+        result.sequences
+    );
+}
+
+#[test]
 fn ldm_raw_seq_store_skips_bytes_like_c_opt_ldm() {
     let sequences = [
         LdmRawSequence {

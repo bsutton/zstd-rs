@@ -24,7 +24,7 @@ pub(crate) fn generate_sequences_no_dict(
     params: LdmParameters,
     table: &mut LdmHashTable,
 ) -> LdmSequenceResult {
-    generate_sequences_in_range(src, 0..src.len(), 0, params, table)
+    generate_sequences_in_range(src, 0..src.len(), 0, 0, params, table)
 }
 
 pub(crate) fn fill_prefix_hash_table(
@@ -78,19 +78,22 @@ pub(crate) fn generate_sequences_with_prefix(
     params: LdmParameters,
     table: &mut LdmHashTable,
 ) -> LdmSequenceResult {
-    generate_sequences_in_range(src, source_range, 0, params, table)
+    let dict_limit = source_range.start;
+    generate_sequences_in_range(src, source_range, 0, dict_limit, params, table)
 }
 
 fn generate_sequences_in_range(
     src: &[u8],
     source_range: Range<usize>,
-    low_prefix: usize,
+    dict_low_limit: usize,
+    dict_limit: usize,
     params: LdmParameters,
     table: &mut LdmHashTable,
 ) -> LdmSequenceResult {
     debug_assert!(source_range.start <= source_range.end);
     debug_assert!(source_range.end <= src.len());
-    debug_assert!(low_prefix <= source_range.start);
+    debug_assert!(dict_low_limit <= dict_limit);
+    debug_assert!(dict_limit <= source_range.start);
 
     let min_match_length = params.min_match_length as usize;
     let source_len = source_range.len();
@@ -138,18 +141,23 @@ fn generate_sequences_in_range(
             let mut best_entry_offset = None;
 
             for entry in table.bucket(hash) {
-                if entry.checksum != checksum || entry.offset == 0 {
+                let match_index = entry.offset as usize;
+                if entry.checksum != checksum || match_index <= dict_low_limit {
                     continue;
                 }
 
-                let match_index = entry.offset as usize;
                 let current_forward = count_match(src, split, match_index, source_range.end);
                 if current_forward < min_match_length {
                     continue;
                 }
 
+                let match_low_prefix = if match_index < dict_limit {
+                    dict_low_limit
+                } else {
+                    dict_limit
+                };
                 let current_backward =
-                    count_backwards_match(src, split, anchor, match_index, low_prefix);
+                    count_backwards_match(src, split, anchor, match_index, match_low_prefix);
                 let current_total = current_forward + current_backward;
                 if current_total > best_match_length {
                     best_match_length = current_total;
