@@ -10,7 +10,7 @@ use super::{
     },
     opt_parser::compress_block_opt_no_dict_with_state,
     opt_state::{OptBlockState, OptParserStrategy},
-    params::{CompressionParameters, Strategy},
+    params::CompressionParameters,
     post_split::encode_split_block,
     sequence_store::RepeatOffsets,
 };
@@ -25,6 +25,7 @@ pub(crate) fn encode_block_btopt_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     opt_state: &mut OptBlockState,
     context: GreedyBlockEncodeContext<'_, '_>,
+    post_block_splitter: bool,
 ) -> GreedyEncodedBlock {
     encode_block_btopt_no_dict_with_state_and_policy(
         source,
@@ -34,6 +35,7 @@ pub(crate) fn encode_block_btopt_no_dict_with_state(
         repeat_offsets,
         opt_state,
         context,
+        post_block_splitter,
         BlockEncodingPolicy::normal(),
     )
 }
@@ -47,6 +49,7 @@ pub(crate) fn encode_block_btopt_no_dict_with_state_and_policy(
     repeat_offsets: RepeatOffsets,
     opt_state: &mut OptBlockState,
     context: GreedyBlockEncodeContext<'_, '_>,
+    post_block_splitter: bool,
     policy: BlockEncodingPolicy,
 ) -> GreedyEncodedBlock {
     encode_block_opt_no_dict_with_state(
@@ -58,6 +61,7 @@ pub(crate) fn encode_block_btopt_no_dict_with_state_and_policy(
         opt_state,
         context,
         OptParserStrategy::BtOpt,
+        post_block_splitter,
         policy,
     )
 }
@@ -71,6 +75,7 @@ pub(crate) fn encode_block_btultra_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     opt_state: &mut OptBlockState,
     context: GreedyBlockEncodeContext<'_, '_>,
+    post_block_splitter: bool,
 ) -> GreedyEncodedBlock {
     encode_block_btultra_no_dict_with_state_and_policy(
         source,
@@ -80,6 +85,7 @@ pub(crate) fn encode_block_btultra_no_dict_with_state(
         repeat_offsets,
         opt_state,
         context,
+        post_block_splitter,
         BlockEncodingPolicy::normal(),
     )
 }
@@ -93,6 +99,7 @@ pub(crate) fn encode_block_btultra_no_dict_with_state_and_policy(
     repeat_offsets: RepeatOffsets,
     opt_state: &mut OptBlockState,
     context: GreedyBlockEncodeContext<'_, '_>,
+    post_block_splitter: bool,
     policy: BlockEncodingPolicy,
 ) -> GreedyEncodedBlock {
     encode_block_opt_no_dict_with_state(
@@ -104,6 +111,7 @@ pub(crate) fn encode_block_btultra_no_dict_with_state_and_policy(
         opt_state,
         context,
         OptParserStrategy::BtUltra,
+        post_block_splitter,
         policy,
     )
 }
@@ -118,6 +126,7 @@ fn encode_block_opt_no_dict_with_state(
     opt_state: &mut OptBlockState,
     context: GreedyBlockEncodeContext<'_, '_>,
     strategy: OptParserStrategy,
+    post_block_splitter: bool,
     policy: BlockEncodingPolicy,
 ) -> GreedyEncodedBlock {
     encode_block_opt_no_dict_with_state_and_policy(
@@ -129,6 +138,7 @@ fn encode_block_opt_no_dict_with_state(
         opt_state,
         context,
         strategy,
+        post_block_splitter,
         policy,
     )
 }
@@ -143,6 +153,7 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy(
     opt_state: &mut OptBlockState,
     mut context: GreedyBlockEncodeContext<'_, '_>,
     strategy: OptParserStrategy,
+    post_block_splitter: bool,
     policy: BlockEncodingPolicy,
 ) -> GreedyEncodedBlock {
     let block = &source.src[source.block_range.clone()];
@@ -169,7 +180,7 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy(
         prepared,
         repeat_offsets: output.repeat_offsets,
     };
-    if params.strategy >= Strategy::BtOpt && params.window_log >= 17 {
+    if post_block_splitter {
         if let Some(encoded) = encode_split_block(
             block,
             last_block,

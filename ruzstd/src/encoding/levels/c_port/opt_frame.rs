@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use super::{
     block_policy::BlockEncodingPolicy,
     c_frame_header::{write_frame_header, write_frame_header_no_dict},
-    cctx_params::CctxParameters,
+    cctx_params::{CctxParameters, ParamSwitch},
     dictionary::ParsedDictionary,
     frame_state::FrameBlockState,
     greedy_block::{GreedyBlockEncodeContext, GreedyBlockSource},
@@ -71,6 +71,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
     let cctx = CctxParameters::for_level(level, src.len() as u64, 0);
     cctx.assert_resolved();
     let params = cctx.compression;
+    let post_block_splitter = cctx.post_block_splitter == ParamSwitch::Enable;
     write_frame_header_no_dict(&mut output, src.len(), params);
     let mut frame_state = FrameBlockState::new(params, output.len());
     let mut opt_state = OptBlockState::new();
@@ -93,6 +94,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
                 offset_history: &mut frame_state.offset_history,
             },
             strategy,
+            post_block_splitter,
             FrameBlockState::block_policy(true),
         );
         output.extend_from_slice(&encoded_block.bytes);
@@ -126,6 +128,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
                 offset_history: &mut frame_state.offset_history,
             },
             strategy,
+            post_block_splitter,
             FrameBlockState::block_policy(block_start == 0),
         );
         frame_state.record_encoded_block(
@@ -155,6 +158,7 @@ fn encode_frame_opt_with_dictionary(
     let cctx = CctxParameters::for_level(level, src.len() as u64, dict_len);
     cctx.assert_resolved();
     let params = cctx.compression;
+    let post_block_splitter = cctx.post_block_splitter == ParamSwitch::Enable;
     let mut output = Vec::new();
     let dictionary_id = (dictionary.dict_id != 0).then_some(dictionary.dict_id);
     write_frame_header(&mut output, src.len(), params, dictionary_id);
@@ -181,6 +185,7 @@ fn encode_frame_opt_with_dictionary(
                 offset_history: &mut frame_state.offset_history,
             },
             strategy,
+            post_block_splitter,
             FrameBlockState::block_policy(true),
         );
         output.extend_from_slice(&encoded_block.bytes);
@@ -216,6 +221,7 @@ fn encode_frame_opt_with_dictionary(
                 offset_history: &mut frame_state.offset_history,
             },
             strategy,
+            post_block_splitter,
             FrameBlockState::block_policy(block_start == dict_len),
         );
         frame_state.record_encoded_block(
@@ -241,6 +247,7 @@ fn encode_block_opt_no_dict_with_state(
     opt_state: &mut OptBlockState,
     context: GreedyBlockEncodeContext<'_, '_>,
     strategy: OptFrameStrategy,
+    post_block_splitter: bool,
     policy: BlockEncodingPolicy,
 ) -> super::greedy_block::GreedyEncodedBlock {
     match strategy {
@@ -252,6 +259,7 @@ fn encode_block_opt_no_dict_with_state(
             repeat_offsets,
             opt_state,
             context,
+            post_block_splitter,
             policy,
         ),
         OptFrameStrategy::BtUltra | OptFrameStrategy::BtUltra2 => {
@@ -267,6 +275,7 @@ fn encode_block_opt_no_dict_with_state(
                 repeat_offsets,
                 opt_state,
                 context,
+                post_block_splitter,
                 policy,
             )
         }
