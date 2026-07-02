@@ -3,6 +3,7 @@
 use alloc::vec::Vec;
 
 use super::{
+    block_compressor::{select_block_compressor, DictionaryMode},
     block_policy::BlockEncodingPolicy,
     c_frame_header::{write_frame_header, write_frame_header_no_dict},
     cctx_params::{CctxParameters, ParamSwitch},
@@ -64,7 +65,18 @@ pub(crate) fn encode_frame_btultra2_with_dictionary(
     level: i32,
     dictionary: ParsedDictionary<'_>,
 ) -> Vec<u8> {
-    encode_frame_opt_with_dictionary(src, level, dictionary, OptFrameStrategy::BtUltra)
+    let selected = select_block_compressor(
+        Strategy::BtUltra2,
+        ParamSwitch::Disable,
+        DictionaryMode::DictMatchState,
+    )
+    .expect("C supports btultra2 dictionary routing through btultra");
+    encode_frame_opt_with_dictionary(
+        src,
+        level,
+        dictionary,
+        selected_opt_frame_strategy(selected.strategy),
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -72,6 +84,15 @@ enum OptFrameStrategy {
     BtOpt,
     BtUltra,
     BtUltra2,
+}
+
+fn selected_opt_frame_strategy(strategy: Strategy) -> OptFrameStrategy {
+    match strategy {
+        Strategy::BtOpt => OptFrameStrategy::BtOpt,
+        Strategy::BtUltra => OptFrameStrategy::BtUltra,
+        Strategy::BtUltra2 => OptFrameStrategy::BtUltra2,
+        _ => unreachable!("only optimal strategies route through opt_frame"),
+    }
 }
 
 fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) -> Vec<u8> {

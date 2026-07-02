@@ -4,6 +4,7 @@
 //! built out and checked against the C reference. Keep C-derived behavior here
 //! until it has enough parity coverage to replace the current strategy code.
 
+mod block_compressor;
 mod block_policy;
 mod bt_match;
 mod c_frame_header;
