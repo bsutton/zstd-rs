@@ -1,9 +1,118 @@
 use alloc::vec::Vec;
 
 use super::{
-    cctx_params::CctxParameters,
-    ldm::{LdmRollingHashState, LDM_BATCH_SIZE},
+    cctx_params::{CctxParameters, LdmParameters, ParamSwitch},
+    ldm::{LdmEntry, LdmHashTable, LdmRollingHashState, LDM_BATCH_SIZE},
 };
+
+fn small_ldm_params() -> LdmParameters {
+    LdmParameters {
+        enable_ldm: ParamSwitch::Enable,
+        window_log: 10,
+        hash_log: 6,
+        min_match_length: 16,
+        bucket_size_log: 3,
+        hash_rate_log: 4,
+    }
+}
+
+#[test]
+fn ldm_hash_table_sizes_like_c() {
+    let table = LdmHashTable::new(small_ldm_params());
+
+    assert_eq!(table.table_len(), 64);
+    assert_eq!(table.bucket_count(), 8);
+    assert_eq!(table.bucket(5).len(), 8);
+}
+
+#[test]
+fn ldm_hash_table_inserts_into_bucket_slots_like_c() {
+    let mut table = LdmHashTable::new(small_ldm_params());
+
+    table.insert_entry(
+        5,
+        LdmEntry {
+            offset: 11,
+            checksum: 101,
+        },
+    );
+    table.insert_entry(
+        5,
+        LdmEntry {
+            offset: 12,
+            checksum: 102,
+        },
+    );
+    table.insert_entry(
+        2,
+        LdmEntry {
+            offset: 21,
+            checksum: 201,
+        },
+    );
+
+    assert_eq!(table.bucket_offset(5), 2);
+    assert_eq!(table.bucket_offset(2), 1);
+    assert_eq!(
+        &table.bucket(5)[..3],
+        &[
+            LdmEntry {
+                offset: 11,
+                checksum: 101,
+            },
+            LdmEntry {
+                offset: 12,
+                checksum: 102,
+            },
+            LdmEntry::default(),
+        ]
+    );
+    assert_eq!(
+        table.bucket(2)[0],
+        LdmEntry {
+            offset: 21,
+            checksum: 201,
+        }
+    );
+}
+
+#[test]
+fn ldm_hash_table_wraps_bucket_offsets_like_c() {
+    let mut table = LdmHashTable::new(small_ldm_params());
+
+    for i in 0..10 {
+        table.insert_entry(
+            3,
+            LdmEntry {
+                offset: i,
+                checksum: 100 + i,
+            },
+        );
+    }
+
+    assert_eq!(table.bucket_offset(3), 2);
+    assert_eq!(
+        &table.bucket(3)[..4],
+        &[
+            LdmEntry {
+                offset: 8,
+                checksum: 108,
+            },
+            LdmEntry {
+                offset: 9,
+                checksum: 109,
+            },
+            LdmEntry {
+                offset: 2,
+                checksum: 102,
+            },
+            LdmEntry {
+                offset: 3,
+                checksum: 103,
+            },
+        ]
+    );
+}
 
 #[test]
 fn ldm_gear_initializes_stop_mask_like_c() {
