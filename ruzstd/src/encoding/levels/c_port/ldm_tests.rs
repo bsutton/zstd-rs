@@ -287,6 +287,25 @@ fn ldm_opt_cursor_truncates_match_at_block_end_like_c() {
 }
 
 #[test]
+fn ldm_opt_cursor_carries_store_across_blocks_like_c() {
+    let sequences = [LdmRawSequence {
+        offset: 100,
+        lit_length: 2,
+        match_length: 10,
+    }];
+    let mut store = LdmRawSeqStore::new(&sequences);
+
+    let first = LdmOptCursor::from_store_for_block(store, 6);
+    assert_eq!(first.current_match(), Some((2, 6, 100)));
+    store = first.into_seq_store();
+    assert_eq!(store.position(), (0, 6));
+
+    let second = LdmOptCursor::from_store_for_block(store, 6);
+    assert_eq!(second.current_match(), Some((0, 6, 100)));
+    assert_eq!(second.seq_store_position(), (1, 0));
+}
+
+#[test]
 fn ldm_opt_cursor_adds_candidates_only_when_ordered_like_c() {
     let sequences = [LdmRawSequence {
         offset: 100,

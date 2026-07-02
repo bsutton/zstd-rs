@@ -8,7 +8,8 @@ use super::{
         encode_prepared_block, encode_special_block, prepare_from_greedy_output,
         GreedyBlockEncodeContext, GreedyBlockSource, GreedyEncodedBlock, GreedyPreparedBlock,
     },
-    opt_parser::compress_block_opt_no_dict_with_state,
+    ldm::opt::LdmOptCursor,
+    opt_parser::compress_block_opt_no_dict_with_state_and_ldm,
     opt_state::{OptBlockState, OptParserStrategy},
     params::CompressionParameters,
     post_split::encode_split_block,
@@ -151,10 +152,39 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy(
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
     opt_state: &mut OptBlockState,
+    context: GreedyBlockEncodeContext<'_, '_>,
+    strategy: OptParserStrategy,
+    post_block_splitter: bool,
+    policy: BlockEncodingPolicy,
+) -> GreedyEncodedBlock {
+    encode_block_opt_no_dict_with_state_and_policy_and_ldm(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        opt_state,
+        context,
+        strategy,
+        post_block_splitter,
+        policy,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm(
+    source: GreedyBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    opt_state: &mut OptBlockState,
     mut context: GreedyBlockEncodeContext<'_, '_>,
     strategy: OptParserStrategy,
     post_block_splitter: bool,
     policy: BlockEncodingPolicy,
+    ldm_cursor: Option<&mut LdmOptCursor<'_>>,
 ) -> GreedyEncodedBlock {
     let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
@@ -167,13 +197,14 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy(
 
     let previous_fse = context.fse_tables.snapshot_previous();
     let previous_offsets = *context.offset_history;
-    let output = compress_block_opt_no_dict_with_state(
+    let output = compress_block_opt_no_dict_with_state_and_ldm(
         source.src,
         source.block_range,
         params,
         repeat_offsets,
         opt_state,
         strategy,
+        ldm_cursor,
     );
     let prepared = prepare_from_greedy_output(block, repeat_offsets, &output);
     let prepared = GreedyPreparedBlock {

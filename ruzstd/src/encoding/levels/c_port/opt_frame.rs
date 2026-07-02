@@ -9,11 +9,17 @@ use super::{
     dictionary::ParsedDictionary,
     frame_state::FrameBlockState,
     greedy_block::{GreedyBlockEncodeContext, GreedyBlockSource},
+    ldm::{
+        opt::{LdmOptCursor, LdmRawSeqStore},
+        sequence::generate_sequences_no_dict,
+        LdmHashTable,
+    },
     opt_block::prime_btultra2_stats_no_dict,
     opt_dict::load_prefix,
     opt_encode::{
         encode_block_btopt_no_dict_with_state_and_policy,
         encode_block_btultra_no_dict_with_state_and_policy,
+        encode_block_opt_no_dict_with_state_and_policy_and_ldm,
     },
     opt_state::OptBlockState,
     params::{CompressionParameters, Strategy},
@@ -72,6 +78,15 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
     cctx.assert_resolved();
     let params = cctx.compression;
     let post_block_splitter = cctx.post_block_splitter == ParamSwitch::Enable;
+    let ldm_sequences = if cctx.ldm.enable_ldm == ParamSwitch::Enable {
+        let mut ldm_table = LdmHashTable::new(cctx.ldm);
+        Some(generate_sequences_no_dict(src, cctx.ldm, &mut ldm_table))
+    } else {
+        None
+    };
+    let mut ldm_store = ldm_sequences
+        .as_ref()
+        .map(|result| LdmRawSeqStore::new(&result.sequences));
     write_frame_header_no_dict(&mut output, src.len(), params);
     let mut frame_state = FrameBlockState::new(params, output.len());
     let mut opt_state = OptBlockState::new();
@@ -96,6 +111,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
             strategy,
             post_block_splitter,
             FrameBlockState::block_policy(true),
+            None,
         );
         output.extend_from_slice(&encoded_block.bytes);
         return output;
@@ -111,6 +127,9 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
         {
             prime_btultra2_stats_no_dict(src, block_start..block_end, params, &mut opt_state);
         }
+        let mut ldm_cursor = ldm_store
+            .take()
+            .map(|store| LdmOptCursor::from_store_for_block(store, block_size as u32));
 
         let encoded_block = encode_block_opt_no_dict_with_state(
             GreedyBlockSource {
@@ -130,7 +149,9 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
             strategy,
             post_block_splitter,
             FrameBlockState::block_policy(block_start == 0),
+            ldm_cursor.as_mut(),
         );
+        ldm_store = ldm_cursor.map(LdmOptCursor::into_seq_store);
         frame_state.record_encoded_block(
             block_size,
             encoded_block.bytes.len(),
@@ -187,6 +208,7 @@ fn encode_frame_opt_with_dictionary(
             strategy,
             post_block_splitter,
             FrameBlockState::block_policy(true),
+            None,
         );
         output.extend_from_slice(&encoded_block.bytes);
         return output;
@@ -223,6 +245,7 @@ fn encode_frame_opt_with_dictionary(
             strategy,
             post_block_splitter,
             FrameBlockState::block_policy(block_start == dict_len),
+            None,
         );
         frame_state.record_encoded_block(
             block_size,
@@ -249,35 +272,70 @@ fn encode_block_opt_no_dict_with_state(
     strategy: OptFrameStrategy,
     post_block_splitter: bool,
     policy: BlockEncodingPolicy,
+    ldm_cursor: Option<&mut LdmOptCursor<'_>>,
 ) -> super::greedy_block::GreedyEncodedBlock {
     match strategy {
-        OptFrameStrategy::BtOpt => encode_block_btopt_no_dict_with_state_and_policy(
-            source,
-            last_block,
-            params,
-            config,
-            repeat_offsets,
-            opt_state,
-            context,
-            post_block_splitter,
-            policy,
-        ),
+        OptFrameStrategy::BtOpt => {
+            if ldm_cursor.is_some() {
+                encode_block_opt_no_dict_with_state_and_policy_and_ldm(
+                    source,
+                    last_block,
+                    params,
+                    config,
+                    repeat_offsets,
+                    opt_state,
+                    context,
+                    super::opt_state::OptParserStrategy::BtOpt,
+                    post_block_splitter,
+                    policy,
+                    ldm_cursor,
+                )
+            } else {
+                encode_block_btopt_no_dict_with_state_and_policy(
+                    source,
+                    last_block,
+                    params,
+                    config,
+                    repeat_offsets,
+                    opt_state,
+                    context,
+                    post_block_splitter,
+                    policy,
+                )
+            }
+        }
         OptFrameStrategy::BtUltra | OptFrameStrategy::BtUltra2 => {
             debug_assert!(matches!(
                 params.strategy,
                 Strategy::BtUltra | Strategy::BtUltra2
             ));
-            encode_block_btultra_no_dict_with_state_and_policy(
-                source,
-                last_block,
-                params,
-                config,
-                repeat_offsets,
-                opt_state,
-                context,
-                post_block_splitter,
-                policy,
-            )
+            if strategy == OptFrameStrategy::BtUltra2 || ldm_cursor.is_some() {
+                encode_block_opt_no_dict_with_state_and_policy_and_ldm(
+                    source,
+                    last_block,
+                    params,
+                    config,
+                    repeat_offsets,
+                    opt_state,
+                    context,
+                    super::opt_state::OptParserStrategy::BtUltra,
+                    post_block_splitter,
+                    policy,
+                    ldm_cursor,
+                )
+            } else {
+                encode_block_btultra_no_dict_with_state_and_policy(
+                    source,
+                    last_block,
+                    params,
+                    config,
+                    repeat_offsets,
+                    opt_state,
+                    context,
+                    post_block_splitter,
+                    policy,
+                )
+            }
         }
     }
 }

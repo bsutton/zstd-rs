@@ -56,14 +56,22 @@ impl<'a> LdmRawSeqStore<'a> {
 
 impl<'a> LdmOptCursor<'a> {
     pub(crate) fn new(sequences: &'a [LdmRawSequence], block_size: u32) -> Self {
+        Self::from_store_for_block(LdmRawSeqStore::new(sequences), block_size)
+    }
+
+    pub(crate) fn from_store_for_block(seq_store: LdmRawSeqStore<'a>, block_size: u32) -> Self {
         let mut cursor = Self {
-            seq_store: LdmRawSeqStore::new(sequences),
+            seq_store,
             start_pos_in_block: 0,
             end_pos_in_block: 0,
             offset: 0,
         };
         cursor.get_next_match_and_update_seq_store(0, block_size);
         cursor
+    }
+
+    pub(crate) fn into_seq_store(self) -> LdmRawSeqStore<'a> {
+        self.seq_store
     }
 
     pub(crate) fn process_match_candidate(
