@@ -274,13 +274,10 @@ pub(crate) fn ncount_cost_from_probabilities(probs: &[i32], acc_log: u8) -> usiz
         let max_remaining_value = probability_sum - probability_counter + 1;
         let bits_to_write = max_remaining_value.ilog2() as usize + 1;
         let low_threshold = ((1 << bits_to_write) - 1) - max_remaining_value;
-        let mask = (1 << (bits_to_write - 1)) - 1;
 
         let value = (prob + 1) as u32;
         bit_count += if value < low_threshold as u32 {
             bits_to_write - 1
-        } else if value > mask {
-            bits_to_write
         } else {
             bits_to_write
         };

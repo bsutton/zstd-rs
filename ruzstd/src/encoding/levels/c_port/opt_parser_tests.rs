@@ -97,9 +97,9 @@ fn btultra_parser_emits_matches_for_structured_data() {
     for i in 0..2048u32 {
         use core::fmt::Write;
         let mut line = alloc::string::String::new();
-        write!(
+        writeln!(
             &mut line,
-            "route=/v1/pkg/{:04} status={:03} bytes={:04} tag={}{}{}{}\n",
+            "route=/v1/pkg/{:04} status={:03} bytes={:04} tag={}{}{}{}",
             i % 97,
             200 + (i % 17),
             1000 + (i % 311),

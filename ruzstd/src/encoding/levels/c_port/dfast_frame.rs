@@ -3,7 +3,6 @@
 use alloc::vec::Vec;
 
 use super::{
-    block_policy::BlockEncodingPolicy,
     c_frame_header::{write_frame_header, write_frame_header_no_dict},
     dfast::DFastMatchState,
     dfast_block::{
@@ -12,17 +11,10 @@ use super::{
     },
     dfast_dict::load_prefix,
     dictionary::ParsedDictionary,
+    frame_state::FrameBlockState,
     params::CompressionParameters,
-    pre_split::FrameProgress,
-    sequence_store::RepeatOffsets,
 };
-use crate::{
-    common::MAX_BLOCK_SIZE,
-    encoding::{
-        blocks::BlockCompressionConfig,
-        frame_compressor::{FseTables, OffsetHistory},
-    },
-};
+use crate::common::MAX_BLOCK_SIZE;
 
 pub(crate) fn encode_single_block_frame_double_fast_no_dict(src: &[u8], level: i32) -> Vec<u8> {
     debug_assert!(src.len() <= MAX_BLOCK_SIZE as usize);
@@ -33,24 +25,20 @@ pub(crate) fn encode_frame_double_fast_no_dict(src: &[u8], level: i32) -> Vec<u8
     let mut output = Vec::new();
     let params = CompressionParameters::for_level(level, src.len() as u64, 0);
     write_frame_header_no_dict(&mut output, src.len(), params);
-    let mut fse_tables = FseTables::new();
-    let mut offset_history = OffsetHistory::new();
+    let mut frame_state = FrameBlockState::new(params, output.len());
     let mut match_state = DFastMatchState::new();
-    let mut last_huff_table = None;
-    let mut repeat_offsets = RepeatOffsets::new();
-    let block_config = BlockCompressionConfig::for_c_strategy(params.strategy as u8);
 
     if src.is_empty() {
         let encoded_block = encode_block_double_fast_no_dict(
             src,
             true,
             params,
-            block_config,
-            repeat_offsets,
+            frame_state.block_config,
+            frame_state.repeat_offsets,
             DFastBlockEncodeContext {
                 previous_huff_table: None,
-                fse_tables: &mut fse_tables,
-                offset_history: &mut offset_history,
+                fse_tables: &mut frame_state.fse_tables,
+                offset_history: &mut frame_state.offset_history,
             },
         );
         output.extend_from_slice(&encoded_block.bytes);
@@ -58,15 +46,10 @@ pub(crate) fn encode_frame_double_fast_no_dict(src: &[u8], level: i32) -> Vec<u8
     }
 
     let mut block_start = 0;
-    let mut progress = FrameProgress::new(output.len());
     while block_start < src.len() {
-        let block_size = progress.next_block_size(&src[block_start..], params.strategy);
+        let block_size = frame_state.next_block_size(&src[block_start..], params.strategy);
         let block_end = block_start + block_size;
-        let policy = if block_start == 0 {
-            BlockEncodingPolicy::frame_first_block()
-        } else {
-            BlockEncodingPolicy::normal()
-        };
+        let policy = FrameBlockState::block_policy(block_start == 0);
         let encoded_block = encode_block_double_fast_no_dict_with_state_and_policy(
             DFastBlockSource {
                 src,
@@ -74,21 +57,22 @@ pub(crate) fn encode_frame_double_fast_no_dict(src: &[u8], level: i32) -> Vec<u8
             },
             block_end == src.len(),
             params,
-            block_config,
-            repeat_offsets,
+            frame_state.block_config,
+            frame_state.repeat_offsets,
             &mut match_state,
             DFastBlockEncodeContext {
-                previous_huff_table: last_huff_table.as_ref(),
-                fse_tables: &mut fse_tables,
-                offset_history: &mut offset_history,
+                previous_huff_table: frame_state.last_huff_table.as_ref(),
+                fse_tables: &mut frame_state.fse_tables,
+                offset_history: &mut frame_state.offset_history,
             },
             policy,
         );
-        repeat_offsets = encoded_block.repeat_offsets;
-        if let Some(new_huffman_table) = encoded_block.new_huffman_table {
-            last_huff_table = Some(new_huffman_table);
-        }
-        progress.record_block(block_size, encoded_block.bytes.len());
+        frame_state.record_encoded_block(
+            block_size,
+            encoded_block.bytes.len(),
+            encoded_block.repeat_offsets,
+            encoded_block.new_huffman_table,
+        );
         output.extend_from_slice(&encoded_block.bytes);
         block_start = block_end;
     }
@@ -110,27 +94,22 @@ pub(crate) fn encode_frame_double_fast_with_dictionary(
     let mut output = Vec::new();
     let dictionary_id = (dictionary.dict_id != 0).then_some(dictionary.dict_id);
     write_frame_header(&mut output, src.len(), params, dictionary_id);
+    let mut frame_state = FrameBlockState::with_dictionary(params, output.len(), &dictionary);
 
-    let mut fse_tables = dictionary.initial_fse_tables();
-    let offsets = dictionary.repeat_offsets.as_offsets();
-    let mut offset_history = OffsetHistory::from_offsets(offsets[0], offsets[1], offsets[2]);
     let mut match_state = DFastMatchState::new();
     load_prefix(&mut match_state, &combined, dict_len, params);
-    let mut last_huff_table = dictionary.initial_huffman_table();
-    let mut repeat_offsets = dictionary.repeat_offsets;
-    let block_config = BlockCompressionConfig::for_c_strategy(params.strategy as u8);
 
     if src.is_empty() {
         let encoded_block = encode_block_double_fast_no_dict(
             src,
             true,
             params,
-            block_config,
-            repeat_offsets,
+            frame_state.block_config,
+            frame_state.repeat_offsets,
             DFastBlockEncodeContext {
-                previous_huff_table: last_huff_table.as_ref(),
-                fse_tables: &mut fse_tables,
-                offset_history: &mut offset_history,
+                previous_huff_table: frame_state.last_huff_table.as_ref(),
+                fse_tables: &mut frame_state.fse_tables,
+                offset_history: &mut frame_state.offset_history,
             },
         );
         output.extend_from_slice(&encoded_block.bytes);
@@ -139,15 +118,11 @@ pub(crate) fn encode_frame_double_fast_with_dictionary(
 
     let mut block_start = dict_len;
     let src_end = combined.len();
-    let mut progress = FrameProgress::new(output.len());
     while block_start < src_end {
-        let block_size = progress.next_block_size(&combined[block_start..src_end], params.strategy);
+        let block_size =
+            frame_state.next_block_size(&combined[block_start..src_end], params.strategy);
         let block_end = block_start + block_size;
-        let policy = if block_start == dict_len {
-            BlockEncodingPolicy::frame_first_block()
-        } else {
-            BlockEncodingPolicy::normal()
-        };
+        let policy = FrameBlockState::block_policy(block_start == dict_len);
         let encoded_block = encode_block_double_fast_no_dict_with_state_and_policy(
             DFastBlockSource {
                 src: &combined,
@@ -155,21 +130,22 @@ pub(crate) fn encode_frame_double_fast_with_dictionary(
             },
             block_end == src_end,
             params,
-            block_config,
-            repeat_offsets,
+            frame_state.block_config,
+            frame_state.repeat_offsets,
             &mut match_state,
             DFastBlockEncodeContext {
-                previous_huff_table: last_huff_table.as_ref(),
-                fse_tables: &mut fse_tables,
-                offset_history: &mut offset_history,
+                previous_huff_table: frame_state.last_huff_table.as_ref(),
+                fse_tables: &mut frame_state.fse_tables,
+                offset_history: &mut frame_state.offset_history,
             },
             policy,
         );
-        repeat_offsets = encoded_block.repeat_offsets;
-        if let Some(new_huffman_table) = encoded_block.new_huffman_table {
-            last_huff_table = Some(new_huffman_table);
-        }
-        progress.record_block(block_size, encoded_block.bytes.len());
+        frame_state.record_encoded_block(
+            block_size,
+            encoded_block.bytes.len(),
+            encoded_block.repeat_offsets,
+            encoded_block.new_huffman_table,
+        );
         output.extend_from_slice(&encoded_block.bytes);
         block_start = block_end;
     }

@@ -16,6 +16,11 @@ Local C checkout:
   porting work.
 - `/tmp/facebook-zstd` is also present, but prefer `/tmp/zstd-reference` unless
   a deliberate comparison between checkouts is needed.
+- If `/tmp/zstd-reference` is unavailable in a fresh session, use the local
+  `zstd-sys` source matching `Cargo.lock`:
+  `/home/bsutton/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zstd-sys-2.0.16+zstd.1.5.7/zstd`.
+  Recreate `/tmp/zstd-reference` from the same upstream version before doing
+  broad line-by-line parity audits.
 
 Primary C references:
 

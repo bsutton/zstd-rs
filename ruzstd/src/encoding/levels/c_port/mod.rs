@@ -15,6 +15,7 @@ mod dictionary;
 mod fast;
 mod fast_block;
 mod fast_frame;
+mod frame_state;
 mod greedy;
 mod greedy_block;
 mod greedy_dict;
