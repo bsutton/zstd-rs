@@ -57,6 +57,7 @@ pub(crate) fn encode_frame_double_fast_no_dict(src: &[u8], level: i32) -> Vec<u8
             DFastBlockSource {
                 src,
                 block_range: block_start..block_end,
+                loaded_dict_end: 0,
             },
             block_end == src.len(),
             params,
@@ -128,6 +129,7 @@ pub(crate) fn encode_frame_double_fast_with_dictionary(
             DFastBlockSource {
                 src: &context.combined,
                 block_range: block_start..block_end,
+                loaded_dict_end: context.dict_len,
             },
             block_end == src_end,
             params,

@@ -3,10 +3,13 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
+use super::dfast_helpers::{
+    count_match, hash8_ptr, hash_small_ptr, lowest_prefix_index_with_loaded_dict, read32, read64,
+    store_match, HASH_READ_SIZE,
+};
 use super::params::CompressionParameters;
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 
-pub(super) const HASH_READ_SIZE: usize = 8;
 const SEARCH_STRENGTH: usize = 8;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -78,6 +81,24 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut DFastMatchState,
 ) -> DFastBlockOutput {
+    compress_block_double_fast_no_dict_with_state_and_loaded_dict(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        0,
+    )
+}
+
+pub(crate) fn compress_block_double_fast_no_dict_with_state_and_loaded_dict(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut DFastMatchState,
+    loaded_dict_end: usize,
+) -> DFastBlockOutput {
     match params.min_match {
         4 => compress_block_double_fast_no_dict_with_state_mls::<4>(
             src,
@@ -85,6 +106,7 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
             params,
             repeat_offsets,
             state,
+            loaded_dict_end,
         ),
         5 => compress_block_double_fast_no_dict_with_state_mls::<5>(
             src,
@@ -92,6 +114,7 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
             params,
             repeat_offsets,
             state,
+            loaded_dict_end,
         ),
         6 => compress_block_double_fast_no_dict_with_state_mls::<6>(
             src,
@@ -99,6 +122,7 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
             params,
             repeat_offsets,
             state,
+            loaded_dict_end,
         ),
         7 => compress_block_double_fast_no_dict_with_state_mls::<7>(
             src,
@@ -106,6 +130,7 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
             params,
             repeat_offsets,
             state,
+            loaded_dict_end,
         ),
         _ => compress_block_double_fast_no_dict_with_state_mls::<4>(
             src,
@@ -113,6 +138,7 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state(
             params,
             repeat_offsets,
             state,
+            loaded_dict_end,
         ),
     }
 }
@@ -123,6 +149,7 @@ fn compress_block_double_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
     params: CompressionParameters,
     repeat_offsets: RepeatOffsets,
     state: &mut DFastMatchState,
+    loaded_dict_end: usize,
 ) -> DFastBlockOutput {
     debug_assert!(block_range.start <= block_range.end);
     debug_assert!(block_range.end <= src.len());
@@ -146,7 +173,8 @@ fn compress_block_double_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
     let hash_small = &mut state.hash_small;
     let h_bits_l = params.hash_log;
     let h_bits_s = params.chain_log;
-    let prefix_lowest_index = lowest_prefix_index(block_end, params.window_log);
+    let prefix_lowest_index =
+        lowest_prefix_index_with_loaded_dict(block_end, params.window_log, loaded_dict_end);
     let ilimit = block_end - HASH_READ_SIZE;
 
     let mut anchor = block_start;
@@ -162,7 +190,8 @@ fn compress_block_double_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
     let mut offset_saved2 = 0_usize;
 
     let current = ip;
-    let window_low = lowest_prefix_index(current, params.window_log);
+    let window_low =
+        lowest_prefix_index_with_loaded_dict(current, params.window_log, loaded_dict_end);
     let max_rep = current - window_low;
     if offset_2 > max_rep {
         offset_saved2 = offset_2;
@@ -453,115 +482,4 @@ fn store_offset_match(
         OffBase::Offset(offset as u32),
         match_length,
     );
-}
-
-fn store_match(
-    sequences: &mut Vec<StoredSequence>,
-    anchor: &mut usize,
-    ip: &mut usize,
-    off_base: OffBase,
-    match_length: usize,
-) {
-    sequences.push(StoredSequence::new(
-        (*ip - *anchor) as u32,
-        off_base,
-        match_length as u32,
-    ));
-    *ip += match_length;
-    *anchor = *ip;
-}
-
-fn count_match(src: &[u8], mut pos: usize, mut match_pos: usize, match_limit: usize) -> usize {
-    let start = pos;
-    while pos < match_limit && match_pos < src.len() && src[pos] == src[match_pos] {
-        pos += 1;
-        match_pos += 1;
-    }
-    pos - start
-}
-
-fn lowest_prefix_index(end_index: usize, window_log: u32) -> usize {
-    let window_size = 1_usize << window_log;
-    end_index.saturating_sub(window_size)
-}
-
-fn hash8_ptr(src: &[u8], pos: usize, h_bits: u32) -> usize {
-    debug_assert!(h_bits <= 32);
-    debug_assert!(pos + HASH_READ_SIZE <= src.len());
-    hash8(read64(src, pos), h_bits)
-}
-
-fn hash_small_ptr<const MIN_MATCH: u32>(src: &[u8], pos: usize, h_bits: u32) -> usize {
-    debug_assert!(h_bits <= 32);
-    debug_assert!(pos + HASH_READ_SIZE <= src.len());
-
-    match MIN_MATCH {
-        5 => hash5(read64(src, pos), h_bits),
-        6 => hash6(read64(src, pos), h_bits),
-        7 => hash7(read64(src, pos), h_bits),
-        8 => hash8(read64(src, pos), h_bits),
-        _ => hash4(read32(src, pos), h_bits),
-    }
-}
-
-pub(super) fn hash_ptr(src: &[u8], pos: usize, h_bits: u32, min_match: u32) -> usize {
-    debug_assert!(h_bits <= 32);
-    debug_assert!(pos + HASH_READ_SIZE <= src.len());
-
-    match min_match {
-        5 => hash5(read64(src, pos), h_bits),
-        6 => hash6(read64(src, pos), h_bits),
-        7 => hash7(read64(src, pos), h_bits),
-        8 => hash8(read64(src, pos), h_bits),
-        _ => hash4(read32(src, pos), h_bits),
-    }
-}
-
-fn hash4(value: u32, h_bits: u32) -> usize {
-    const PRIME_4_BYTES: u32 = 2_654_435_761;
-    value.wrapping_mul(PRIME_4_BYTES).wrapping_shr(32 - h_bits) as usize
-}
-
-fn hash5(value: u64, h_bits: u32) -> usize {
-    const PRIME_5_BYTES: u64 = 889_523_592_379;
-    ((value << (64 - 40)).wrapping_mul(PRIME_5_BYTES) >> (64 - h_bits)) as usize
-}
-
-fn hash6(value: u64, h_bits: u32) -> usize {
-    const PRIME_6_BYTES: u64 = 227_718_039_650_203;
-    ((value << (64 - 48)).wrapping_mul(PRIME_6_BYTES) >> (64 - h_bits)) as usize
-}
-
-fn hash7(value: u64, h_bits: u32) -> usize {
-    const PRIME_7_BYTES: u64 = 58_295_818_150_454_627;
-    ((value << (64 - 56)).wrapping_mul(PRIME_7_BYTES) >> (64 - h_bits)) as usize
-}
-
-fn hash8(value: u64, h_bits: u32) -> usize {
-    const PRIME_8_BYTES: u64 = 0xCF1B_BCDC_B7A5_6463;
-    value.wrapping_mul(PRIME_8_BYTES).wrapping_shr(64 - h_bits) as usize
-}
-
-fn read32(src: &[u8], pos: usize) -> u32 {
-    debug_assert!(pos + 4 <= src.len());
-    // SAFETY: The C-port match finders only call read32() for positions that
-    // have already been bounded by the block/search limits. Unaligned loads are
-    // intentional here to mirror zstd's MEM_read32() hot path.
-    unsafe {
-        u32::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u32>(),
-        ))
-    }
-}
-
-fn read64(src: &[u8], pos: usize) -> u64 {
-    debug_assert!(pos + 8 <= src.len());
-    // SAFETY: The C-port match finders only call read64() for positions that
-    // have already been bounded by the block/search limits. Unaligned loads are
-    // intentional here to mirror zstd's MEM_read64() hot path.
-    unsafe {
-        u64::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u64>(),
-        ))
-    }
 }

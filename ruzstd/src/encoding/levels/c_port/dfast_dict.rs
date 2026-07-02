@@ -1,7 +1,8 @@
 //! Dictionary prefix loading for the double-fast match state.
 
 use super::{
-    dfast::{hash_ptr, DFastMatchState, HASH_READ_SIZE},
+    dfast::DFastMatchState,
+    dfast_helpers::{hash_ptr, HASH_READ_SIZE},
     params::CompressionParameters,
 };
 

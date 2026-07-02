@@ -13,6 +13,7 @@ mod dfast;
 mod dfast_block;
 mod dfast_dict;
 mod dfast_frame;
+mod dfast_helpers;
 mod dictionary;
 mod dictionary_frame;
 mod fast;
