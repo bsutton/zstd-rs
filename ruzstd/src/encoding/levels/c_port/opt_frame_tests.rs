@@ -34,6 +34,20 @@ fn btultra2_frame_with_dictionary_writes_dict_id_and_round_trips() {
     assert_dictionary_frame_round_trips(&encoded);
 }
 
+#[test]
+fn btultra2_dictionary_path_uses_btultra_block_compressor_like_c() {
+    let dict_bytes = full_dictionary_fixture();
+    let parsed = parse_dictionary(&dict_bytes, DictionaryContentType::Auto, false)
+        .unwrap()
+        .expect("full dictionary");
+    let data = dictionary_payload();
+
+    let btultra = encode_frame_btultra_with_dictionary(&data, 19, parsed.clone());
+    let btultra2 = encode_frame_btultra2_with_dictionary(&data, 19, parsed);
+
+    assert_eq!(btultra2, btultra);
+}
+
 fn encode_with_fixture_dictionary(
     level: i32,
     encode: fn(&[u8], i32, ParsedDictionary<'_>) -> Vec<u8>,

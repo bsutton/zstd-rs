@@ -64,7 +64,7 @@ pub(crate) fn encode_frame_btultra2_with_dictionary(
     level: i32,
     dictionary: ParsedDictionary<'_>,
 ) -> Vec<u8> {
-    encode_frame_opt_with_dictionary(src, level, dictionary, OptFrameStrategy::BtUltra2)
+    encode_frame_opt_with_dictionary(src, level, dictionary, OptFrameStrategy::BtUltra)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
