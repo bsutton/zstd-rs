@@ -23,6 +23,7 @@ mod greedy_dict;
 mod greedy_frame;
 mod greedy_state;
 mod hash_chain_match;
+mod ldm;
 mod match_count;
 mod opt_block;
 mod opt_dict;
@@ -54,6 +55,8 @@ mod fast_tests;
 mod greedy_frame_tests;
 #[cfg(test)]
 mod greedy_tests;
+#[cfg(test)]
+mod ldm_tests;
 #[cfg(test)]
 mod opt_frame_tests;
 #[cfg(test)]

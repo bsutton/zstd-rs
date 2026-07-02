@@ -91,6 +91,9 @@ impl CctxParameters {
             debug_assert!(self.ldm.hash_log > 0);
             debug_assert!(self.ldm.min_match_length > 0);
             debug_assert!(self.ldm.bucket_size_log > 0);
+            let gear = super::ldm::LdmRollingHashState::new(self.ldm);
+            debug_assert_eq!(gear.rolling(), u32::MAX as u64);
+            debug_assert!(gear.stop_mask() > 0 || self.ldm.hash_rate_log == 0);
         }
     }
 }
