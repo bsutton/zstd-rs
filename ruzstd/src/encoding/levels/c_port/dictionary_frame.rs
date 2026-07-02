@@ -49,6 +49,19 @@ impl DictionaryFrameContext {
     pub(crate) fn src_end(&self) -> usize {
         self.combined.len()
     }
+
+    pub(crate) fn loaded_dict_end_for_block(
+        &self,
+        block_end: usize,
+        params: super::params::CompressionParameters,
+    ) -> usize {
+        let window_size = 1_usize << params.window_log;
+        if block_end <= self.dict_len.saturating_add(window_size) {
+            self.dict_len
+        } else {
+            0
+        }
+    }
 }
 
 fn loaded_dictionary_content(params: super::params::CompressionParameters, dict: &[u8]) -> &[u8] {
@@ -64,6 +77,7 @@ fn loaded_dictionary_content(params: super::params::CompressionParameters, dict:
 mod tests {
     use super::*;
     use crate::encoding::levels::c_port::dictionary::{parse_dictionary, DictionaryContentType};
+    use alloc::vec;
 
     #[test]
     fn large_dictionary_loads_only_suffix_like_c() {
@@ -82,5 +96,25 @@ mod tests {
             &dictionary[dictionary.len() - context.dict_len..]
         );
         assert_eq!(&context.combined[context.dict_len..], b"payload");
+    }
+
+    #[test]
+    fn loaded_dictionary_expires_after_block_crosses_window_like_c() {
+        let dictionary = vec![b'a'; 4096];
+        let parsed = parse_dictionary(&dictionary, DictionaryContentType::Auto, false)
+            .unwrap()
+            .expect("raw dictionary");
+        let context = DictionaryFrameContext::new(&vec![b'b'; 4096], 1, parsed);
+        let params = context.cctx.compression;
+        let window_size = 1_usize << params.window_log;
+
+        assert_eq!(
+            context.loaded_dict_end_for_block(context.dict_len + window_size, params),
+            context.dict_len
+        );
+        assert_eq!(
+            context.loaded_dict_end_for_block(context.dict_len + window_size + 1, params),
+            0
+        );
     }
 }

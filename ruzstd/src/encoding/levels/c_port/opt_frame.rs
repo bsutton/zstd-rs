@@ -284,13 +284,14 @@ fn encode_frame_opt_with_dictionary(
 
         let mut ldm_cursor =
             ldm_store.map(|store| LdmOptCursor::from_store_for_block(store, block_size as u32));
+        let loaded_dict_end = context.loaded_dict_end_for_block(block_end, params);
 
         let encoded_block = encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
             GreedyExtDictBlockSource {
                 src: &context.combined,
                 block_range: block_start..block_end,
                 dict_limit: context.dict_len,
-                loaded_dict_end: context.dict_len,
+                loaded_dict_end,
             },
             block_end == src_end,
             params,
