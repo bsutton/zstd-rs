@@ -11,6 +11,7 @@ use super::dfast::{
     compress_block_double_fast_no_dict_with_state_and_loaded_dict, DFastBlockOutput,
     DFastMatchState,
 };
+use super::dfast_ext::compress_block_double_fast_ext_dict_with_state;
 use super::params::CompressionParameters;
 use super::sequence_store::RepeatOffsets;
 use crate::{
@@ -45,6 +46,13 @@ pub(crate) struct DFastBlockEncodeContext<'a, 'table> {
 pub(crate) struct DFastBlockSource<'a> {
     pub(crate) src: &'a [u8],
     pub(crate) block_range: Range<usize>,
+    pub(crate) loaded_dict_end: usize,
+}
+
+pub(crate) struct DFastExtDictBlockSource<'a> {
+    pub(crate) src: &'a [u8],
+    pub(crate) block_range: Range<usize>,
+    pub(crate) dict_limit: usize,
     pub(crate) loaded_dict_end: usize,
 }
 
@@ -95,6 +103,30 @@ pub(crate) fn prepare_block_double_fast_no_dict_with_state_and_loaded_dict(
         repeat_offsets,
         state,
         loaded_dict_end,
+    );
+    let prepared = prepare_from_dfast_output(block, repeat_offsets, &output);
+
+    DFastPreparedBlock {
+        prepared,
+        repeat_offsets: output.repeat_offsets,
+    }
+}
+
+pub(crate) fn prepare_block_double_fast_ext_dict_with_state(
+    source: DFastExtDictBlockSource<'_>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut DFastMatchState,
+) -> DFastPreparedBlock {
+    let block = &source.src[source.block_range.clone()];
+    let output = compress_block_double_fast_ext_dict_with_state(
+        source.src,
+        source.block_range,
+        source.dict_limit,
+        params,
+        repeat_offsets,
+        state,
+        source.loaded_dict_end,
     );
     let prepared = prepare_from_dfast_output(block, repeat_offsets, &output);
 
@@ -208,6 +240,44 @@ pub(crate) fn encode_block_double_fast_no_dict_with_state_and_policy(
         match_state,
         source.loaded_dict_end,
     );
+    encode_prepared_block(
+        block,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        prepared,
+        previous_fse,
+        previous_offsets,
+        context,
+        bytes,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_double_fast_ext_dict_with_state_and_policy(
+    source: DFastExtDictBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut DFastMatchState,
+    context: DFastBlockEncodeContext<'_, '_>,
+    policy: BlockEncodingPolicy,
+) -> DFastEncodedBlock {
+    let block = &source.src[source.block_range.clone()];
+    let mut bytes = Vec::new();
+
+    if let Some(encoded) =
+        encode_special_block(block, last_block, repeat_offsets, policy, &mut bytes)
+    {
+        return encoded;
+    }
+
+    let previous_fse = context.fse_tables.snapshot_previous();
+    let previous_offsets = *context.offset_history;
+    let prepared =
+        prepare_block_double_fast_ext_dict_with_state(source, params, repeat_offsets, match_state);
     encode_prepared_block(
         block,
         last_block,

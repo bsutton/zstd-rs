@@ -12,6 +12,7 @@ mod cctx_params;
 mod dfast;
 mod dfast_block;
 mod dfast_dict;
+mod dfast_ext;
 mod dfast_frame;
 mod dfast_helpers;
 mod dictionary;
@@ -53,6 +54,8 @@ pub(crate) use dictionary::DictionaryParseError;
 
 #[cfg(test)]
 mod cctx_params_tests;
+#[cfg(test)]
+mod dfast_ext_tests;
 #[cfg(test)]
 mod dfast_tests;
 #[cfg(test)]

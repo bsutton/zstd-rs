@@ -7,8 +7,9 @@ use super::{
     cctx_params::CctxParameters,
     dfast::DFastMatchState,
     dfast_block::{
-        encode_block_double_fast_no_dict, encode_block_double_fast_no_dict_with_state_and_policy,
-        DFastBlockEncodeContext, DFastBlockSource,
+        encode_block_double_fast_ext_dict_with_state_and_policy, encode_block_double_fast_no_dict,
+        encode_block_double_fast_no_dict_with_state_and_policy, DFastBlockEncodeContext,
+        DFastBlockSource, DFastExtDictBlockSource,
     },
     dfast_dict::load_prefix,
     dictionary::ParsedDictionary,
@@ -125,10 +126,11 @@ pub(crate) fn encode_frame_double_fast_with_dictionary(
             .next_block_size(&context.combined[block_start..src_end], params.strategy);
         let block_end = block_start + block_size;
         let policy = FrameBlockState::block_policy(block_start == context.dict_len);
-        let encoded_block = encode_block_double_fast_no_dict_with_state_and_policy(
-            DFastBlockSource {
+        let encoded_block = encode_block_double_fast_ext_dict_with_state_and_policy(
+            DFastExtDictBlockSource {
                 src: &context.combined,
                 block_range: block_start..block_end,
+                dict_limit: context.dict_len,
                 loaded_dict_end: context.dict_len,
             },
             block_end == src_end,
