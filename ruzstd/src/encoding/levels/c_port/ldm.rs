@@ -2,6 +2,7 @@
 
 use super::cctx_params::LdmParameters;
 
+pub(crate) mod opt;
 pub(crate) mod sequence;
 mod table;
 

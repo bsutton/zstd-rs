@@ -1,11 +1,13 @@
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 use super::{
     cctx_params::{CctxParameters, LdmParameters, ParamSwitch},
     ldm::{
+        opt::{LdmOptCursor, LdmRawSeqStore},
         sequence::{generate_sequences_no_dict, LdmRawSequence},
         LdmEntry, LdmHashTable, LdmRollingHashState, LDM_BATCH_SIZE,
     },
+    opt_match::OptMatch,
 };
 
 fn small_ldm_params() -> LdmParameters {
@@ -210,6 +212,117 @@ fn ldm_no_dict_sequence_generation_matches_c_vector() {
                 offset: 264,
                 lit_length: 0,
                 match_length: 248,
+            },
+        ]
+    );
+}
+
+#[test]
+fn ldm_raw_seq_store_skips_bytes_like_c_opt_ldm() {
+    let sequences = [
+        LdmRawSequence {
+            offset: 10,
+            lit_length: 3,
+            match_length: 5,
+        },
+        LdmRawSequence {
+            offset: 20,
+            lit_length: 2,
+            match_length: 4,
+        },
+    ];
+    let mut store = LdmRawSeqStore::new(&sequences);
+
+    store.skip_bytes(2);
+    assert_eq!(store.position(), (0, 2));
+
+    store.skip_bytes(1);
+    assert_eq!(store.position(), (0, 3));
+
+    store.skip_bytes(5);
+    assert_eq!(store.position(), (1, 0));
+
+    store.skip_bytes(3);
+    assert_eq!(store.position(), (1, 3));
+
+    store.skip_bytes(3);
+    assert_eq!(store.position(), (2, 0));
+}
+
+#[test]
+fn ldm_opt_cursor_exposes_current_match_like_c() {
+    let sequences = [LdmRawSequence {
+        offset: 100,
+        lit_length: 4,
+        match_length: 10,
+    }];
+    let cursor = LdmOptCursor::new(&sequences, 20);
+
+    assert_eq!(cursor.current_match(), Some((4, 14, 100)));
+    assert_eq!(cursor.seq_store_position(), (1, 0));
+}
+
+#[test]
+fn ldm_opt_cursor_truncates_match_at_block_end_like_c() {
+    let sequences = [LdmRawSequence {
+        offset: 100,
+        lit_length: 2,
+        match_length: 10,
+    }];
+    let mut cursor = LdmOptCursor::new(&sequences, 6);
+    let mut matches = Vec::new();
+
+    assert_eq!(cursor.current_match(), Some((2, 6, 100)));
+    assert_eq!(cursor.seq_store_position(), (0, 6));
+
+    cursor.process_match_candidate(&mut matches, 2, 4, 4);
+
+    assert_eq!(
+        matches,
+        [OptMatch {
+            off_base: 103,
+            len: 4,
+        }]
+    );
+}
+
+#[test]
+fn ldm_opt_cursor_adds_candidates_only_when_ordered_like_c() {
+    let sequences = [LdmRawSequence {
+        offset: 100,
+        lit_length: 4,
+        match_length: 10,
+    }];
+    let mut cursor = LdmOptCursor::new(&sequences, 20);
+    let mut matches = Vec::new();
+
+    cursor.process_match_candidate(&mut matches, 4, 16, 4);
+    cursor.process_match_candidate(&mut matches, 8, 12, 4);
+
+    assert_eq!(
+        matches,
+        [OptMatch {
+            off_base: 103,
+            len: 10,
+        }]
+    );
+
+    let mut shorter_existing = vec![OptMatch {
+        off_base: 7,
+        len: 5,
+    }];
+    cursor.process_match_candidate(&mut shorter_existing, 8, 12, 4);
+
+    assert_eq!(
+        shorter_existing,
+        [
+            OptMatch {
+                off_base: 7,
+                len: 5,
+            },
+            OptMatch {
+                off_base: 103,
+                len: 6,
             },
         ]
     );
