@@ -4,10 +4,10 @@ use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::bt_match::bt_find_best_match;
+use super::greedy_bounds::LazyDictionaryBounds;
 pub(crate) use super::greedy_state::GreedyMatchState;
 use super::hash_chain_match::{
-    count_match, hc_find_best_match, highbit32, lowest_prefix_index_with_loaded_dict, read32,
-    MatchSearchConfig,
+    hc_find_best_match, highbit32, lowest_prefix_index_with_loaded_dict, MatchSearchConfig,
 };
 use super::params::CompressionParameters;
 use super::row_match::{fill_hash_cache, row_find_best_match, row_match_finder_enabled};
@@ -25,9 +25,9 @@ pub(crate) struct GreedyBlockOutput {
     pub(crate) repeat_offsets: RepeatOffsets,
 }
 
-const SEARCH_HASH_CHAIN: u8 = 0;
-const SEARCH_BINARY_TREE: u8 = 1;
-const SEARCH_ROW_HASH: u8 = 2;
+pub(super) const SEARCH_HASH_CHAIN: u8 = 0;
+pub(super) const SEARCH_BINARY_TREE: u8 = 1;
+pub(super) const SEARCH_ROW_HASH: u8 = 2;
 
 struct LazySearchContext<'a> {
     src: &'a [u8],
@@ -248,8 +248,30 @@ fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
     depth: u32,
     loaded_dict_end: usize,
 ) -> GreedyBlockOutput {
+    let bounds = LazyDictionaryBounds::no_dict(block_range.end, params, loaded_dict_end);
+    compress_block_lazy_generic_with_state::<SEARCH>(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        depth,
+        bounds,
+    )
+}
+
+pub(super) fn compress_block_lazy_generic_with_state<const SEARCH: u8>(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut GreedyMatchState,
+    depth: u32,
+    bounds: LazyDictionaryBounds,
+) -> GreedyBlockOutput {
     debug_assert!(block_range.start <= block_range.end);
     debug_assert!(block_range.end <= src.len());
+    debug_assert!(!bounds.ext_dict || bounds.dict_limit <= block_range.start);
 
     let mut rep = repeat_offsets.as_offsets();
     let mut sequences = Vec::new();
@@ -271,16 +293,14 @@ fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
     state.lazy_skipping = false;
 
     let min_match = params.min_match.clamp(4, 6);
-    let search_config = MatchSearchConfig::new(params, min_match, loaded_dict_end);
-    let prefix_lowest =
-        lowest_prefix_index_with_loaded_dict(block_end, params.window_log, loaded_dict_end);
+    let search_config = MatchSearchConfig::new(params, min_match, bounds.loaded_dict_end);
     let ilimit = block_end - search_read_size;
     let search_context = LazySearchContext {
         src,
         block_end,
         config: search_config,
     };
-    let mut ip = block_start + usize::from(block_start == prefix_lowest);
+    let mut ip = block_start + usize::from(block_start == bounds.prefix_start_index);
     if SEARCH == SEARCH_ROW_HASH {
         fill_hash_cache(src, state.next_to_update, ilimit, params, min_match, state);
     }
@@ -291,15 +311,18 @@ fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
     let mut offset_saved1 = 0_usize;
     let mut offset_saved2 = 0_usize;
 
-    let window_low = lowest_prefix_index_with_loaded_dict(ip, params.window_log, loaded_dict_end);
-    let max_rep = ip - window_low;
-    if offset_2 > max_rep {
-        offset_saved2 = offset_2;
-        offset_2 = 0;
-    }
-    if offset_1 > max_rep {
-        offset_saved1 = offset_1;
-        offset_1 = 0;
+    if !bounds.ext_dict {
+        let window_low =
+            lowest_prefix_index_with_loaded_dict(ip, params.window_log, bounds.loaded_dict_end);
+        let max_rep = ip - window_low;
+        if offset_2 > max_rep {
+            offset_saved2 = offset_2;
+            offset_2 = 0;
+        }
+        if offset_1 > max_rep {
+            offset_saved1 = offset_1;
+            offset_1 = 0;
+        }
     }
 
     while ip < ilimit {
@@ -307,11 +330,8 @@ fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
         let mut off_base = OffBase::Repeat(RepeatCode::First).to_c_value();
         let mut start = ip + 1;
 
-        if offset_1 > 0
-            && ip + 1 >= offset_1
-            && read32(src, ip + 1 - offset_1) == read32(src, ip + 1)
-        {
-            match_length = count_match(src, ip + 1 + 4, ip + 1 + 4 - offset_1, block_end) + 4;
+        if let Some(length) = bounds.rep_match_length(src, ip + 1, offset_1, params, block_end) {
+            match_length = length;
             if depth == 0 {
                 store_sequence(
                     &mut sequences,
@@ -330,6 +350,8 @@ fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
                     block_end,
                     &mut offset_1,
                     &mut offset_2,
+                    params,
+                    bounds,
                 );
                 continue;
             }
@@ -353,12 +375,10 @@ fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
         if depth >= 1 {
             loop {
                 ip += 1;
-                if off_base != 0
-                    && offset_1 > 0
-                    && ip >= offset_1
-                    && read32(src, ip) == read32(src, ip - offset_1)
-                {
-                    let ml_rep = count_match(src, ip + 4, ip + 4 - offset_1, block_end) + 4;
+                if off_base != 0 {
+                    let ml_rep = bounds
+                        .rep_match_length(src, ip, offset_1, params, block_end)
+                        .unwrap_or(0);
                     let gain2 = (ml_rep * 3) as i32;
                     let gain1 = (match_length * 3) as i32 - highbit32(off_base) as i32 + 1;
                     if ml_rep >= 4 && gain2 > gain1 {
@@ -383,12 +403,10 @@ fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
 
                 if depth == 2 && ip < ilimit {
                     ip += 1;
-                    if off_base != 0
-                        && offset_1 > 0
-                        && ip >= offset_1
-                        && read32(src, ip) == read32(src, ip - offset_1)
-                    {
-                        let ml_rep = count_match(src, ip + 4, ip + 4 - offset_1, block_end) + 4;
+                    if off_base != 0 {
+                        let ml_rep = bounds
+                            .rep_match_length(src, ip, offset_1, params, block_end)
+                            .unwrap_or(0);
                         let gain2 = (ml_rep * 4) as i32;
                         let gain1 = (match_length * 4) as i32 - highbit32(off_base) as i32 + 1;
                         if ml_rep >= 4 && gain2 > gain1 {
@@ -419,11 +437,11 @@ fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
         let off_base = OffBase::from_c_value(off_base).expect("stored match has an offBase");
         if let OffBase::Offset(offset) = off_base {
             let offset = offset as usize;
-            while start > anchor
-                && start - offset > prefix_lowest
-                && src[start - 1] == src[start - offset - 1]
-            {
+            let mut match_pos = start - offset;
+            let low_match = bounds.low_match_index(match_pos);
+            while start > anchor && match_pos > low_match && src[start - 1] == src[match_pos - 1] {
                 start -= 1;
+                match_pos -= 1;
                 match_length += 1;
             }
             offset_2 = offset_1;
@@ -452,23 +470,30 @@ fn compress_block_lazy_generic_no_dict_with_state<const SEARCH: u8>(
             block_end,
             &mut offset_1,
             &mut offset_2,
+            params,
+            bounds,
         );
     }
 
-    if offset_saved1 != 0 && offset_1 != 0 {
-        offset_saved2 = offset_saved1;
-    }
+    if bounds.ext_dict {
+        rep[0] = offset_1 as u32;
+        rep[1] = offset_2 as u32;
+    } else {
+        if offset_saved1 != 0 && offset_1 != 0 {
+            offset_saved2 = offset_saved1;
+        }
 
-    rep[0] = if offset_1 != 0 {
-        offset_1
-    } else {
-        offset_saved1
-    } as u32;
-    rep[1] = if offset_2 != 0 {
-        offset_2
-    } else {
-        offset_saved2
-    } as u32;
+        rep[0] = if offset_1 != 0 {
+            offset_1
+        } else {
+            offset_saved1
+        } as u32;
+        rep[1] = if offset_2 != 0 {
+            offset_2
+        } else {
+            offset_saved2
+        } as u32;
+    }
 
     GreedyBlockOutput {
         sequences,
@@ -530,9 +555,14 @@ fn continue_immediate_repcodes(
     block_end: usize,
     offset_1: &mut usize,
     offset_2: &mut usize,
+    params: CompressionParameters,
+    bounds: LazyDictionaryBounds,
 ) {
-    while *ip <= ilimit && *offset_2 > 0 && read32(src, *ip) == read32(src, *ip - *offset_2) {
-        let repeat_length = count_match(src, *ip + 4, *ip + 4 - *offset_2, block_end) + 4;
+    while *ip <= ilimit {
+        let Some(repeat_length) = bounds.rep_match_length(src, *ip, *offset_2, params, block_end)
+        else {
+            break;
+        };
         core::mem::swap(offset_2, offset_1);
         let repeat_start = *anchor;
         store_sequence(

@@ -25,7 +25,10 @@ mod fast_helpers;
 mod frame_state;
 mod greedy;
 mod greedy_block;
+mod greedy_bounds;
 mod greedy_dict;
+mod greedy_ext;
+mod greedy_ext_block;
 mod greedy_frame;
 mod greedy_state;
 mod hash_chain_match;
@@ -62,6 +65,8 @@ mod dfast_tests;
 mod fast_ext_tests;
 #[cfg(test)]
 mod fast_tests;
+#[cfg(test)]
+mod greedy_ext_tests;
 #[cfg(test)]
 mod greedy_frame_tests;
 #[cfg(test)]
