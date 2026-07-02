@@ -3,9 +3,10 @@
 use alloc::vec::Vec;
 
 use super::{
-    c_frame_header::{write_frame_header, write_frame_header_no_dict},
+    c_frame_header::write_frame_header_no_dict,
     cctx_params::CctxParameters,
     dictionary::ParsedDictionary,
+    dictionary_frame::DictionaryFrameContext,
     fast::FastMatchState,
     fast_block::{
         encode_block_fast_no_dict, encode_block_fast_no_dict_with_state_and_policy,
@@ -86,72 +87,63 @@ pub(crate) fn encode_frame_fast_with_dictionary(
     level: i32,
     dictionary: ParsedDictionary<'_>,
 ) -> Vec<u8> {
-    let mut combined = Vec::with_capacity(dictionary.content.len() + src.len());
-    combined.extend_from_slice(dictionary.content);
-    combined.extend_from_slice(src);
-
-    let dict_len = dictionary.content.len();
-    let cctx = CctxParameters::for_level(level, src.len() as u64, dict_len);
-    cctx.assert_resolved();
-    let params = cctx.compression;
-    let mut output = Vec::new();
-    let dictionary_id = (dictionary.dict_id != 0).then_some(dictionary.dict_id);
-    write_frame_header(&mut output, src.len(), params, dictionary_id);
-    let mut frame_state = FrameBlockState::with_dictionary(params, output.len(), &dictionary);
+    let mut context = DictionaryFrameContext::new(src, level, dictionary);
+    let params = context.cctx.compression;
 
     let mut match_state = FastMatchState::new();
-    match_state.load_prefix(&combined, dict_len, params);
+    match_state.load_prefix(&context.combined, context.dict_len, params);
 
     if src.is_empty() {
         let encoded_block = encode_block_fast_no_dict(
             src,
             true,
             params,
-            frame_state.block_config,
-            frame_state.repeat_offsets,
+            context.frame_state.block_config,
+            context.frame_state.repeat_offsets,
             FastBlockEncodeContext {
-                previous_huff_table: frame_state.last_huff_table.as_ref(),
-                fse_tables: &mut frame_state.fse_tables,
-                offset_history: &mut frame_state.offset_history,
+                previous_huff_table: context.frame_state.last_huff_table.as_ref(),
+                fse_tables: &mut context.frame_state.fse_tables,
+                offset_history: &mut context.frame_state.offset_history,
             },
         );
-        output.extend_from_slice(&encoded_block.bytes);
-        return output;
+        context.output.extend_from_slice(&encoded_block.bytes);
+        return context.output;
     }
 
-    let mut block_start = dict_len;
-    let src_end = combined.len();
+    let mut block_start = context.dict_len;
+    let src_end = context.src_end();
     while block_start < src_end {
-        let block_size =
-            frame_state.next_block_size(&combined[block_start..src_end], params.strategy);
+        let block_size = context
+            .frame_state
+            .next_block_size(&context.combined[block_start..src_end], params.strategy);
         let block_end = block_start + block_size;
-        let policy = FrameBlockState::block_policy(block_start == dict_len);
+        let policy = FrameBlockState::block_policy(block_start == context.dict_len);
         let encoded_block = encode_block_fast_no_dict_with_state_and_policy(
             FastBlockSource {
-                src: &combined,
+                src: &context.combined,
                 block_range: block_start..block_end,
             },
             block_end == src_end,
             params,
-            frame_state.block_config,
-            frame_state.repeat_offsets,
+            context.frame_state.block_config,
+            context.frame_state.repeat_offsets,
             &mut match_state,
             FastBlockEncodeContext {
-                previous_huff_table: frame_state.last_huff_table.as_ref(),
-                fse_tables: &mut frame_state.fse_tables,
-                offset_history: &mut frame_state.offset_history,
+                previous_huff_table: context.frame_state.last_huff_table.as_ref(),
+                fse_tables: &mut context.frame_state.fse_tables,
+                offset_history: &mut context.frame_state.offset_history,
             },
             policy,
         );
-        frame_state.record_encoded_block(
+        context.frame_state.record_encoded_block(
             block_size,
             encoded_block.bytes.len(),
             encoded_block.repeat_offsets,
             encoded_block.new_huffman_table,
         );
-        output.extend_from_slice(&encoded_block.bytes);
+        context.output.extend_from_slice(&encoded_block.bytes);
         block_start = block_end;
     }
 
-    output
+    context.output
 }

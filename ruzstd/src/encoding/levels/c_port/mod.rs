@@ -14,6 +14,7 @@ mod dfast_block;
 mod dfast_dict;
 mod dfast_frame;
 mod dictionary;
+mod dictionary_frame;
 mod fast;
 mod fast_block;
 mod fast_frame;

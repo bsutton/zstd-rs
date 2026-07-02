@@ -5,9 +5,10 @@ use alloc::vec::Vec;
 use super::{
     block_compressor::{select_block_compressor, DictionaryMode},
     block_policy::BlockEncodingPolicy,
-    c_frame_header::{write_frame_header, write_frame_header_no_dict},
+    c_frame_header::write_frame_header_no_dict,
     cctx_params::{CctxParameters, ParamSwitch},
     dictionary::ParsedDictionary,
+    dictionary_frame::DictionaryFrameContext,
     frame_state::FrameBlockState,
     greedy_block::{GreedyBlockEncodeContext, GreedyBlockSource},
     ldm::{
@@ -195,22 +196,21 @@ fn encode_frame_opt_with_dictionary(
     dictionary: ParsedDictionary<'_>,
     strategy: OptFrameStrategy,
 ) -> Vec<u8> {
-    let mut combined = Vec::with_capacity(dictionary.content.len() + src.len());
-    combined.extend_from_slice(dictionary.content);
-    combined.extend_from_slice(src);
-
-    let dict_len = dictionary.content.len();
-    let cctx = CctxParameters::for_level(level, src.len() as u64, dict_len);
-    cctx.assert_resolved();
-    let params = cctx.compression;
-    let post_block_splitter = cctx.post_block_splitter == ParamSwitch::Enable;
-    let ldm_sequences = if cctx.ldm.enable_ldm == ParamSwitch::Enable {
-        let mut ldm_table = LdmHashTable::new(cctx.ldm);
-        fill_prefix_hash_table(&combined, 0..dict_len, cctx.ldm, &mut ldm_table);
+    let mut context = DictionaryFrameContext::new(src, level, dictionary);
+    let params = context.cctx.compression;
+    let post_block_splitter = context.cctx.post_block_splitter == ParamSwitch::Enable;
+    let ldm_sequences = if context.cctx.ldm.enable_ldm == ParamSwitch::Enable {
+        let mut ldm_table = LdmHashTable::new(context.cctx.ldm);
+        fill_prefix_hash_table(
+            &context.combined,
+            0..context.dict_len,
+            context.cctx.ldm,
+            &mut ldm_table,
+        );
         Some(generate_sequences_with_prefix(
-            &combined,
-            dict_len..combined.len(),
-            cctx.ldm,
+            &context.combined,
+            context.dict_len..context.combined.len(),
+            context.cctx.ldm,
             &mut ldm_table,
         ))
     } else {
@@ -219,14 +219,10 @@ fn encode_frame_opt_with_dictionary(
     let mut ldm_store = ldm_sequences
         .as_ref()
         .map(|result| LdmRawSeqStore::new(&result.sequences));
-    let mut output = Vec::new();
-    let dictionary_id = (dictionary.dict_id != 0).then_some(dictionary.dict_id);
-    write_frame_header(&mut output, src.len(), params, dictionary_id);
-    let mut frame_state = FrameBlockState::with_dictionary(params, output.len(), &dictionary);
 
     let mut opt_state = OptBlockState::new();
     opt_state.reset_for_frame(params);
-    load_prefix(&mut opt_state, &combined, dict_len, params);
+    load_prefix(&mut opt_state, &context.combined, context.dict_len, params);
 
     if src.is_empty() {
         let encoded_block = encode_block_opt_no_dict_with_state(
@@ -236,34 +232,40 @@ fn encode_frame_opt_with_dictionary(
             },
             true,
             params,
-            frame_state.block_config,
-            frame_state.repeat_offsets,
+            context.frame_state.block_config,
+            context.frame_state.repeat_offsets,
             &mut opt_state,
             GreedyBlockEncodeContext {
-                previous_huff_table: frame_state.last_huff_table.as_ref(),
-                fse_tables: &mut frame_state.fse_tables,
-                offset_history: &mut frame_state.offset_history,
+                previous_huff_table: context.frame_state.last_huff_table.as_ref(),
+                fse_tables: &mut context.frame_state.fse_tables,
+                offset_history: &mut context.frame_state.offset_history,
             },
             strategy,
             post_block_splitter,
             FrameBlockState::block_policy(true),
             None,
         );
-        output.extend_from_slice(&encoded_block.bytes);
-        return output;
+        context.output.extend_from_slice(&encoded_block.bytes);
+        return context.output;
     }
 
-    let mut block_start = dict_len;
-    let src_end = combined.len();
+    let mut block_start = context.dict_len;
+    let src_end = context.src_end();
     while block_start < src_end {
-        let block_size =
-            frame_state.next_block_size(&combined[block_start..src_end], params.strategy);
+        let block_size = context
+            .frame_state
+            .next_block_size(&context.combined[block_start..src_end], params.strategy);
         let block_end = block_start + block_size;
-        if block_start == dict_len
+        if block_start == context.dict_len
             && strategy == OptFrameStrategy::BtUltra2
-            && combined[block_start..block_end].len() > ZSTD_PREDEF_THRESHOLD
+            && context.combined[block_start..block_end].len() > ZSTD_PREDEF_THRESHOLD
         {
-            prime_btultra2_stats_no_dict(&combined, block_start..block_end, params, &mut opt_state);
+            prime_btultra2_stats_no_dict(
+                &context.combined,
+                block_start..block_end,
+                params,
+                &mut opt_state,
+            );
         }
 
         let mut ldm_cursor =
@@ -271,38 +273,38 @@ fn encode_frame_opt_with_dictionary(
 
         let encoded_block = encode_block_opt_no_dict_with_state(
             GreedyBlockSource {
-                src: &combined,
+                src: &context.combined,
                 block_range: block_start..block_end,
             },
             block_end == src_end,
             params,
-            frame_state.block_config,
-            frame_state.repeat_offsets,
+            context.frame_state.block_config,
+            context.frame_state.repeat_offsets,
             &mut opt_state,
             GreedyBlockEncodeContext {
-                previous_huff_table: frame_state.last_huff_table.as_ref(),
-                fse_tables: &mut frame_state.fse_tables,
-                offset_history: &mut frame_state.offset_history,
+                previous_huff_table: context.frame_state.last_huff_table.as_ref(),
+                fse_tables: &mut context.frame_state.fse_tables,
+                offset_history: &mut context.frame_state.offset_history,
             },
             strategy,
             post_block_splitter,
-            FrameBlockState::block_policy(block_start == dict_len),
+            FrameBlockState::block_policy(block_start == context.dict_len),
             ldm_cursor.as_mut(),
         );
         if let Some(store) = ldm_store.as_mut() {
             store.skip_bytes(block_size as u32);
         }
-        frame_state.record_encoded_block(
+        context.frame_state.record_encoded_block(
             block_size,
             encoded_block.bytes.len(),
             encoded_block.repeat_offsets,
             encoded_block.new_huffman_table,
         );
-        output.extend_from_slice(&encoded_block.bytes);
+        context.output.extend_from_slice(&encoded_block.bytes);
         block_start = block_end;
     }
 
-    output
+    context.output
 }
 
 #[allow(clippy::too_many_arguments)]
