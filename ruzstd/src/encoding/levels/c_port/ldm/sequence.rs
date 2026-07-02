@@ -25,7 +25,7 @@ pub(crate) fn generate_sequences_no_dict(
     params: LdmParameters,
     table: &mut LdmHashTable,
 ) -> LdmSequenceResult {
-    generate_sequences_in_range(src, 0..src.len(), 0, 0, params, table)
+    generate_sequences_in_range(src, 0..src.len(), 0, 0, 0, params, table)
 }
 
 pub(crate) fn fill_prefix_hash_table(
@@ -80,7 +80,7 @@ pub(crate) fn generate_sequences_with_prefix(
     table: &mut LdmHashTable,
 ) -> LdmSequenceResult {
     let dict_limit = source_range.start;
-    generate_sequences_in_range(src, source_range, 0, dict_limit, params, table)
+    generate_sequences_in_range(src, source_range, 0, dict_limit, dict_limit, params, table)
 }
 
 fn generate_sequences_in_range(
@@ -88,6 +88,7 @@ fn generate_sequences_in_range(
     source_range: Range<usize>,
     dict_low_limit: usize,
     dict_limit: usize,
+    loaded_dict_end: usize,
     params: LdmParameters,
     table: &mut LdmHashTable,
 ) -> LdmSequenceResult {
@@ -101,11 +102,18 @@ fn generate_sequences_in_range(
     let mut chunk_start = source_range.start;
     while chunk_start < source_range.end {
         let chunk_end = (chunk_start + LDM_MAX_CHUNK_SIZE).min(source_range.end);
+        let (chunk_dict_low_limit, chunk_dict_limit) = enforce_max_distance(
+            dict_low_limit,
+            dict_limit,
+            loaded_dict_end,
+            params,
+            chunk_end,
+        );
         let chunk_result = generate_sequences_in_chunk(
             src,
             chunk_start..chunk_end,
-            dict_low_limit,
-            dict_limit,
+            chunk_dict_low_limit,
+            chunk_dict_limit,
             params,
             table,
         );
@@ -126,6 +134,23 @@ fn generate_sequences_in_range(
         sequences,
         last_literals,
     }
+}
+
+fn enforce_max_distance(
+    dict_low_limit: usize,
+    dict_limit: usize,
+    loaded_dict_end: usize,
+    params: LdmParameters,
+    chunk_end: usize,
+) -> (usize, usize) {
+    let max_distance = 1_usize << params.window_log;
+    if chunk_end <= max_distance.saturating_add(loaded_dict_end) {
+        return (dict_low_limit, dict_limit);
+    }
+
+    let low_limit = dict_low_limit.max(chunk_end - max_distance);
+    let dict_limit = dict_limit.max(low_limit);
+    (low_limit, dict_limit)
 }
 
 fn generate_sequences_in_chunk(

@@ -59,6 +59,8 @@ mod greedy_tests;
 #[cfg(test)]
 mod ldm_tests;
 #[cfg(test)]
+mod ldm_window_tests;
+#[cfg(test)]
 mod opt_frame_tests;
 #[cfg(test)]
 mod opt_match_tests;
