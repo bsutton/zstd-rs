@@ -18,6 +18,7 @@ mod dictionary_frame;
 mod fast;
 mod fast_block;
 mod fast_frame;
+mod fast_helpers;
 mod frame_state;
 mod greedy;
 mod greedy_block;

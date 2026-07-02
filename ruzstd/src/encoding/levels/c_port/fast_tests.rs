@@ -2,7 +2,8 @@ use alloc::vec::Vec;
 
 use super::dictionary::{parse_dictionary, DictionaryContentType};
 use super::fast::{
-    compress_block_fast_no_dict, compress_block_fast_no_dict_with_state, FastMatchState,
+    compress_block_fast_no_dict, compress_block_fast_no_dict_with_state,
+    compress_block_fast_no_dict_with_state_and_loaded_dict, FastMatchState,
 };
 use super::fast_block::{
     encode_block_fast_no_dict, prepare_block_fast_no_dict, FastBlockEncodeContext,
@@ -11,7 +12,7 @@ use super::fast_frame::{
     encode_frame_fast_no_dict, encode_frame_fast_with_dictionary,
     encode_single_block_frame_fast_no_dict,
 };
-use super::params::CompressionParameters;
+use super::params::{CompressionParameters, Strategy};
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 use super::test_dictionary::{dictionary_content, full_dictionary_fixture, DICT_ID};
 use crate::blocks::block::BlockType;
@@ -114,6 +115,55 @@ fn fast_no_dict_state_finds_previous_block_prefix_match() {
         OffBase::Offset(offset) if sequence.lit_len == 0
             && offset as usize >= marker.len()
     )));
+}
+
+#[test]
+fn fast_loaded_dictionary_keeps_full_dictionary_valid_like_c() {
+    let marker = b"early-dictionary-marker-0123456789abcdef";
+    let mut dictionary = deterministic_bytes(2048);
+    dictionary[30..30 + marker.len()].copy_from_slice(marker);
+    let source = [marker.as_slice(), b"-payload-tail".as_slice()].concat();
+    let mut combined = dictionary.clone();
+    combined.extend_from_slice(&source);
+    let params = CompressionParameters {
+        window_log: 10,
+        chain_log: 12,
+        hash_log: 12,
+        search_log: 1,
+        min_match: 4,
+        target_length: 0,
+        strategy: Strategy::Fast,
+    };
+    let block_range = dictionary.len()..combined.len();
+
+    let mut no_loaded_state = FastMatchState::new();
+    no_loaded_state.load_prefix(&combined, dictionary.len(), params);
+    let no_loaded = compress_block_fast_no_dict_with_state(
+        &combined,
+        block_range.clone(),
+        params,
+        RepeatOffsets::new(),
+        &mut no_loaded_state,
+    );
+
+    let mut loaded_state = FastMatchState::new();
+    loaded_state.load_prefix(&combined, dictionary.len(), params);
+    let loaded = compress_block_fast_no_dict_with_state_and_loaded_dict(
+        &combined,
+        block_range,
+        params,
+        RepeatOffsets::new(),
+        &mut loaded_state,
+        dictionary.len(),
+    );
+
+    assert!(no_loaded.sequences.is_empty());
+    assert!(loaded.sequences.iter().any(|sequence| {
+        matches!(
+            sequence.off_base,
+            OffBase::Offset(offset) if offset as usize > (1_usize << params.window_log)
+        )
+    }));
 }
 
 #[test]

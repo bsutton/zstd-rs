@@ -7,8 +7,8 @@ use super::block_policy::{
     compressed_block_is_worthwhile, should_skip_sequence_build, BlockEncodingPolicy,
 };
 use super::fast::{
-    compress_block_fast_no_dict, compress_block_fast_no_dict_with_state, FastBlockOutput,
-    FastMatchState,
+    compress_block_fast_no_dict, compress_block_fast_no_dict_with_state_and_loaded_dict,
+    FastBlockOutput, FastMatchState,
 };
 use super::params::CompressionParameters;
 use super::sequence_store::RepeatOffsets;
@@ -44,6 +44,7 @@ pub(crate) struct FastBlockEncodeContext<'a, 'table> {
 pub(crate) struct FastBlockSource<'a> {
     pub(crate) src: &'a [u8],
     pub(crate) block_range: Range<usize>,
+    pub(crate) loaded_dict_end: usize,
 }
 
 pub(crate) fn prepare_block_fast_no_dict(
@@ -67,9 +68,33 @@ pub(crate) fn prepare_block_fast_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut FastMatchState,
 ) -> FastPreparedBlock {
+    prepare_block_fast_no_dict_with_state_and_loaded_dict(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        0,
+    )
+}
+
+pub(crate) fn prepare_block_fast_no_dict_with_state_and_loaded_dict(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut FastMatchState,
+    loaded_dict_end: usize,
+) -> FastPreparedBlock {
     let block = &src[block_range.clone()];
-    let output =
-        compress_block_fast_no_dict_with_state(src, block_range, params, repeat_offsets, state);
+    let output = compress_block_fast_no_dict_with_state_and_loaded_dict(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        loaded_dict_end,
+    );
     let prepared = prepare_from_fast_output(block, repeat_offsets, &output);
 
     FastPreparedBlock {
@@ -243,12 +268,13 @@ pub(crate) fn encode_block_fast_no_dict_with_state_and_policy(
 
     let previous_fse = context.fse_tables.snapshot_previous();
     let previous_offsets = *context.offset_history;
-    let prepared = prepare_block_fast_no_dict_with_state(
+    let prepared = prepare_block_fast_no_dict_with_state_and_loaded_dict(
         source.src,
-        source.block_range,
+        source.block_range.clone(),
         params,
         repeat_offsets,
         match_state,
+        source.loaded_dict_end,
     );
     let block_start = bytes.len();
     bytes.extend_from_slice(&[0; 3]);
