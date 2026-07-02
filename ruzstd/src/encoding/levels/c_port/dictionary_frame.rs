@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use super::{
     c_frame_header::write_frame_header, cctx_params::CctxParameters, dictionary::ParsedDictionary,
-    frame_state::FrameBlockState,
+    frame_state::FrameBlockState, params::CParamMode,
 };
 
 pub(crate) struct DictionaryFrameContext {
@@ -22,7 +22,12 @@ impl DictionaryFrameContext {
         combined.extend_from_slice(src);
 
         let dict_len = dictionary.content.len();
-        let cctx = CctxParameters::for_level(level, src.len() as u64, dict_len);
+        let cctx = CctxParameters::for_level_with_mode(
+            level,
+            src.len() as u64,
+            dict_len,
+            CParamMode::NoAttachDict,
+        );
         cctx.assert_resolved();
         let params = cctx.compression;
         let dictionary_id = (dictionary.dict_id != 0).then_some(dictionary.dict_id);

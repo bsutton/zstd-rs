@@ -1,4 +1,7 @@
-use super::{CompressionParameters, Strategy, MAX_COMPRESSION_LEVEL, MIN_COMPRESSION_LEVEL};
+use super::{
+    params::{CParamMode, ZSTD_CONTENTSIZE_UNKNOWN},
+    CompressionParameters, Strategy, MAX_COMPRESSION_LEVEL, MIN_COMPRESSION_LEVEL,
+};
 
 fn params(
     window_log: u32,
@@ -81,5 +84,46 @@ fn compression_level_is_clamped_to_c_bounds() {
     assert_eq!(
         CompressionParameters::for_level(MIN_COMPRESSION_LEVEL - 1, 0, 0),
         params(19, 12, 13, 1, 6, 128 * 1024, Strategy::Fast)
+    );
+}
+
+#[test]
+fn public_unknown_size_with_dictionary_uses_c_wrapping_row_size() {
+    assert_eq!(
+        CompressionParameters::for_level(3, 0, 1024),
+        params(14, 14, 15, 2, 4, 0, Strategy::DFast)
+    );
+}
+
+#[test]
+fn attach_dict_mode_ignores_dictionary_size() {
+    let with_dict =
+        CompressionParameters::for_level_with_mode(3, 1, 1_000_000, CParamMode::AttachDict);
+    let without_dict = CompressionParameters::for_level_with_mode(3, 1, 0, CParamMode::AttachDict);
+
+    assert_eq!(with_dict, without_dict);
+    assert_eq!(with_dict, params(10, 6, 7, 2, 4, 0, Strategy::DFast));
+}
+
+#[test]
+fn create_cdict_mode_assumes_small_source_when_size_is_unknown() {
+    assert_eq!(
+        CompressionParameters::for_level_with_mode(
+            3,
+            ZSTD_CONTENTSIZE_UNKNOWN,
+            1024,
+            CParamMode::CreateCDict,
+        ),
+        params(11, 11, 12, 2, 4, 0, Strategy::DFast)
+    );
+
+    assert_eq!(
+        CompressionParameters::for_level_with_mode(
+            3,
+            ZSTD_CONTENTSIZE_UNKNOWN,
+            1024,
+            CParamMode::NoAttachDict,
+        ),
+        params(14, 14, 15, 2, 4, 0, Strategy::DFast)
     );
 }

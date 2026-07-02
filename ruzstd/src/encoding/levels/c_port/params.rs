@@ -8,10 +8,11 @@ pub(crate) const MAX_COMPRESSION_LEVEL: i32 = 22;
 pub(crate) const MIN_COMPRESSION_LEVEL: i32 = -(ZSTD_BLOCKSIZE_MAX as i32);
 
 const ZSTD_BLOCKSIZE_MAX: u32 = 128 * KIB as u32;
-const ZSTD_CONTENTSIZE_UNKNOWN: u64 = u64::MAX;
+pub(crate) const ZSTD_CONTENTSIZE_UNKNOWN: u64 = u64::MAX;
 const ZSTD_WINDOWLOG_ABSOLUTE_MIN: u32 = 10;
 const ZSTD_HASHLOG_MIN: u32 = 6;
 const ZSTD_ROW_HASH_TAG_BITS: u32 = 8;
+const ZSTD_SHORT_CACHE_TAG_BITS: u32 = 8;
 
 #[cfg(target_pointer_width = "64")]
 const ZSTD_WINDOWLOG_MAX: u32 = 31;
@@ -31,6 +32,18 @@ pub(crate) enum Strategy {
     BtOpt = 7,
     BtUltra = 8,
     BtUltra2 = 9,
+}
+
+/// Rust equivalent of `ZSTD_CParamMode_e`.
+///
+/// The mode controls how dictionary size participates in C parameter table
+/// selection and post-selection adjustment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CParamMode {
+    Unknown,
+    NoAttachDict,
+    CreateCDict,
+    AttachDict,
 }
 
 /// Direct Rust equivalent of `ZSTD_compressionParameters`.
@@ -73,11 +86,25 @@ impl CompressionParameters {
         } else {
             src_size_hint
         };
-        Self::for_level_internal(compression_level, src_size_hint, dict_size)
+        Self::for_level_with_mode(
+            compression_level,
+            src_size_hint,
+            dict_size,
+            CParamMode::Unknown,
+        )
     }
 
-    fn for_level_internal(compression_level: i32, src_size_hint: u64, dict_size: usize) -> Self {
-        let row_size = c_param_row_size(src_size_hint, dict_size);
+    /// Port of `ZSTD_getCParams_internal()`.
+    ///
+    /// Unlike `for_level()`, this follows the internal C contract where
+    /// `src_size_hint == 0` means an empty source rather than unknown size.
+    pub(crate) fn for_level_with_mode(
+        compression_level: i32,
+        src_size_hint: u64,
+        dict_size: usize,
+        mode: CParamMode,
+    ) -> Self {
+        let row_size = c_param_row_size(src_size_hint, dict_size, mode);
         let table_id = usize::from(row_size <= 256 * KIB)
             + usize::from(row_size <= 128 * KIB)
             + usize::from(row_size <= 16 * KIB);
@@ -93,10 +120,22 @@ impl CompressionParameters {
         if compression_level < 0 {
             params.target_length = compression_level.max(MIN_COMPRESSION_LEVEL).unsigned_abs();
         }
-        params.adjust(src_size_hint, dict_size)
+        params.adjust(src_size_hint, dict_size, mode)
     }
 
-    fn adjust(mut self, src_size: u64, dict_size: usize) -> Self {
+    fn adjust(mut self, mut src_size: u64, mut dict_size: usize, mode: CParamMode) -> Self {
+        match mode {
+            CParamMode::Unknown | CParamMode::NoAttachDict => {}
+            CParamMode::CreateCDict => {
+                if dict_size > 0 && src_size == ZSTD_CONTENTSIZE_UNKNOWN {
+                    src_size = 513;
+                }
+            }
+            CParamMode::AttachDict => {
+                dict_size = 0;
+            }
+        }
+
         let dict_size = dict_size as u64;
         let max_window_resize = 1_u64 << (ZSTD_WINDOWLOG_MAX - 1);
 
@@ -122,6 +161,12 @@ impl CompressionParameters {
 
         self.window_log = self.window_log.max(ZSTD_WINDOWLOG_ABSOLUTE_MIN);
 
+        if mode == CParamMode::CreateCDict && cdict_indices_are_tagged(self.strategy) {
+            let max_short_cache_hash_log = 32 - ZSTD_SHORT_CACHE_TAG_BITS;
+            self.hash_log = self.hash_log.min(max_short_cache_hash_log);
+            self.chain_log = self.chain_log.min(max_short_cache_hash_log);
+        }
+
         if row_match_finder_used(self.strategy) {
             let row_log = self.search_log.clamp(4, 6);
             let max_row_hash_log = 32 - ZSTD_ROW_HASH_TAG_BITS;
@@ -133,13 +178,19 @@ impl CompressionParameters {
     }
 }
 
-fn c_param_row_size(src_size_hint: u64, dict_size: usize) -> u64 {
+fn c_param_row_size(src_size_hint: u64, mut dict_size: usize, mode: CParamMode) -> u64 {
+    if mode == CParamMode::AttachDict {
+        dict_size = 0;
+    }
+
     let unknown = src_size_hint == ZSTD_CONTENTSIZE_UNKNOWN;
     let added_size = if unknown && dict_size > 0 { 500 } else { 0 };
     if unknown && dict_size == 0 {
         ZSTD_CONTENTSIZE_UNKNOWN
     } else {
-        src_size_hint + dict_size as u64 + added_size
+        src_size_hint
+            .wrapping_add(dict_size as u64)
+            .wrapping_add(added_size)
     }
 }
 
@@ -171,6 +222,10 @@ fn highbit32(value: u32) -> u32 {
 
 fn row_match_finder_used(strategy: Strategy) -> bool {
     (Strategy::Greedy..=Strategy::Lazy2).contains(&strategy)
+}
+
+fn cdict_indices_are_tagged(strategy: Strategy) -> bool {
+    matches!(strategy, Strategy::Fast | Strategy::DFast)
 }
 
 const fn p(

@@ -18,7 +18,7 @@ use super::{
         encode_frame_btultra2_no_dict, encode_frame_btultra2_with_dictionary,
         encode_frame_btultra_no_dict, encode_frame_btultra_with_dictionary,
     },
-    params::Strategy,
+    params::{CParamMode, Strategy},
 };
 
 pub(crate) fn strategy_for_level(level: i32, src_size: usize) -> Strategy {
@@ -32,7 +32,12 @@ pub(crate) fn strategy_for_level_with_dictionary(
     src_size: usize,
     dict_size: usize,
 ) -> Strategy {
-    let cctx = CctxParameters::for_level(level, src_size as u64, dict_size);
+    let cctx = CctxParameters::for_level_with_mode(
+        level,
+        src_size as u64,
+        dict_size,
+        CParamMode::NoAttachDict,
+    );
     cctx.assert_resolved();
     cctx.compression.strategy
 }

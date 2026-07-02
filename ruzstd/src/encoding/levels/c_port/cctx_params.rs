@@ -3,7 +3,7 @@
 //! This mirrors the C layer that turns `ZSTD_compressionParameters` plus
 //! auto-mode switches into finalized `ZSTD_CCtx_params` behavior.
 
-use super::params::{CompressionParameters, Strategy};
+use super::params::{CParamMode, CompressionParameters, Strategy};
 
 const ZSTD_BLOCKSIZE_MAX: usize = 128 * 1024;
 const ZSTD_HASHLOG_MIN: u32 = 6;
@@ -55,6 +55,17 @@ pub(crate) struct CctxParameters {
 impl CctxParameters {
     pub(crate) fn for_level(level: i32, src_size_hint: u64, dict_size: usize) -> Self {
         let compression = CompressionParameters::for_level(level, src_size_hint, dict_size);
+        Self::from_compression_parameters(level, compression)
+    }
+
+    pub(crate) fn for_level_with_mode(
+        level: i32,
+        src_size_hint: u64,
+        dict_size: usize,
+        mode: CParamMode,
+    ) -> Self {
+        let compression =
+            CompressionParameters::for_level_with_mode(level, src_size_hint, dict_size, mode);
         Self::from_compression_parameters(level, compression)
     }
 
