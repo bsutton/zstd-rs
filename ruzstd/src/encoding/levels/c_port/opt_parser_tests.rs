@@ -1,5 +1,8 @@
 use super::{
+    ldm::{opt::LdmOptCursor, sequence::LdmRawSequence},
     opt_block::{compress_block_btopt_no_dict, compress_block_btultra_no_dict},
+    opt_match::OptMatch,
+    opt_parser::collect_matches,
     opt_state::OptBlockState,
     params::{CompressionParameters, Strategy},
     sequence_store::RepeatOffsets,
@@ -137,6 +140,42 @@ fn btultra_parser_emits_matches_for_structured_data() {
     assert_eq!(covered, data.len() as u32);
     assert!(!output.sequences.is_empty());
     assert!(match_bytes > data.len() as u32 / 2);
+}
+
+#[test]
+fn opt_match_collection_appends_ldm_candidate_like_c() {
+    let data = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    let params = btopt_params(data.len());
+    let mut state = OptBlockState::new();
+    state.reset_for_frame(params);
+    let sequences = [LdmRawSequence {
+        offset: 4,
+        lit_length: 4,
+        match_length: 10,
+    }];
+    let mut cursor = LdmOptCursor::new(&sequences, data.len() as u32);
+
+    let count = collect_matches(
+        data,
+        4,
+        data.len(),
+        RepeatOffsets::new().as_offsets(),
+        false,
+        4,
+        params,
+        &mut state,
+        0,
+        Some(&mut cursor),
+    );
+
+    assert_eq!(count, 1);
+    assert_eq!(
+        state.matches,
+        [OptMatch {
+            off_base: 7,
+            len: 10,
+        }]
+    );
 }
 
 fn btopt_params(src_size: usize) -> CompressionParameters {

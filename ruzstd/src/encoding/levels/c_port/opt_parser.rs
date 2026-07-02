@@ -6,7 +6,9 @@ use core::convert::TryFrom;
 use super::{
     greedy::GreedyBlockOutput,
     hash_chain_match::lowest_prefix_index,
+    ldm::opt::LdmOptCursor,
     opt_match::{bt_get_all_matches_no_dict, BtMatchRequest, OptMatch},
+    opt_path::{select_path, update_reps},
     opt_price::{OptLevel, OptPriceState, BITCOST_MULTIPLIER, ZSTD_MAX_PRICE},
     opt_state::{
         ForwardResult, OptBlockState, OptParserStrategy, Optimal, HASH_READ_SIZE, ZSTD_OPT_NUM,
@@ -22,6 +24,27 @@ pub(crate) fn compress_block_opt_no_dict_with_state(
     repeat_offsets: RepeatOffsets,
     state: &mut OptBlockState,
     strategy: OptParserStrategy,
+) -> GreedyBlockOutput {
+    compress_block_opt_no_dict_with_state_and_ldm(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        strategy,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn compress_block_opt_no_dict_with_state_and_ldm(
+    src: &[u8],
+    block_range: core::ops::Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut OptBlockState,
+    strategy: OptParserStrategy,
+    mut ldm_cursor: Option<&mut LdmOptCursor<'_>>,
 ) -> GreedyBlockOutput {
     debug_assert!(block_range.start <= block_range.end);
     debug_assert!(block_range.end <= src.len());
@@ -67,6 +90,8 @@ pub(crate) fn compress_block_opt_no_dict_with_state(
             min_match,
             params,
             state,
+            block_start,
+            ldm_cursor.as_deref_mut(),
         );
 
         if match_count == 0 {
@@ -99,6 +124,8 @@ pub(crate) fn compress_block_opt_no_dict_with_state(
                 params,
                 opt_level,
                 state,
+                block_start,
+                ldm_cursor.as_deref_mut(),
             );
 
             let empty_stretch = match result.last_stretch {
@@ -146,7 +173,7 @@ pub(crate) fn compress_block_opt_no_dict_with_state(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn collect_matches(
+pub(super) fn collect_matches(
     src: &[u8],
     ip: usize,
     block_end: usize,
@@ -155,6 +182,8 @@ fn collect_matches(
     length_to_beat: u32,
     params: CompressionParameters,
     state: &mut OptBlockState,
+    block_start: usize,
+    ldm_cursor: Option<&mut LdmOptCursor<'_>>,
 ) -> usize {
     bt_get_all_matches_no_dict(
         &mut state.matches,
@@ -169,6 +198,15 @@ fn collect_matches(
         },
         &mut state.match_state,
     );
+    if let Some(cursor) = ldm_cursor {
+        debug_assert!(ip >= block_start);
+        cursor.process_match_candidate(
+            &mut state.matches,
+            (ip - block_start) as u32,
+            (block_end - ip) as u32,
+            length_to_beat,
+        );
+    }
     state.matches.len()
 }
 
@@ -241,6 +279,8 @@ fn forward_pass(
     params: CompressionParameters,
     opt_level: OptLevel,
     state: &mut OptBlockState,
+    block_start: usize,
+    mut ldm_cursor: Option<&mut LdmOptCursor<'_>>,
 ) -> ForwardResult {
     let mut last_stretch = None;
     let mut cur = 1_usize;
@@ -268,7 +308,18 @@ fn forward_pass(
 
         let rep = state.opt[cur].rep;
         let ll0 = state.opt[cur].litlen == 0;
-        let match_count = collect_matches(src, inr, block_end, rep, ll0, min_match, params, state);
+        let match_count = collect_matches(
+            src,
+            inr,
+            block_end,
+            rep,
+            ll0,
+            min_match,
+            params,
+            state,
+            block_start,
+            ldm_cursor.as_deref_mut(),
+        );
         if match_count == 0 {
             cur += 1;
             continue;
@@ -432,50 +483,6 @@ fn update_match_prices(
         }
         previous_len = len + 1;
     }
-}
-
-fn select_path(
-    last_pos: usize,
-    last_stretch: Option<Optimal>,
-    rep: &mut [u32; 3],
-    state: &mut OptBlockState,
-) -> Vec<Optimal> {
-    let mut path = Vec::new();
-    let stretch = last_stretch.unwrap_or_else(|| state.opt[last_pos]);
-    let mut cur = last_pos - stretch.mlen as usize;
-
-    if stretch.litlen == 0 {
-        *rep = update_reps(state.opt[cur].rep, stretch.off, state.opt[cur].litlen == 0);
-    } else {
-        *rep = stretch.rep;
-        cur -= stretch.litlen as usize;
-    }
-
-    path.push(stretch);
-    let mut stretch_pos = cur;
-    loop {
-        let next = state.opt[stretch_pos];
-        if let Some(last) = path.last_mut() {
-            last.litlen = next.litlen;
-        }
-        if next.mlen == 0 {
-            break;
-        }
-        path.push(next);
-        stretch_pos -= next.litlen as usize + next.mlen as usize;
-    }
-
-    path.reverse();
-    path
-}
-
-fn update_reps(rep: [u32; 3], off_base: u32, previous_litlen_zero: bool) -> [u32; 3] {
-    let mut repeat_offsets = RepeatOffsets::from_offsets(rep[0], rep[1], rep[2]);
-    repeat_offsets.update(
-        OffBase::from_c_value(off_base).expect("optimal parser rep offBase"),
-        u32::from(!previous_litlen_zero),
-    );
-    repeat_offsets.as_offsets()
 }
 
 fn ll_increment_price(litlen: u32, opt_level: OptLevel, price_state: &OptPriceState) -> i32 {

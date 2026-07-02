@@ -31,6 +31,7 @@ mod opt_encode;
 mod opt_frame;
 mod opt_match;
 mod opt_parser;
+mod opt_path;
 mod opt_price;
 mod opt_state;
 mod params;
