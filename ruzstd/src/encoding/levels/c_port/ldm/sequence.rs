@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use core::ops::Range;
 
 use super::{LdmEntry, LdmHashTable, LdmRollingHashState, LDM_BATCH_SIZE};
 use crate::encoding::levels::c_port::{cctx_params::LdmParameters, match_count::count_match};
@@ -23,24 +24,93 @@ pub(crate) fn generate_sequences_no_dict(
     params: LdmParameters,
     table: &mut LdmHashTable,
 ) -> LdmSequenceResult {
+    generate_sequences_in_range(src, 0..src.len(), 0, params, table)
+}
+
+pub(crate) fn fill_prefix_hash_table(
+    src: &[u8],
+    prefix_range: Range<usize>,
+    params: LdmParameters,
+    table: &mut LdmHashTable,
+) {
+    debug_assert!(prefix_range.start <= prefix_range.end);
+    debug_assert!(prefix_range.end <= src.len());
+
     let min_match_length = params.min_match_length as usize;
-    if src.len() < min_match_length || src.len() <= HASH_READ_SIZE {
+    if prefix_range.len() < min_match_length {
+        return;
+    }
+
+    let hash_bits = (params.hash_log - params.bucket_size_log) as usize;
+    let hash_mask = (1_usize << hash_bits) - 1;
+    let mut ip = prefix_range.start;
+    let mut hash_state = LdmRollingHashState::new(params);
+    let mut splits = [0_usize; LDM_BATCH_SIZE];
+
+    while ip < prefix_range.end {
+        let mut num_splits = 0;
+        let hashed = hash_state.feed(&src[ip..prefix_range.end], &mut splits, &mut num_splits);
+
+        for &split_index in &splits[..num_splits] {
+            if ip + split_index < prefix_range.start + min_match_length {
+                continue;
+            }
+
+            let split = ip + split_index - min_match_length;
+            let xxhash = xxh64(&src[split..split + min_match_length], 0);
+            let hash = (xxhash as usize) & hash_mask;
+            table.insert_entry(
+                hash,
+                LdmEntry {
+                    offset: to_u32(split),
+                    checksum: (xxhash >> 32) as u32,
+                },
+            );
+        }
+
+        ip += hashed;
+    }
+}
+
+pub(crate) fn generate_sequences_with_prefix(
+    src: &[u8],
+    source_range: Range<usize>,
+    params: LdmParameters,
+    table: &mut LdmHashTable,
+) -> LdmSequenceResult {
+    generate_sequences_in_range(src, source_range, 0, params, table)
+}
+
+fn generate_sequences_in_range(
+    src: &[u8],
+    source_range: Range<usize>,
+    low_prefix: usize,
+    params: LdmParameters,
+    table: &mut LdmHashTable,
+) -> LdmSequenceResult {
+    debug_assert!(source_range.start <= source_range.end);
+    debug_assert!(source_range.end <= src.len());
+    debug_assert!(low_prefix <= source_range.start);
+
+    let min_match_length = params.min_match_length as usize;
+    let source_len = source_range.len();
+    if source_len < min_match_length || source_len <= HASH_READ_SIZE {
         return LdmSequenceResult {
             sequences: Vec::new(),
-            last_literals: src.len(),
+            last_literals: source_len,
         };
     }
 
     let hash_bits = (params.hash_log - params.bucket_size_log) as usize;
     let hash_mask = (1_usize << hash_bits) - 1;
-    let ilimit = src.len() - HASH_READ_SIZE;
-    let mut anchor = 0;
-    let mut ip = 0;
+    let ilimit = source_range.end - HASH_READ_SIZE;
+    let mut anchor = source_range.start;
+    let mut ip = source_range.start;
     let mut hash_state = LdmRollingHashState::new(params);
     let mut sequences = Vec::new();
     let mut splits = [0_usize; LDM_BATCH_SIZE];
 
-    hash_state.reset(src, min_match_length);
+    hash_state.reset(&src[source_range.start..], min_match_length);
     ip += min_match_length;
 
     while ip < ilimit {
@@ -73,12 +143,13 @@ pub(crate) fn generate_sequences_no_dict(
                 }
 
                 let match_index = entry.offset as usize;
-                let current_forward = count_match(src, split, match_index, src.len());
+                let current_forward = count_match(src, split, match_index, source_range.end);
                 if current_forward < min_match_length {
                     continue;
                 }
 
-                let current_backward = count_backwards_match(src, split, anchor, match_index, 0);
+                let current_backward =
+                    count_backwards_match(src, split, anchor, match_index, low_prefix);
                 let current_total = current_forward + current_backward;
                 if current_total > best_match_length {
                     best_match_length = current_total;
@@ -115,7 +186,7 @@ pub(crate) fn generate_sequences_no_dict(
 
     LdmSequenceResult {
         sequences,
-        last_literals: src.len() - anchor,
+        last_literals: source_range.end - anchor,
     }
 }
 

@@ -4,7 +4,10 @@ use super::{
     cctx_params::{CctxParameters, LdmParameters, ParamSwitch},
     ldm::{
         opt::{LdmOptCursor, LdmRawSeqStore},
-        sequence::{generate_sequences_no_dict, LdmRawSequence},
+        sequence::{
+            fill_prefix_hash_table, generate_sequences_no_dict, generate_sequences_with_prefix,
+            LdmRawSequence,
+        },
         LdmEntry, LdmHashTable, LdmRollingHashState, LDM_BATCH_SIZE,
     },
     opt_match::OptMatch,
@@ -215,6 +218,39 @@ fn ldm_no_dict_sequence_generation_matches_c_vector() {
             },
         ]
     );
+}
+
+#[test]
+fn ldm_prefix_sequence_generation_emits_source_relative_literals() {
+    let params = LdmParameters {
+        enable_ldm: ParamSwitch::Enable,
+        window_log: 12,
+        hash_log: 8,
+        min_match_length: 16,
+        bucket_size_log: 3,
+        hash_rate_log: 0,
+    };
+    let dictionary: Vec<u8> = (0_usize..128)
+        .map(|i| ((i * 37 + 11) & 0xff) as u8)
+        .collect();
+    let source = dictionary[32..96].to_vec();
+    let mut combined = dictionary.clone();
+    combined.extend_from_slice(&source);
+    let mut table = LdmHashTable::new(params);
+
+    fill_prefix_hash_table(&combined, 0..dictionary.len(), params, &mut table);
+    let result = generate_sequences_with_prefix(
+        &combined,
+        dictionary.len()..combined.len(),
+        params,
+        &mut table,
+    );
+
+    assert!(!result.sequences.is_empty());
+    assert_eq!(result.sequences[0].lit_length, 0);
+    assert_eq!(result.sequences[0].offset, 96);
+    assert_eq!(result.sequences[0].match_length, 64);
+    assert_eq!(result.last_literals, 0);
 }
 
 #[test]

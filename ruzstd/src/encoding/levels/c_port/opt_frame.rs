@@ -11,7 +11,9 @@ use super::{
     greedy_block::{GreedyBlockEncodeContext, GreedyBlockSource},
     ldm::{
         opt::{LdmOptCursor, LdmRawSeqStore},
-        sequence::generate_sequences_no_dict,
+        sequence::{
+            fill_prefix_hash_table, generate_sequences_no_dict, generate_sequences_with_prefix,
+        },
         LdmHashTable,
     },
     opt_block::prime_btultra2_stats_no_dict,
@@ -181,6 +183,21 @@ fn encode_frame_opt_with_dictionary(
     cctx.assert_resolved();
     let params = cctx.compression;
     let post_block_splitter = cctx.post_block_splitter == ParamSwitch::Enable;
+    let ldm_sequences = if cctx.ldm.enable_ldm == ParamSwitch::Enable {
+        let mut ldm_table = LdmHashTable::new(cctx.ldm);
+        fill_prefix_hash_table(&combined, 0..dict_len, cctx.ldm, &mut ldm_table);
+        Some(generate_sequences_with_prefix(
+            &combined,
+            dict_len..combined.len(),
+            cctx.ldm,
+            &mut ldm_table,
+        ))
+    } else {
+        None
+    };
+    let mut ldm_store = ldm_sequences
+        .as_ref()
+        .map(|result| LdmRawSeqStore::new(&result.sequences));
     let mut output = Vec::new();
     let dictionary_id = (dictionary.dict_id != 0).then_some(dictionary.dict_id);
     write_frame_header(&mut output, src.len(), params, dictionary_id);
@@ -228,6 +245,9 @@ fn encode_frame_opt_with_dictionary(
             prime_btultra2_stats_no_dict(&combined, block_start..block_end, params, &mut opt_state);
         }
 
+        let mut ldm_cursor =
+            ldm_store.map(|store| LdmOptCursor::from_store_for_block(store, block_size as u32));
+
         let encoded_block = encode_block_opt_no_dict_with_state(
             GreedyBlockSource {
                 src: &combined,
@@ -246,8 +266,11 @@ fn encode_frame_opt_with_dictionary(
             strategy,
             post_block_splitter,
             FrameBlockState::block_policy(block_start == dict_len),
-            None,
+            ldm_cursor.as_mut(),
         );
+        if let Some(store) = ldm_store.as_mut() {
+            store.skip_bytes(block_size as u32);
+        }
         frame_state.record_encoded_block(
             block_size,
             encoded_block.bytes.len(),
