@@ -7,6 +7,7 @@
 mod block_policy;
 mod bt_match;
 mod c_frame_header;
+mod cctx_params;
 mod dfast;
 mod dfast_block;
 mod dfast_dict;
@@ -43,6 +44,8 @@ pub(crate) use strategy_frame::encode_frame_with_dictionary;
 
 pub(crate) use dictionary::DictionaryParseError;
 
+#[cfg(test)]
+mod cctx_params_tests;
 #[cfg(test)]
 mod dfast_tests;
 #[cfg(test)]

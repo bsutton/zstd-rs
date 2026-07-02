@@ -3,6 +3,7 @@
 use alloc::vec::Vec;
 
 use super::{
+    cctx_params::CctxParameters,
     dfast_frame::{encode_frame_double_fast_no_dict, encode_frame_double_fast_with_dictionary},
     dictionary::{parse_dictionary, DictionaryContentType, DictionaryParseError, ParsedDictionary},
     fast_frame::{encode_frame_fast_no_dict, encode_frame_fast_with_dictionary},
@@ -17,11 +18,13 @@ use super::{
         encode_frame_btultra2_no_dict, encode_frame_btultra2_with_dictionary,
         encode_frame_btultra_no_dict, encode_frame_btultra_with_dictionary,
     },
-    params::{CompressionParameters, Strategy},
+    params::Strategy,
 };
 
 pub(crate) fn strategy_for_level(level: i32, src_size: usize) -> Strategy {
-    CompressionParameters::for_level(level, src_size as u64, 0).strategy
+    let cctx = CctxParameters::for_level(level, src_size as u64, 0);
+    cctx.assert_resolved();
+    cctx.compression.strategy
 }
 
 pub(crate) fn strategy_for_level_with_dictionary(
@@ -29,7 +32,9 @@ pub(crate) fn strategy_for_level_with_dictionary(
     src_size: usize,
     dict_size: usize,
 ) -> Strategy {
-    CompressionParameters::for_level(level, src_size as u64, dict_size).strategy
+    let cctx = CctxParameters::for_level(level, src_size as u64, dict_size);
+    cctx.assert_resolved();
+    cctx.compression.strategy
 }
 
 pub(crate) fn encode_frame_no_dict(src: &[u8], level: i32) -> Vec<u8> {

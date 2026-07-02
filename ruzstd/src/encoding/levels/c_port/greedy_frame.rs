@@ -4,6 +4,7 @@ use alloc::vec::Vec;
 
 use super::{
     c_frame_header::{write_frame_header, write_frame_header_no_dict},
+    cctx_params::CctxParameters,
     dictionary::ParsedDictionary,
     frame_state::FrameBlockState,
     greedy::GreedyMatchState,
@@ -12,7 +13,6 @@ use super::{
         GreedyBlockEncodeContext, GreedyBlockSource, LazyBlockStrategy,
     },
     greedy_dict::{load_binary_tree_prefix, load_prefix},
-    params::CompressionParameters,
 };
 use crate::common::MAX_BLOCK_SIZE;
 
@@ -86,7 +86,9 @@ pub(crate) fn encode_frame_btlazy2_with_dictionary(
 
 fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrategy) -> Vec<u8> {
     let mut output = Vec::new();
-    let params = CompressionParameters::for_level(level, src.len() as u64, 0);
+    let cctx = CctxParameters::for_level(level, src.len() as u64, 0);
+    cctx.assert_resolved();
+    let params = cctx.compression;
     write_frame_header_no_dict(&mut output, src.len(), params);
     let mut frame_state = FrameBlockState::new(params, output.len());
     let mut match_state = GreedyMatchState::new();
@@ -157,7 +159,9 @@ fn encode_frame_hash_chain_with_dictionary(
     combined.extend_from_slice(src);
 
     let dict_len = dictionary.content.len();
-    let params = CompressionParameters::for_level(level, src.len() as u64, dict_len);
+    let cctx = CctxParameters::for_level(level, src.len() as u64, dict_len);
+    cctx.assert_resolved();
+    let params = cctx.compression;
     let mut output = Vec::new();
     let dictionary_id = (dictionary.dict_id != 0).then_some(dictionary.dict_id);
     write_frame_header(&mut output, src.len(), params, dictionary_id);

@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use super::{
     block_policy::BlockEncodingPolicy,
     c_frame_header::{write_frame_header, write_frame_header_no_dict},
+    cctx_params::CctxParameters,
     dictionary::ParsedDictionary,
     frame_state::FrameBlockState,
     greedy_block::{GreedyBlockEncodeContext, GreedyBlockSource},
@@ -67,7 +68,9 @@ enum OptFrameStrategy {
 
 fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) -> Vec<u8> {
     let mut output = Vec::new();
-    let params = CompressionParameters::for_level(level, src.len() as u64, 0);
+    let cctx = CctxParameters::for_level(level, src.len() as u64, 0);
+    cctx.assert_resolved();
+    let params = cctx.compression;
     write_frame_header_no_dict(&mut output, src.len(), params);
     let mut frame_state = FrameBlockState::new(params, output.len());
     let mut opt_state = OptBlockState::new();
@@ -149,7 +152,9 @@ fn encode_frame_opt_with_dictionary(
     combined.extend_from_slice(src);
 
     let dict_len = dictionary.content.len();
-    let params = CompressionParameters::for_level(level, src.len() as u64, dict_len);
+    let cctx = CctxParameters::for_level(level, src.len() as u64, dict_len);
+    cctx.assert_resolved();
+    let params = cctx.compression;
     let mut output = Vec::new();
     let dictionary_id = (dictionary.dict_id != 0).then_some(dictionary.dict_id);
     write_frame_header(&mut output, src.len(), params, dictionary_id);
