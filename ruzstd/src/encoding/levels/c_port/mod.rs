@@ -18,6 +18,7 @@ mod dictionary;
 mod dictionary_frame;
 mod fast;
 mod fast_block;
+mod fast_ext;
 mod fast_frame;
 mod fast_helpers;
 mod frame_state;
@@ -54,6 +55,8 @@ pub(crate) use dictionary::DictionaryParseError;
 mod cctx_params_tests;
 #[cfg(test)]
 mod dfast_tests;
+#[cfg(test)]
+mod fast_ext_tests;
 #[cfg(test)]
 mod fast_tests;
 #[cfg(test)]

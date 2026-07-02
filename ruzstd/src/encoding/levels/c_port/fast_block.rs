@@ -10,6 +10,7 @@ use super::fast::{
     compress_block_fast_no_dict, compress_block_fast_no_dict_with_state_and_loaded_dict,
     FastBlockOutput, FastMatchState,
 };
+use super::fast_ext::compress_block_fast_ext_dict_with_state;
 use super::params::CompressionParameters;
 use super::sequence_store::RepeatOffsets;
 use crate::{
@@ -44,6 +45,13 @@ pub(crate) struct FastBlockEncodeContext<'a, 'table> {
 pub(crate) struct FastBlockSource<'a> {
     pub(crate) src: &'a [u8],
     pub(crate) block_range: Range<usize>,
+    pub(crate) loaded_dict_end: usize,
+}
+
+pub(crate) struct FastExtDictBlockSource<'a> {
+    pub(crate) src: &'a [u8],
+    pub(crate) block_range: Range<usize>,
+    pub(crate) dict_limit: usize,
     pub(crate) loaded_dict_end: usize,
 }
 
@@ -94,6 +102,30 @@ pub(crate) fn prepare_block_fast_no_dict_with_state_and_loaded_dict(
         repeat_offsets,
         state,
         loaded_dict_end,
+    );
+    let prepared = prepare_from_fast_output(block, repeat_offsets, &output);
+
+    FastPreparedBlock {
+        prepared,
+        repeat_offsets: output.repeat_offsets,
+    }
+}
+
+pub(crate) fn prepare_block_fast_ext_dict_with_state(
+    source: FastExtDictBlockSource<'_>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut FastMatchState,
+) -> FastPreparedBlock {
+    let block = &source.src[source.block_range.clone()];
+    let output = compress_block_fast_ext_dict_with_state(
+        source.src,
+        source.block_range,
+        source.dict_limit,
+        params,
+        repeat_offsets,
+        state,
+        source.loaded_dict_end,
     );
     let prepared = prepare_from_fast_output(block, repeat_offsets, &output);
 
@@ -276,6 +308,91 @@ pub(crate) fn encode_block_fast_no_dict_with_state_and_policy(
         match_state,
         source.loaded_dict_end,
     );
+    let block_start = bytes.len();
+    bytes.extend_from_slice(&[0; 3]);
+    let compressed_start = bytes.len();
+    let new_huffman_table = compress_prepared_block(
+        &mut bytes,
+        config,
+        prepared.prepared.as_ref(),
+        context.fse_tables,
+        context.offset_history,
+        context.previous_huff_table,
+    );
+    let compressed_size = bytes.len() - compressed_start;
+
+    if !compressed_block_is_worthwhile(block.len(), compressed_size, params.strategy)
+        || compressed_size > MAX_BLOCK_SIZE as usize
+    {
+        bytes.truncate(block_start);
+        context.fse_tables.restore_previous(previous_fse);
+        *context.offset_history = previous_offsets;
+        write_raw_block(last_block, block.len() as u32, block, &mut bytes);
+        FastEncodedBlock {
+            bytes,
+            repeat_offsets,
+            new_huffman_table: None,
+        }
+    } else {
+        let header = BlockHeader {
+            last_block,
+            block_type: crate::blocks::block::BlockType::Compressed,
+            block_size: compressed_size as u32,
+        };
+        bytes[block_start..compressed_start].copy_from_slice(&header.serialize_to_bytes());
+        FastEncodedBlock {
+            bytes,
+            repeat_offsets: prepared.repeat_offsets,
+            new_huffman_table,
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_fast_ext_dict_with_state_and_policy(
+    source: FastExtDictBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut FastMatchState,
+    context: FastBlockEncodeContext<'_, '_>,
+    policy: BlockEncodingPolicy,
+) -> FastEncodedBlock {
+    let block = &source.src[source.block_range.clone()];
+    let mut bytes = Vec::new();
+
+    if block.is_empty() {
+        write_raw_block(last_block, 0, block, &mut bytes);
+        return FastEncodedBlock {
+            bytes,
+            repeat_offsets,
+            new_huffman_table: None,
+        };
+    }
+    if should_skip_sequence_build(block.len()) {
+        write_raw_block(last_block, block.len() as u32, block, &mut bytes);
+        return FastEncodedBlock {
+            bytes,
+            repeat_offsets,
+            new_huffman_table: None,
+        };
+    }
+    if policy.allows_rle() {
+        if let Some(rle_byte) = rle_byte(block) {
+            write_rle_block(last_block, block.len() as u32, rle_byte, &mut bytes);
+            return FastEncodedBlock {
+                bytes,
+                repeat_offsets,
+                new_huffman_table: None,
+            };
+        }
+    }
+
+    let previous_fse = context.fse_tables.snapshot_previous();
+    let previous_offsets = *context.offset_history;
+    let prepared =
+        prepare_block_fast_ext_dict_with_state(source, params, repeat_offsets, match_state);
     let block_start = bytes.len();
     bytes.extend_from_slice(&[0; 3]);
     let compressed_start = bytes.len();
