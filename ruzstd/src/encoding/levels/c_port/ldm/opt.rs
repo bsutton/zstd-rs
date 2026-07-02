@@ -70,10 +70,6 @@ impl<'a> LdmOptCursor<'a> {
         cursor
     }
 
-    pub(crate) fn into_seq_store(self) -> LdmRawSeqStore<'a> {
-        self.seq_store
-    }
-
     pub(crate) fn process_match_candidate(
         &mut self,
         matches: &mut Vec<OptMatch>,

@@ -127,9 +127,8 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
         {
             prime_btultra2_stats_no_dict(src, block_start..block_end, params, &mut opt_state);
         }
-        let mut ldm_cursor = ldm_store
-            .take()
-            .map(|store| LdmOptCursor::from_store_for_block(store, block_size as u32));
+        let mut ldm_cursor =
+            ldm_store.map(|store| LdmOptCursor::from_store_for_block(store, block_size as u32));
 
         let encoded_block = encode_block_opt_no_dict_with_state(
             GreedyBlockSource {
@@ -151,7 +150,9 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
             FrameBlockState::block_policy(block_start == 0),
             ldm_cursor.as_mut(),
         );
-        ldm_store = ldm_cursor.map(LdmOptCursor::into_seq_store);
+        if let Some(store) = ldm_store.as_mut() {
+            store.skip_bytes(block_size as u32);
+        }
         frame_state.record_encoded_block(
             block_size,
             encoded_block.bytes.len(),

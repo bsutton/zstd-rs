@@ -287,7 +287,7 @@ fn ldm_opt_cursor_truncates_match_at_block_end_like_c() {
 }
 
 #[test]
-fn ldm_opt_cursor_carries_store_across_blocks_like_c() {
+fn ldm_raw_seq_store_skips_block_after_opt_parser_like_c() {
     let sequences = [LdmRawSequence {
         offset: 100,
         lit_length: 2,
@@ -297,7 +297,9 @@ fn ldm_opt_cursor_carries_store_across_blocks_like_c() {
 
     let first = LdmOptCursor::from_store_for_block(store, 6);
     assert_eq!(first.current_match(), Some((2, 6, 100)));
-    store = first.into_seq_store();
+    assert_eq!(store.position(), (0, 0));
+
+    store.skip_bytes(6);
     assert_eq!(store.position(), (0, 6));
 
     let second = LdmOptCursor::from_store_for_block(store, 6);
