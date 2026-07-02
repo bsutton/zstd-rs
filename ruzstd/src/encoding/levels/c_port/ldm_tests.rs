@@ -2,7 +2,10 @@ use alloc::vec::Vec;
 
 use super::{
     cctx_params::{CctxParameters, LdmParameters, ParamSwitch},
-    ldm::{LdmEntry, LdmHashTable, LdmRollingHashState, LDM_BATCH_SIZE},
+    ldm::{
+        sequence::{generate_sequences_no_dict, LdmRawSequence},
+        LdmEntry, LdmHashTable, LdmRollingHashState, LDM_BATCH_SIZE,
+    },
 };
 
 fn small_ldm_params() -> LdmParameters {
@@ -152,6 +155,62 @@ fn ldm_gear_feed_finds_c_split_points() {
         &[
             7, 10, 69, 95, 120, 126, 130, 146, 176, 178, 192, 229, 252, 266, 325, 351, 376, 382,
             386, 402, 432, 434, 448, 485, 508,
+        ]
+    );
+}
+
+#[test]
+fn ldm_no_dict_sequence_generation_matches_c_vector() {
+    let params = LdmParameters {
+        enable_ldm: ParamSwitch::Enable,
+        window_log: 12,
+        hash_log: 8,
+        min_match_length: 16,
+        bucket_size_log: 3,
+        hash_rate_log: 3,
+    };
+    let mut data: Vec<u8> = (0_usize..2048)
+        .map(|i| ((i * 37 + 11) & 0xff) as u8)
+        .collect();
+    for i in 0..512 {
+        data[768 + i] = data[128 + i];
+    }
+    for i in 0..400 {
+        data[1400 + i] = data[128 + i];
+    }
+    let mut table = LdmHashTable::new(params);
+
+    let result = generate_sequences_no_dict(&data, params, &mut table);
+
+    assert_eq!(result.last_literals, 0);
+    assert_eq!(
+        result.sequences,
+        [
+            LdmRawSequence {
+                offset: 256,
+                lit_length: 256,
+                match_length: 512,
+            },
+            LdmRawSequence {
+                offset: 640,
+                lit_length: 0,
+                match_length: 512,
+            },
+            LdmRawSequence {
+                offset: 1024,
+                lit_length: 0,
+                match_length: 120,
+            },
+            LdmRawSequence {
+                offset: 1272,
+                lit_length: 0,
+                match_length: 400,
+            },
+            LdmRawSequence {
+                offset: 264,
+                lit_length: 0,
+                match_length: 248,
+            },
         ]
     );
 }
