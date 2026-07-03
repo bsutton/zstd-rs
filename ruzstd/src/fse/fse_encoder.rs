@@ -837,6 +837,10 @@ pub(crate) fn build_table_from_probabilities(probs: &[i32], acc_log: u8) -> FSET
             }
         }
 
+        if state.states.len() == 1 {
+            continue;
+        }
+
         if (1usize << acc_log) <= DIRECT_STATE_LOOKUP_MAX_TABLE_SIZE {
             state.states.swap(0, start_state_idx);
             state.lookup = uninitialized_lookup(1usize << acc_log);
