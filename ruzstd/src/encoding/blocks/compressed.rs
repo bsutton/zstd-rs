@@ -461,6 +461,7 @@ fn update_fse_state(
     }
 }
 
+#[inline(always)]
 fn update_table_fse_state(
     table: &FSETable,
     state: &mut u32,
