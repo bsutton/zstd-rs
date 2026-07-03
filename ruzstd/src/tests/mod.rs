@@ -767,6 +767,13 @@ fn inspect_archive(path: &std::path::Path) {
     let mut rle_block_output_bytes = 0usize;
     let verbose_blocks = env::var("RUZSTD_INSPECT_VERBOSE_BLOCKS").ok().as_deref() == Some("1");
     let sequence_hist = env::var("RUZSTD_INSPECT_SEQUENCE_HIST").ok().as_deref() == Some("1");
+    let sequence_dump_block = env::var("RUZSTD_INSPECT_SEQUENCE_DUMP_BLOCK")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok());
+    let sequence_dump_limit = env::var("RUZSTD_INSPECT_SEQUENCE_DUMP_LIMIT")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(usize::MAX);
 
     loop {
         let (block_header, _) = block_decoder.read_block_header(&mut source).unwrap();
@@ -858,6 +865,11 @@ fn inspect_archive(path: &std::path::Path) {
                 let mut sequences = SequencesHeader::new();
                 let sequence_header_bytes = sequences.parse_from_header(after_literals).unwrap();
                 let sequence_payload = &after_literals[sequence_header_bytes as usize..];
+                let sequence_table_desc_bytes =
+                    sequence_table_description_bytes(&sequences, sequence_payload);
+                let sequence_stream_bytes = sequence_payload
+                    .len()
+                    .saturating_sub(sequence_table_desc_bytes);
 
                 scratch.sequences.clear();
                 if sequences.num_sequences != 0 {
@@ -934,7 +946,7 @@ fn inspect_archive(path: &std::path::Path) {
 
                 if verbose_blocks {
                     std::println!(
-                        "BLOCK idx={} type=compressed compressed_bytes={} decompressed_bytes={} literals_type={} literals_regen={} literals_payload={} literals_table_desc={} literals_stream={} literals_streams={} sequence_count={} sequence_payload={} ll_mode={} of_mode={} ml_mode={} match_bytes={} max_offset={} ll_extra_bits={} ml_extra_bits={} of_extra_bits={}",
+                        "BLOCK idx={} type=compressed compressed_bytes={} decompressed_bytes={} literals_type={} literals_regen={} literals_payload={} literals_table_desc={} literals_stream={} literals_streams={} sequence_count={} sequence_payload={} sequence_table_desc={} sequence_stream={} ll_mode={} of_mode={} ml_mode={} match_bytes={} max_offset={} ll_extra_bits={} ml_extra_bits={} of_extra_bits={}",
                         block_index,
                         block_size,
                         block_output,
@@ -946,6 +958,8 @@ fn inspect_archive(path: &std::path::Path) {
                         literals.num_streams.unwrap_or(0),
                         sequence_count,
                         sequence_payload.len(),
+                        sequence_table_desc_bytes,
+                        sequence_stream_bytes,
                         ll_mode,
                         of_mode,
                         ml_mode,
@@ -980,6 +994,24 @@ fn inspect_archive(path: &std::path::Path) {
                     print_top_code_counts("  ml_codes", &ml_counts, 8);
                     print_top_code_counts("  of_codes", &of_counts, 8);
                 }
+
+                if sequence_dump_block == Some(block_index) {
+                    for (sequence_idx, sequence) in scratch
+                        .sequences
+                        .iter()
+                        .take(sequence_dump_limit)
+                        .enumerate()
+                    {
+                        std::println!(
+                            "SEQ idx={} seq={} ll={} ml={} of={}",
+                            block_index,
+                            sequence_idx,
+                            sequence.ll,
+                            sequence.ml,
+                            sequence.of,
+                        );
+                    }
+                }
             }
             BlockType::Reserved => {
                 unreachable!("reserved blocks are rejected by the header parser")
@@ -1008,6 +1040,55 @@ fn inspect_archive(path: &std::path::Path) {
         total_sequences,
         total_match_bytes,
     );
+}
+
+#[cfg(all(test, feature = "std"))]
+fn sequence_table_description_bytes(
+    sequences: &crate::blocks::sequence_section::SequencesHeader,
+    source: &[u8],
+) -> usize {
+    let Some(modes) = sequences.modes else {
+        return 0;
+    };
+
+    let mut bytes_read = 0usize;
+    bytes_read += sequence_mode_description_bytes(
+        modes.ll_mode(),
+        &source[bytes_read..],
+        crate::blocks::sequence_section::MAX_LITERAL_LENGTH_CODE,
+        9,
+    );
+    bytes_read += sequence_mode_description_bytes(
+        modes.of_mode(),
+        &source[bytes_read..],
+        crate::blocks::sequence_section::MAX_OFFSET_CODE,
+        8,
+    );
+    bytes_read += sequence_mode_description_bytes(
+        modes.ml_mode(),
+        &source[bytes_read..],
+        crate::blocks::sequence_section::MAX_MATCH_LENGTH_CODE,
+        9,
+    );
+    bytes_read
+}
+
+#[cfg(all(test, feature = "std"))]
+fn sequence_mode_description_bytes(
+    mode: crate::blocks::sequence_section::ModeType,
+    source: &[u8],
+    max_symbol: u8,
+    max_log: u8,
+) -> usize {
+    match mode {
+        crate::blocks::sequence_section::ModeType::FSECompressed => {
+            let mut table = crate::fse::FSETable::new(max_symbol);
+            table.build_decoder(source, max_log).unwrap()
+        }
+        crate::blocks::sequence_section::ModeType::RLE => 1,
+        crate::blocks::sequence_section::ModeType::Predefined
+        | crate::blocks::sequence_section::ModeType::Repeat => 0,
+    }
 }
 
 #[test]

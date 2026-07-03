@@ -359,11 +359,13 @@ mod tests {
                     ll: 2,
                     ml: 3,
                     raw_offset: 4,
+                    encoded_offset_value: None,
                 },
                 PreparedSequence {
                     ll: 2,
                     ml: 5,
                     raw_offset: 7,
+                    encoded_offset_value: None,
                 },
             ],
         };
@@ -389,6 +391,7 @@ mod tests {
                     ll: 1,
                     ml: 3,
                     raw_offset: 1,
+                    encoded_offset_value: None,
                 };
                 4
             ],
@@ -418,6 +421,7 @@ mod tests {
                 ll: 1,
                 ml: 3,
                 raw_offset: 1,
+                encoded_offset_value: None,
             });
         }
         let prepared = PreparedBlock {

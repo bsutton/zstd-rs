@@ -64,6 +64,9 @@ pub(crate) struct PreparedSequence {
     pub(crate) ll: u32,
     pub(crate) ml: u32,
     pub(crate) raw_offset: u32,
+    /// C-port matchers already choose explicit offsets versus repeat codes.
+    /// Generic matchers leave this unset and let `OffsetHistory` choose.
+    pub(crate) encoded_offset_value: Option<u32>,
 }
 
 impl PreparedBlock {
@@ -117,6 +120,7 @@ pub(crate) fn prepare_block<M: Matcher>(state: &mut CompressState<M>) -> Prepare
                 ll: literals.len() as u32,
                 ml: match_len as u32,
                 raw_offset: offset_to_u32(offset),
+                encoded_offset_value: None,
             });
         }
     });
@@ -259,10 +263,16 @@ fn encode_sequences_for_history(
 ) -> Vec<crate::blocks::sequence_section::Sequence> {
     let mut encoded = Vec::with_capacity(sequences.len());
     for sequence in sequences {
+        let of = if let Some(offset_value) = sequence.encoded_offset_value {
+            offset_history.update_from_offset_value(offset_value, sequence.ll, sequence.raw_offset);
+            offset_value
+        } else {
+            offset_history.encode_offset_value(sequence.raw_offset, sequence.ll)
+        };
         encoded.push(crate::blocks::sequence_section::Sequence {
             ll: sequence.ll,
             ml: sequence.ml,
-            of: offset_history.encode_offset_value(sequence.raw_offset, sequence.ll),
+            of,
         });
     }
     encoded

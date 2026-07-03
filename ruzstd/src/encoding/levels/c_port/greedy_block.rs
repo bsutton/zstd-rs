@@ -403,6 +403,7 @@ pub(super) fn prepare_from_greedy_output(
             ll: sequence.lit_len,
             ml: sequence.match_len,
             raw_offset,
+            encoded_offset_value: Some(sequence.off_base.to_c_value()),
         });
         repeat_offsets.update(sequence.off_base, sequence.lit_len);
         anchor = lit_end + match_len;

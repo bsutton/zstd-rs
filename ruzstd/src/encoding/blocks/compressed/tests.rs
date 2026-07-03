@@ -193,6 +193,23 @@ fn offset_history_encodes_new_offsets_and_updates_history() {
 }
 
 #[test]
+fn preencoded_offset_value_preserves_c_port_offbase_choice() {
+    let mut history = offset_history(10, 4, 2);
+    let sequences = encode_sequences_for_history(
+        &[PreparedSequence {
+            ll: 0,
+            ml: 13,
+            raw_offset: 2,
+            encoded_offset_value: Some(5),
+        }],
+        &mut history,
+    );
+
+    assert_eq!(sequences[0].of, 5);
+    assert_eq!(history, offset_history(2, 10, 4));
+}
+
+#[test]
 fn choose_table_uses_predefined_tables_for_tiny_sequence_counts() {
     let default = default_ll_table();
     let sequences = [crate::blocks::sequence_section::Sequence {

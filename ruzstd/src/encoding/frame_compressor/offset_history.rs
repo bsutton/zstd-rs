@@ -73,7 +73,13 @@ impl OffsetHistory {
         self.newest = offset;
     }
 
-    fn update_from_offset_value(&mut self, offset_value: u32, lit_len: u32, actual_offset: u32) {
+    /// Apply an already chosen archive offset value while keeping repeat offsets in sync.
+    pub(crate) fn update_from_offset_value(
+        &mut self,
+        offset_value: u32,
+        lit_len: u32,
+        actual_offset: u32,
+    ) {
         if lit_len > 0 {
             match offset_value {
                 1 => {}
