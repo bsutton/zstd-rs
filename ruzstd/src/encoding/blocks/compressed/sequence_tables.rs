@@ -380,6 +380,46 @@ pub(super) fn choose_sequence_table_modes<'a>(
     sequences: &[crate::blocks::sequence_section::Sequence],
     config: SequenceModeSearchConfig<'a>,
 ) -> (FseTableMode<'a>, FseTableMode<'a>, FseTableMode<'a>) {
+    let llml_policy =
+        sequence_table_selection_policy(config.c_fast_heuristics, config.c_cost_model, 6);
+    let offset_policy =
+        sequence_table_selection_policy(config.c_fast_heuristics, config.c_cost_model, 5);
+
+    if !config.exact_sequence_mode_search {
+        return (
+            choose_table_with_policy(
+                config.ll_previous,
+                config.ll_default,
+                sequences,
+                |seq| encode_literal_length(seq.ll).0,
+                9,
+                config.repeat_table_max_sequences,
+                config.llml_predefined_max_sequences,
+                llml_policy,
+            ),
+            choose_table_with_policy(
+                config.ml_previous,
+                config.ml_default,
+                sequences,
+                |seq| encode_match_len(seq.ml).0,
+                9,
+                config.repeat_table_max_sequences,
+                config.llml_predefined_max_sequences,
+                llml_policy,
+            ),
+            choose_table_with_policy(
+                config.of_previous,
+                config.of_default,
+                sequences,
+                |seq| encode_offset(seq.of).0,
+                config.of_max_log,
+                config.repeat_table_max_sequences,
+                config.of_predefined_max_sequences,
+                offset_policy,
+            ),
+        );
+    }
+
     let ll_candidates = candidate_table_modes(
         config.ll_previous,
         config.ll_default,
@@ -390,15 +430,7 @@ pub(super) fn choose_sequence_table_modes<'a>(
             repeat_table_max_sequences: config.repeat_table_max_sequences,
             predefined_max_sequences: config.llml_predefined_max_sequences,
             exact_sequence_mode_search: config.exact_sequence_mode_search,
-            selection_policy: if config.c_fast_heuristics {
-                TableSelectionPolicy::CFast {
-                    default_norm_log: 6,
-                }
-            } else if config.c_cost_model {
-                TableSelectionPolicy::CCost
-            } else {
-                TableSelectionPolicy::Legacy
-            },
+            selection_policy: llml_policy,
         },
     );
     let ml_candidates = candidate_table_modes(
@@ -411,15 +443,7 @@ pub(super) fn choose_sequence_table_modes<'a>(
             repeat_table_max_sequences: config.repeat_table_max_sequences,
             predefined_max_sequences: config.llml_predefined_max_sequences,
             exact_sequence_mode_search: config.exact_sequence_mode_search,
-            selection_policy: if config.c_fast_heuristics {
-                TableSelectionPolicy::CFast {
-                    default_norm_log: 6,
-                }
-            } else if config.c_cost_model {
-                TableSelectionPolicy::CCost
-            } else {
-                TableSelectionPolicy::Legacy
-            },
+            selection_policy: llml_policy,
         },
     );
     let of_candidates = candidate_table_modes(
@@ -432,25 +456,9 @@ pub(super) fn choose_sequence_table_modes<'a>(
             repeat_table_max_sequences: config.repeat_table_max_sequences,
             predefined_max_sequences: config.of_predefined_max_sequences,
             exact_sequence_mode_search: config.exact_sequence_mode_search,
-            selection_policy: if config.c_fast_heuristics {
-                TableSelectionPolicy::CFast {
-                    default_norm_log: 5,
-                }
-            } else if config.c_cost_model {
-                TableSelectionPolicy::CCost
-            } else {
-                TableSelectionPolicy::Legacy
-            },
+            selection_policy: offset_policy,
         },
     );
-
-    if !config.exact_sequence_mode_search {
-        return (
-            ll_candidates.into_iter().next().unwrap(),
-            ml_candidates.into_iter().next().unwrap(),
-            of_candidates.into_iter().next().unwrap(),
-        );
-    }
 
     let mut ll_candidates = ll_candidates;
     let mut ml_candidates = ml_candidates;
@@ -484,6 +492,20 @@ pub(super) fn choose_sequence_table_modes<'a>(
         ml_candidates.swap_remove(best_ml),
         of_candidates.swap_remove(best_of),
     )
+}
+
+fn sequence_table_selection_policy(
+    c_fast_heuristics: bool,
+    c_cost_model: bool,
+    default_norm_log: u8,
+) -> TableSelectionPolicy {
+    if c_fast_heuristics {
+        TableSelectionPolicy::CFast { default_norm_log }
+    } else if c_cost_model {
+        TableSelectionPolicy::CCost
+    } else {
+        TableSelectionPolicy::Legacy
+    }
 }
 
 pub(super) fn exact_sequence_section_size(
