@@ -177,11 +177,8 @@ fn choose_c_fast_table<'a>(
     first_code: u8,
     all_same_code: bool,
 ) -> FseTableMode<'a> {
-    let default_allowed = sequences
-        .iter()
-        .all(|sequence| default_table.can_encode_symbol(code(sequence)));
-
     if all_same_code {
+        let default_allowed = default_table.can_encode_symbol(first_code);
         return if default_allowed && sequences.len() <= 2 {
             FseTableMode::Predefined(default_table)
         } else {
@@ -189,20 +186,18 @@ fn choose_c_fast_table<'a>(
         };
     }
 
+    let counts = CodeCounts::from_codes(sequences.iter().map(code));
+    let default_allowed = counts.default_allowed(default_table);
+
     if default_allowed {
         if let Some(previous) = previous {
-            if sequences.len() < repeat_table_max_sequences
-                && sequences
-                    .iter()
-                    .all(|sequence| previous.can_encode_symbol(code(sequence)))
-            {
+            if sequences.len() < repeat_table_max_sequences && counts.default_allowed(previous) {
                 return FseTableMode::RepeatLast(previous);
             }
         }
 
         if sequences.len() < predefined_max_sequences
-            || most_frequent_code_count(sequences, code)
-                < (sequences.len() >> (usize::from(default_norm_log) - 1))
+            || counts.most_frequent() < (sequences.len() >> (usize::from(default_norm_log) - 1))
         {
             return FseTableMode::Predefined(default_table);
         }
@@ -314,17 +309,6 @@ fn build_sequence_table_from_raw_counts(
         true,
     );
     build_table_from_probabilities(&probs, acc_log)
-}
-
-fn most_frequent_code_count(
-    sequences: &[crate::blocks::sequence_section::Sequence],
-    code: impl Fn(&crate::blocks::sequence_section::Sequence) -> u8 + Copy,
-) -> usize {
-    let mut counts = [0usize; 256];
-    for sequence in sequences {
-        counts[usize::from(code(sequence))] += 1;
-    }
-    counts.iter().copied().max().unwrap_or(0)
 }
 
 fn candidate_table_modes<'a>(
