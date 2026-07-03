@@ -148,6 +148,10 @@ impl FSETable {
     pub(crate) fn c_start_state_index(&self, symbol: u8) -> u32 {
         let probability = self.normalized_probability(symbol);
         debug_assert_ne!(probability, 0);
+        let symbol_states = &self.states[usize::from(symbol)].states;
+        if symbol_states.len() == 1 {
+            return symbol_states[0].index;
+        }
 
         let mut total = 0usize;
         for current_symbol in 0..usize::from(symbol) {
