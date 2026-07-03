@@ -350,7 +350,7 @@ fn prepare_from_dfast_output(
     initial_repeat_offsets: RepeatOffsets,
     output: &DFastBlockOutput,
 ) -> PreparedBlock {
-    let mut literals = Vec::new();
+    let mut literals = Vec::with_capacity(src.len());
     let mut sequences = Vec::with_capacity(output.sequences.len());
     let mut repeat_offsets = initial_repeat_offsets;
     let mut anchor = 0_usize;
