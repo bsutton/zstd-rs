@@ -781,6 +781,9 @@ fn inspect_archive(path: &std::path::Path) {
     let huffman_table_dump_block = env::var("RUZSTD_INSPECT_HUFFMAN_TABLE_DUMP_BLOCK")
         .ok()
         .and_then(|value| value.parse::<usize>().ok());
+    let literal_counts_block = env::var("RUZSTD_INSPECT_LITERAL_COUNTS_BLOCK")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok());
 
     loop {
         let (block_header, _) = block_decoder.read_block_header(&mut source).unwrap();
@@ -1010,6 +1013,9 @@ fn inspect_archive(path: &std::path::Path) {
                         print_huffman_weights(block_index, &weights);
                     }
                 }
+                if literal_counts_block == Some(block_index) {
+                    print_literal_counts(block_index, &scratch.literals_buffer);
+                }
                 if huffman_table_dump_block == Some(block_index) && literals_table_desc_bytes != 0 {
                     print_huffman_table_bytes(
                         block_index,
@@ -1061,6 +1067,25 @@ fn inspect_archive(path: &std::path::Path) {
         total_literals,
         total_sequences,
         total_match_bytes,
+    );
+}
+
+#[cfg(all(test, feature = "std"))]
+fn print_literal_counts(block_index: usize, literals: &[u8]) {
+    let mut counts = [0usize; 256];
+    let mut max_symbol = 0usize;
+    for symbol in literals {
+        counts[usize::from(*symbol)] += 1;
+        max_symbol = max_symbol.max(usize::from(*symbol));
+    }
+    std::println!(
+        "LITERALCOUNTS idx={} counts={}",
+        block_index,
+        counts[..=max_symbol]
+            .iter()
+            .map(|count| format!("{count}"))
+            .collect::<Vec<_>>()
+            .join(","),
     );
 }
 

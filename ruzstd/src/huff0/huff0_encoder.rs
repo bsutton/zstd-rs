@@ -218,7 +218,7 @@ fn encode_weight_table_fse_bytes(weights: &[u8]) -> Vec<u8> {
     let idx_before = writer.index();
     let max_symbol = weights.iter().copied().max().unwrap_or(0) as usize;
     let table_log = fse_encoder::optimal_table_log(6, weights.len(), max_symbol);
-    let table = if weights.len() == 255 && !c_huff_weight_fse_is_unusable(weights) {
+    let table = if !c_huff_weight_fse_is_unusable(weights) {
         fse_encoder::build_huffman_weight_table_from_data(weights, 6)
     } else {
         fse_encoder::build_table_from_data(weights.iter().copied(), table_log, true)
@@ -1122,6 +1122,24 @@ fn from_data() {
         assert!(table[symbol].1 > 0);
         assert!(table[symbol].1 <= MAX_HUFFMAN_BITS as u8);
     }
+}
+
+#[test]
+fn c_style_weight_fse_handles_sparse_short_weight_tables() {
+    let counts = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 27, 0, 15, 0, 8, 0, 2, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 26, 0, 10, 0, 4, 0, 2, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 34, 0, 168, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        90, 0, 15, 0, 9, 0, 1, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 58, 0, 15, 0, 4, 0, 2, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 36, 0, 13, 0, 3, 0, 1,
+    ];
+    let table = HuffmanTable::build_from_counts(&counts);
+
+    assert_eq!(table.table_description_len(), 33);
 }
 
 #[test]

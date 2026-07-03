@@ -830,8 +830,8 @@ fn small_literals_prefer_previous_huffman_table_and_single_stream() {
 
 #[test]
 fn literal_estimate_without_gain_uses_raw_literals_and_round_trips() {
-    let mut literals = alloc::vec![0; 6];
-    for value in 1..=64u8 {
+    let mut literals = alloc::vec![0; 5];
+    for value in 1..=69u8 {
         literals.push(value);
     }
 
@@ -857,8 +857,8 @@ fn literal_estimate_without_gain_uses_raw_literals_and_round_trips() {
 
 #[test]
 fn literal_min_gain_boundary_uses_exact_table_search_and_round_trips() {
-    let len = 128usize;
-    let period = 86u32;
+    let len = 129usize;
+    let period = 88u32;
     let mut state = (len as u32).wrapping_mul(1_664_525).wrapping_add(period);
     let mut literals = Vec::with_capacity(len);
     for _ in 0..len {
