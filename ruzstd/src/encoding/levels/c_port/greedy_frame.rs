@@ -207,26 +207,45 @@ fn encode_frame_hash_chain_with_dictionary(
         let block_end = block_start + block_size;
         let policy = FrameBlockState::block_policy(block_start == context.dict_len);
         let loaded_dict_end = context.loaded_dict_end_for_block(block_end, params);
-        let encoded_block = encode_block_hash_chain_ext_dict_with_state_and_policy(
-            GreedyExtDictBlockSource {
-                src: &context.combined,
-                block_range: block_start..block_end,
-                dict_limit: context.dict_len,
-                loaded_dict_end,
-            },
-            block_end == src_end,
-            params,
-            context.frame_state.block_config,
-            context.frame_state.repeat_offsets,
-            &mut match_state,
-            GreedyBlockEncodeContext {
-                previous_huff_table: context.frame_state.last_huff_table.as_ref(),
-                fse_tables: &mut context.frame_state.fse_tables,
-                offset_history: &mut context.frame_state.offset_history,
-            },
-            depth,
-            policy,
-        );
+        let block_context = GreedyBlockEncodeContext {
+            previous_huff_table: context.frame_state.last_huff_table.as_ref(),
+            fse_tables: &mut context.frame_state.fse_tables,
+            offset_history: &mut context.frame_state.offset_history,
+        };
+        let encoded_block = if loaded_dict_end == 0 {
+            encode_block_hash_chain_no_dict_with_state_and_policy(
+                GreedyBlockSource {
+                    src: &context.combined,
+                    block_range: block_start..block_end,
+                    loaded_dict_end,
+                },
+                block_end == src_end,
+                params,
+                context.frame_state.block_config,
+                context.frame_state.repeat_offsets,
+                &mut match_state,
+                block_context,
+                depth,
+                policy,
+            )
+        } else {
+            encode_block_hash_chain_ext_dict_with_state_and_policy(
+                GreedyExtDictBlockSource {
+                    src: &context.combined,
+                    block_range: block_start..block_end,
+                    dict_limit: context.dict_len,
+                    loaded_dict_end,
+                },
+                block_end == src_end,
+                params,
+                context.frame_state.block_config,
+                context.frame_state.repeat_offsets,
+                &mut match_state,
+                block_context,
+                depth,
+                policy,
+            )
+        };
         context.frame_state.record_encoded_block(
             block_size,
             encoded_block.bytes.len(),

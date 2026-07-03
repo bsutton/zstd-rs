@@ -285,29 +285,50 @@ fn encode_frame_opt_with_dictionary(
         let mut ldm_cursor =
             ldm_store.map(|store| LdmOptCursor::from_store_for_block(store, block_size as u32));
         let loaded_dict_end = context.loaded_dict_end_for_block(block_end, params);
-
-        let encoded_block = encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
-            GreedyExtDictBlockSource {
-                src: &context.combined,
-                block_range: block_start..block_end,
-                dict_limit: context.dict_len,
-                loaded_dict_end,
-            },
-            block_end == src_end,
-            params,
-            context.frame_state.block_config,
-            context.frame_state.repeat_offsets,
-            &mut opt_state,
-            GreedyBlockEncodeContext {
-                previous_huff_table: context.frame_state.last_huff_table.as_ref(),
-                fse_tables: &mut context.frame_state.fse_tables,
-                offset_history: &mut context.frame_state.offset_history,
-            },
-            opt_parser_strategy(strategy),
-            post_block_splitter,
-            FrameBlockState::block_policy(block_start == context.dict_len),
-            ldm_cursor.as_mut(),
-        );
+        let block_context = GreedyBlockEncodeContext {
+            previous_huff_table: context.frame_state.last_huff_table.as_ref(),
+            fse_tables: &mut context.frame_state.fse_tables,
+            offset_history: &mut context.frame_state.offset_history,
+        };
+        let policy = FrameBlockState::block_policy(block_start == context.dict_len);
+        let encoded_block = if loaded_dict_end == 0 {
+            encode_block_opt_no_dict_with_state(
+                GreedyBlockSource {
+                    src: &context.combined,
+                    block_range: block_start..block_end,
+                    loaded_dict_end,
+                },
+                block_end == src_end,
+                params,
+                context.frame_state.block_config,
+                context.frame_state.repeat_offsets,
+                &mut opt_state,
+                block_context,
+                strategy,
+                post_block_splitter,
+                policy,
+                ldm_cursor.as_mut(),
+            )
+        } else {
+            encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
+                GreedyExtDictBlockSource {
+                    src: &context.combined,
+                    block_range: block_start..block_end,
+                    dict_limit: context.dict_len,
+                    loaded_dict_end,
+                },
+                block_end == src_end,
+                params,
+                context.frame_state.block_config,
+                context.frame_state.repeat_offsets,
+                &mut opt_state,
+                block_context,
+                opt_parser_strategy(strategy),
+                post_block_splitter,
+                policy,
+                ldm_cursor.as_mut(),
+            )
+        };
         if let Some(store) = ldm_store.as_mut() {
             store.skip_bytes(block_size as u32);
         }
