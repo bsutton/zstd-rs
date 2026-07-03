@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, rc::Rc, vec::Vec};
+use alloc::{rc::Rc, vec::Vec};
 use core::convert::TryFrom;
 
 mod config;
@@ -238,12 +238,12 @@ pub(crate) fn compress_prepared_block(
 enum FseTableUpdate {
     Keep,
     Clear,
-    Replace(Box<FSETable>),
+    Replace(Rc<FSETable>),
 }
 
 fn fse_table_update(mode: FseTableMode<'_>) -> FseTableUpdate {
     match mode {
-        FseTableMode::Encoded(table) => FseTableUpdate::Replace(Box::new(table)),
+        FseTableMode::Encoded(table) => FseTableUpdate::Replace(Rc::new(table)),
         FseTableMode::Predefined(_) | FseTableMode::Rle(_) => FseTableUpdate::Clear,
         FseTableMode::RepeatLast(_) => FseTableUpdate::Keep,
     }
@@ -253,7 +253,7 @@ fn apply_fse_table_update(previous: &mut Option<Rc<FSETable>>, update: FseTableU
     match update {
         FseTableUpdate::Keep => {}
         FseTableUpdate::Clear => *previous = None,
-        FseTableUpdate::Replace(table) => *previous = Some(Rc::new(*table)),
+        FseTableUpdate::Replace(table) => *previous = Some(table),
     }
 }
 
