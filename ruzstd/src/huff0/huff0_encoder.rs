@@ -133,13 +133,41 @@ impl<V: AsMut<Vec<u8>>> HuffmanEncoder<'_, '_, V> {
 }
 
 fn encoded_weight_table_bytes(weights: &[u8]) -> Vec<u8> {
-    let mut best = encode_weight_table_fse_bytes(weights, 6);
-    let smaller = encode_weight_table_fse_bytes(weights, 5);
-    if smaller.len() < best.len() {
-        best = smaller;
+    if raw_weight_table_is_supported(weights) && c_huff_weight_fse_is_unusable(weights) {
+        return raw_weight_table_bytes(weights);
     }
-    best
+
+    let encoded = encode_weight_table_fse_bytes(weights);
+    let compressed_size = encoded.len().saturating_sub(1);
+    if compressed_size > 1 && compressed_size < weights.len() / 2 {
+        encoded
+    } else if raw_weight_table_is_supported(weights) {
+        raw_weight_table_bytes(weights)
+    } else {
+        encoded
+    }
 }
+
+fn raw_weight_table_is_supported(weights: &[u8]) -> bool {
+    weights.len() <= 128
+}
+
+fn c_huff_weight_fse_is_unusable(weights: &[u8]) -> bool {
+    if weights.len() <= 1 {
+        return true;
+    }
+
+    let mut counts = [0usize; MAX_HUFFMAN_BITS + 1];
+    let mut max_count = 0usize;
+    for &weight in weights {
+        let count = &mut counts[usize::from(weight)];
+        *count += 1;
+        max_count = max_count.max(*count);
+    }
+
+    max_count == weights.len() || max_count == 1
+}
+
 
 fn table_description_len_from_weights(weights: &[u8]) -> usize {
     let weights = &weights[..weights.len() - 1];
@@ -148,6 +176,25 @@ fn table_description_len_from_weights(weights: &[u8]) -> usize {
     } else {
         1 + weights.len().div_ceil(2)
     }
+}
+
+fn raw_weight_table_bytes(weights: &[u8]) -> Vec<u8> {
+    let mut encoded = Vec::with_capacity(1 + weights.len().div_ceil(2));
+    encoded.push(weights.len() as u8 + 127);
+    let pairs = weights.chunks_exact(2);
+    let remainder = pairs.remainder();
+    for pair in pairs {
+        let weight1 = pair[0];
+        let weight2 = pair[1];
+        debug_assert!(weight1 < 16);
+        debug_assert!(weight2 < 16);
+        encoded.push((weight2 << 4) | weight1);
+    }
+    if let Some(&weight) = remainder.first() {
+        debug_assert!(weight < 16);
+        encoded.push(weight << 4);
+    }
+    encoded
 }
 
 fn weights_from_codes(codes: &[(u32, u8)], max_num_bits: u8) -> Vec<u8> {
@@ -164,14 +211,16 @@ fn weights_from_codes(codes: &[(u32, u8)], max_num_bits: u8) -> Vec<u8> {
         .collect()
 }
 
-fn encode_weight_table_fse_bytes(weights: &[u8], max_log: u8) -> Vec<u8> {
+fn encode_weight_table_fse_bytes(weights: &[u8]) -> Vec<u8> {
     let mut encoded = Vec::new();
     let mut writer = BitWriter::from(&mut encoded);
     writer.write_bits(0u8, 8);
     let size_idx = writer.index() - 8;
     let idx_before = writer.index();
+    let max_symbol = weights.iter().copied().max().unwrap_or(0) as usize;
+    let table_log = fse_encoder::optimal_table_log(6, weights.len(), max_symbol);
     let mut encoder = FSEEncoder::new(
-        fse_encoder::build_table_from_data(weights.iter().copied(), max_log, true),
+        fse_encoder::build_table_from_data(weights.iter().copied(), table_log, true),
         &mut writer,
     );
     encoder.encode_interleaved(weights);
@@ -1101,8 +1150,19 @@ fn encoded_len_matches_single_stream_encoder() {
 }
 
 #[test]
-fn adaptive_weight_table_fse_max_log_is_never_worse_than_fixed_six() {
-    let mut saw_smaller_five = false;
+fn weight_table_uses_c_fse_threshold() {
+    let raw_fallback_weights = (0..24).map(|idx| (idx % 12) as u8).collect::<Vec<_>>();
+    assert_eq!(
+        encoded_weight_table_bytes(&raw_fallback_weights),
+        raw_weight_table_bytes(&raw_fallback_weights)
+    );
+
+    let too_many_raw_weights = (0..129).map(|idx| (idx % 12) as u8).collect::<Vec<_>>();
+    assert!(!raw_weight_table_is_supported(&too_many_raw_weights));
+    assert_ne!(
+        encoded_weight_table_bytes(&too_many_raw_weights)[0],
+        (too_many_raw_weights.len() as u8).wrapping_add(127)
+    );
 
     for seed in 1u32..=64 {
         let mut state = seed;
@@ -1115,15 +1175,17 @@ fn adaptive_weight_table_fse_max_log_is_never_worse_than_fixed_six() {
             weights.push((state % 12) as u8);
         }
 
-        let adaptive = encoded_weight_table_bytes(&weights);
-        let fixed_six = encode_weight_table_fse_bytes(&weights, 6);
-        let fixed_five = encode_weight_table_fse_bytes(&weights, 5);
+        let encoded = encoded_weight_table_bytes(&weights);
+        let fse = encode_weight_table_fse_bytes(&weights);
+        let raw = raw_weight_table_bytes(&weights);
+        let fse_payload_len = fse.len().saturating_sub(1);
 
-        assert_eq!(adaptive.len(), fixed_five.len().min(fixed_six.len()));
-        saw_smaller_five |= fixed_five.len() < fixed_six.len();
+        if fse_payload_len > 1 && fse_payload_len < weights.len() / 2 {
+            assert_eq!(encoded, fse);
+        } else {
+            assert_eq!(encoded, raw);
+        }
     }
-
-    assert!(saw_smaller_five);
 }
 
 #[test]

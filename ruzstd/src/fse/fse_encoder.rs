@@ -430,7 +430,7 @@ pub(crate) fn normalized_probabilities_from_counts(
     }
 }
 
-fn optimal_table_log(max_log: u8, total: usize, max_symbol: usize) -> u8 {
+pub(crate) fn optimal_table_log(max_log: u8, total: usize, max_symbol: usize) -> u8 {
     const MIN_TABLE_LOG: u8 = 5;
     const MAX_TABLE_LOG: u8 = 22;
 
