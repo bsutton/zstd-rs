@@ -7,6 +7,9 @@ pub(super) const REPEAT_LITERALS_SIZE_MIN: usize = 6;
 pub(super) const HUFFMAN_4_STREAMS_MIN: usize = 256;
 pub(super) const REPEAT_SINGLE_STREAM_LITERALS_MAX: usize = 1024;
 pub(super) const FAST_LITERAL_MIN_GAIN_LOG: u32 = 6;
+const SUSPECT_INCOMPRESSIBLE_LITERAL_RATIO: usize = 20;
+const SUSPECT_INCOMPRESSIBLE_SAMPLE_SIZE: usize = 4096;
+const SUSPECT_INCOMPRESSIBLE_SAMPLE_RATIO: usize = 10;
 
 pub(super) fn should_compress_literals(
     len: usize,
@@ -67,9 +70,15 @@ pub(super) fn compress_literals(
     last_table: Option<&huff0_encoder::HuffmanTable>,
     search_smallest_table: bool,
     force_single_stream_max_literals: Option<usize>,
+    suspect_uncompressible: bool,
     writer: &mut BitWriter<&mut Vec<u8>>,
 ) -> Option<huff0_encoder::HuffmanTable> {
     let reset_idx = writer.index();
+
+    if suspect_uncompressible && sampled_literals_likely_incompressible(literals) {
+        raw_literals(literals, writer);
+        return None;
+    }
 
     let literal_stats = LiteralStats::from_literals(literals);
     if literal_stats.largest == literals.len()
@@ -150,6 +159,32 @@ pub(super) fn compress_literals(
     } else {
         None
     }
+}
+
+pub(super) fn suspect_uncompressible_literals(literal_len: usize, sequence_count: usize) -> bool {
+    sequence_count == 0 || literal_len / sequence_count >= SUSPECT_INCOMPRESSIBLE_LITERAL_RATIO
+}
+
+fn sampled_literals_likely_incompressible(literals: &[u8]) -> bool {
+    if literals.len() < SUSPECT_INCOMPRESSIBLE_SAMPLE_SIZE * SUSPECT_INCOMPRESSIBLE_SAMPLE_RATIO {
+        return false;
+    }
+
+    let begin = &literals[..SUSPECT_INCOMPRESSIBLE_SAMPLE_SIZE];
+    let end = &literals[literals.len() - SUSPECT_INCOMPRESSIBLE_SAMPLE_SIZE..];
+    let largest_total = largest_symbol_count(begin) + largest_symbol_count(end);
+    largest_total <= ((2 * SUSPECT_INCOMPRESSIBLE_SAMPLE_SIZE) >> 7) + 4
+}
+
+fn largest_symbol_count(literals: &[u8]) -> usize {
+    let mut counts = [0usize; 256];
+    let mut largest = 0usize;
+    for &symbol in literals {
+        let count = &mut counts[usize::from(symbol)];
+        *count += 1;
+        largest = largest.max(*count);
+    }
+    largest
 }
 
 #[derive(Clone, Copy)]

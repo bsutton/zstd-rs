@@ -168,7 +168,6 @@ fn c_huff_weight_fse_is_unusable(weights: &[u8]) -> bool {
     max_count == weights.len() || max_count == 1
 }
 
-
 fn table_description_len_from_weights(weights: &[u8]) -> usize {
     let weights = &weights[..weights.len() - 1];
     if weights.len() > 16 {

@@ -10,7 +10,8 @@ mod sequence_tables;
 pub(crate) use config::BlockCompressionConfig;
 use config::HuffmanTableSearch;
 use literals::{
-    compress_literals, raw_literals, should_compress_literals, COMPRESS_LITERALS_SIZE_MIN,
+    compress_literals, raw_literals, should_compress_literals, suspect_uncompressible_literals,
+    COMPRESS_LITERALS_SIZE_MIN,
 };
 #[cfg(test)]
 use literals::{
@@ -165,6 +166,7 @@ pub(crate) fn compress_prepared_block(
             previous_huff_table,
             search_smallest_huffman_table,
             config.file_type_single_stream_huffman_max_literals,
+            suspect_uncompressible_literals(prepared.literals.len(), sequences.len()),
             &mut writer,
         ) {
             new_huffman_table = Some(table);

@@ -304,6 +304,52 @@ fn previous_huffman_table_lowers_literal_compression_threshold() {
 }
 
 #[test]
+fn suspect_literal_ratio_matches_c_threshold() {
+    assert!(suspect_uncompressible_literals(0, 0));
+    assert!(suspect_uncompressible_literals(20, 1));
+    assert!(suspect_uncompressible_literals(40, 2));
+    assert!(!suspect_uncompressible_literals(39, 2));
+}
+
+#[test]
+fn suspect_literal_sampling_uses_raw_literals_before_full_histogram() {
+    let mut literals = Vec::with_capacity(4096 * 10);
+    for value in 0..4096 {
+        literals.push(value as u8);
+    }
+    literals.resize(4096 * 9, 0);
+    for value in 0..4096 {
+        literals.push(value as u8);
+    }
+
+    let mut sampled_output = Vec::new();
+    let sampled_table = {
+        let mut sampled_writer = BitWriter::from(&mut sampled_output);
+        compress_literals(&literals, None, true, None, true, &mut sampled_writer)
+    };
+
+    assert!(sampled_table.is_none());
+    assert_eq!(
+        sampled_output[0] & 0b11,
+        0,
+        "suspect incompressible sampling should choose raw literals"
+    );
+
+    let mut full_output = Vec::new();
+    let full_table = {
+        let mut full_writer = BitWriter::from(&mut full_output);
+        compress_literals(&literals, None, true, None, false, &mut full_writer)
+    };
+
+    assert!(full_table.is_some());
+    assert_eq!(
+        full_output[0] & 0b11,
+        2,
+        "without the sampling gate the compressible middle should use Huffman"
+    );
+}
+
+#[test]
 fn rle_sequence_modes_round_trip_through_decoder() {
     let sequences = [
         crate::blocks::sequence_section::Sequence {
