@@ -284,7 +284,7 @@ fn collect_fixture_paths(path: &Path, paths: &mut Vec<PathBuf>) -> io::Result<()
 fn run_c_zstd(zstd_bin: &Path, level: i32, input: &Path, output: &Path) -> io::Result<()> {
     let mut command = Command::new(zstd_bin);
     command
-        .args(["-q", "-f", "--no-check"])
+        .args(["-q", "-f", "--single-thread", "--no-check"])
         .arg(format!("-{level}"))
         .arg(input)
         .arg("-o")
@@ -304,7 +304,7 @@ fn run_c_zstd_timed(
         .args(["-f", "%e\t%U\t%S", "-o"])
         .arg(&time_file)
         .arg(zstd_bin)
-        .args(["-q", "-f", "--no-check"])
+        .args(["-q", "-f", "--single-thread", "--no-check"])
         .arg(format!("-{level}"))
         .arg(input)
         .arg("-o")
@@ -442,7 +442,7 @@ fn write_markdown(path: &Path, rows: &[Row], csv_path: &Path) -> io::Result<()> 
         String::new(),
         format!("Source CSV: `{}`", csv_path.display()),
         String::new(),
-        "Gap is Rust compressed size versus C zstd with frame checksums disabled; positive means Rust is larger. CPU Improvement is positive when Rust uses less CPU than C zstd. Every output is decoded with C zstd and byte-compared against the original fixture.".to_string(),
+        "Gap is Rust compressed size versus single-threaded C zstd with frame checksums disabled; positive means Rust is larger. CPU Improvement is positive when Rust uses less CPU than C zstd. Every output is decoded with C zstd and byte-compared against the original fixture.".to_string(),
         String::new(),
         "```text".to_string(),
         format_row(&headers, &widths),

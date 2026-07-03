@@ -129,7 +129,7 @@ fn encoder_commands(args: &Args, input: &Path, output: &Path) -> Vec<(&'static s
 
     let mut c_zstd = Command::new(&args.c_zstd_bin);
     c_zstd
-        .args(["-q", "-f"])
+        .args(["-q", "-f", "--single-thread", "--no-check"])
         .arg(format!("-{}", args.level))
         .arg(input)
         .arg("-o")
@@ -326,7 +326,7 @@ fn write_markdown(path: &Path, rows: &[Row], csv_path: &Path, commentary: &str) 
         lines.push(format!("Commentary: {}", commentary.trim()));
         lines.push(String::new());
     }
-    lines.push("Percent improvements compare new/current against upstream. Each compressed output is decoded with C zstd and byte-compared against the original fixture.".to_string());
+    lines.push("Percent improvements compare new/current against upstream. C zstd is run single-threaded with frame checksums disabled. Each compressed output is decoded with C zstd and byte-compared against the original fixture.".to_string());
     lines.push(String::new());
     lines.push("```text".to_string());
     lines.push(format_row(&headers, &widths));
