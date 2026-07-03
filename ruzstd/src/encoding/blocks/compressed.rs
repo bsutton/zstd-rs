@@ -307,6 +307,11 @@ fn encode_sequences(
     let ll_table = ll_mode.table();
     let ml_table = ml_mode.table();
     let of_table = of_mode.table();
+    if let (Some(ll_table), Some(ml_table), Some(of_table)) = (ll_table, ml_table, of_table) {
+        encode_table_sequences(sequences, writer, ll_table, ml_table, of_table);
+        return;
+    }
+
     let (ll_code, ll_add_bits, ll_num_bits) = encode_literal_length(sequence.ll);
     let (of_code, of_add_bits, of_num_bits) = encode_offset(sequence.of);
     let (ml_code, ml_add_bits, ml_num_bits) = encode_match_len(sequence.ml);
@@ -344,6 +349,53 @@ fn encode_sequences(
     flush_fse_state(ml_table, ml_state, writer);
     flush_fse_state(of_table, of_state, writer);
     flush_fse_state(ll_table, ll_state, writer);
+
+    let bits_to_fill = writer.misaligned();
+    if bits_to_fill == 0 {
+        writer.write_bits(1u32, 8);
+    } else {
+        writer.write_bits(1u32, bits_to_fill);
+    }
+}
+
+fn encode_table_sequences(
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    writer: &mut BitWriter<&mut Vec<u8>>,
+    ll_table: &FSETable,
+    ml_table: &FSETable,
+    of_table: &FSETable,
+) {
+    let sequence = sequences[sequences.len() - 1];
+    let (ll_code, ll_add_bits, ll_num_bits) = encode_literal_length(sequence.ll);
+    let (of_code, of_add_bits, of_num_bits) = encode_offset(sequence.of);
+    let (ml_code, ml_add_bits, ml_num_bits) = encode_match_len(sequence.ml);
+    let mut ll_state = ll_table.c_start_state_index(ll_code);
+    let mut ml_state = ml_table.c_start_state_index(ml_code);
+    let mut of_state = of_table.c_start_state_index(of_code);
+
+    writer.write_bits(ll_add_bits, ll_num_bits);
+    writer.write_bits(ml_add_bits, ml_num_bits);
+    writer.write_bits(of_add_bits, of_num_bits);
+
+    let mut sequence_idx = sequences.len() - 1;
+    while sequence_idx > 0 {
+        sequence_idx -= 1;
+        let sequence = sequences[sequence_idx];
+        let (ll_code, ll_add_bits, ll_num_bits) = encode_literal_length(sequence.ll);
+        let (of_code, of_add_bits, of_num_bits) = encode_offset(sequence.of);
+        let (ml_code, ml_add_bits, ml_num_bits) = encode_match_len(sequence.ml);
+
+        update_table_fse_state(of_table, &mut of_state, of_code, writer);
+        update_table_fse_state(ml_table, &mut ml_state, ml_code, writer);
+        update_table_fse_state(ll_table, &mut ll_state, ll_code, writer);
+
+        writer.write_bits(ll_add_bits, ll_num_bits);
+        writer.write_bits(ml_add_bits, ml_num_bits);
+        writer.write_bits(of_add_bits, of_num_bits);
+    }
+    writer.write_bits(u64::from(ml_state), ml_table.acc_log() as usize);
+    writer.write_bits(u64::from(of_state), of_table.acc_log() as usize);
+    writer.write_bits(u64::from(ll_state), ll_table.acc_log() as usize);
 
     let bits_to_fill = writer.misaligned();
     if bits_to_fill == 0 {
@@ -407,6 +459,18 @@ fn update_fse_state(
             unreachable!("non-RLE FSE mode must have a state");
         }
     }
+}
+
+fn update_table_fse_state(
+    table: &FSETable,
+    state: &mut u32,
+    symbol: u8,
+    writer: &mut BitWriter<&mut Vec<u8>>,
+) {
+    let next = table.next_state(symbol, *state);
+    let diff = *state - next.baseline;
+    writer.write_bits(u64::from(diff), next.num_bits as usize);
+    *state = next.index;
 }
 
 fn flush_fse_state(
