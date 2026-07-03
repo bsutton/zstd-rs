@@ -218,10 +218,12 @@ fn encode_weight_table_fse_bytes(weights: &[u8]) -> Vec<u8> {
     let idx_before = writer.index();
     let max_symbol = weights.iter().copied().max().unwrap_or(0) as usize;
     let table_log = fse_encoder::optimal_table_log(6, weights.len(), max_symbol);
-    let mut encoder = FSEEncoder::new(
-        fse_encoder::build_table_from_data(weights.iter().copied(), table_log, true),
-        &mut writer,
-    );
+    let table = if weights.len() == 255 && !c_huff_weight_fse_is_unusable(weights) {
+        fse_encoder::build_huffman_weight_table_from_data(weights, 6)
+    } else {
+        fse_encoder::build_table_from_data(weights.iter().copied(), table_log, true)
+    };
+    let mut encoder = FSEEncoder::new(table, &mut writer);
     encoder.encode_interleaved(weights);
     let encoded_len = (writer.index() - idx_before) / 8;
     assert!(encoded_len < 128);

@@ -774,6 +774,13 @@ fn inspect_archive(path: &std::path::Path) {
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(usize::MAX);
+    let huffman_weights = env::var("RUZSTD_INSPECT_HUFFMAN_WEIGHTS").ok().as_deref() == Some("1");
+    let huffman_weight_dump_block = env::var("RUZSTD_INSPECT_HUFFMAN_WEIGHT_DUMP_BLOCK")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok());
+    let huffman_table_dump_block = env::var("RUZSTD_INSPECT_HUFFMAN_TABLE_DUMP_BLOCK")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok());
 
     loop {
         let (block_header, _) = block_decoder.read_block_header(&mut source).unwrap();
@@ -837,12 +844,14 @@ fn inspect_archive(path: &std::path::Path) {
                     },
                 };
                 let literals_payload = &after_literals_header[..literals_payload_bytes];
-                let literals_table_desc_bytes =
+                let (literals_table_desc_bytes, literal_weights) =
                     if matches!(literals.ls_type, LiteralsSectionType::Compressed) {
                         let mut temp_table = crate::huff0::HuffmanTable::new();
-                        temp_table.build_decoder(literals_payload).unwrap() as usize
+                        let bytes = temp_table.build_decoder(literals_payload).unwrap() as usize;
+                        let weights = huffman_weights.then(|| temp_table.encoder_weights());
+                        (bytes, weights)
                     } else {
-                        0
+                        (0, None)
                     };
                 let literals_stream_bytes = literals_payload_bytes
                     .saturating_sub(literals_table_desc_bytes)
@@ -995,6 +1004,19 @@ fn inspect_archive(path: &std::path::Path) {
                     print_top_code_counts("  of_codes", &of_counts, 8);
                 }
 
+                if let Some(weights) = literal_weights {
+                    print_huffman_weight_summary(block_index, &weights);
+                    if huffman_weight_dump_block == Some(block_index) {
+                        print_huffman_weights(block_index, &weights);
+                    }
+                }
+                if huffman_table_dump_block == Some(block_index) && literals_table_desc_bytes != 0 {
+                    print_huffman_table_bytes(
+                        block_index,
+                        &literals_payload[..literals_table_desc_bytes],
+                    );
+                }
+
                 if sequence_dump_block == Some(block_index) {
                     for (sequence_idx, sequence) in scratch
                         .sequences
@@ -1039,6 +1061,86 @@ fn inspect_archive(path: &std::path::Path) {
         total_literals,
         total_sequences,
         total_match_bytes,
+    );
+}
+
+#[cfg(all(test, feature = "std"))]
+fn print_huffman_table_bytes(block_index: usize, bytes: &[u8]) {
+    let fse_header = if bytes.first().is_some_and(|header| *header < 128) {
+        let mut table = crate::fse::FSETable::new(crate::huff0::MAX_MAX_NUM_BITS);
+        table
+            .build_decoder(&bytes[1..], 6)
+            .ok()
+            .map(|len| (len, table.symbol_probabilities().to_vec()))
+    } else {
+        None
+    };
+    std::println!(
+        "HUFFTABLEDUMP idx={} len={} fse_header_len={} bytes={}",
+        block_index,
+        bytes.len(),
+        fse_header
+            .as_ref()
+            .map(|(len, _)| format!("{len}"))
+            .unwrap_or_else(|| "none".into()),
+        bytes
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<Vec<_>>()
+            .join(""),
+    );
+    if let Some((_, probabilities)) = fse_header {
+        std::println!(
+            "HUFFTABLEFSE idx={} probs={}",
+            block_index,
+            probabilities
+                .iter()
+                .map(|probability| format!("{probability}"))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+fn print_huffman_weights(block_index: usize, weights: &[usize]) {
+    std::println!(
+        "HUFFWEIGHTDUMP idx={} weights={}",
+        block_index,
+        weights
+            .iter()
+            .map(|weight| format!("{weight}"))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+}
+
+#[cfg(all(test, feature = "std"))]
+fn print_huffman_weight_summary(block_index: usize, weights: &[usize]) {
+    let mut counts = [0usize; 16];
+    let mut max_symbol = 0usize;
+    let mut nonzero = 0usize;
+    for (symbol, weight) in weights.iter().copied().enumerate() {
+        if weight != 0 {
+            nonzero += 1;
+            max_symbol = symbol;
+        }
+        if weight < counts.len() {
+            counts[weight] += 1;
+        }
+    }
+    std::println!(
+        "HUFFWEIGHTS idx={} symbols={} nonzero={} counts={}",
+        block_index,
+        max_symbol + 1,
+        nonzero,
+        counts
+            .iter()
+            .enumerate()
+            .filter(|(_, count)| **count != 0)
+            .map(|(weight, count)| format!("{weight}:{count}"))
+            .collect::<Vec<_>>()
+            .join(" "),
     );
 }
 

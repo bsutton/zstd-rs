@@ -29,15 +29,15 @@ impl<V: AsMut<Vec<u8>>> FSEEncoder<'_, V> {
     pub fn encode(&mut self, data: &[u8]) {
         self.write_table();
 
-        let mut state = self.table.start_state(data[data.len() - 1]);
+        let mut state_index = self.table.c_start_state_index(data[data.len() - 1]);
         for x in data[0..data.len() - 1].iter().rev().copied() {
-            let next = self.table.next_state(x, state.index);
-            let diff = state.index - next.baseline;
+            let next = self.table.next_state(x, state_index);
+            let diff = state_index - next.baseline;
             self.writer.write_bits(diff as u64, next.num_bits as usize);
-            state = next;
+            state_index = next.index;
         }
         self.writer
-            .write_bits(state.index as u64, self.acc_log() as usize);
+            .write_bits(state_index as u64, self.acc_log() as usize);
 
         let bits_to_fill = self.writer.misaligned();
         if bits_to_fill == 0 {
@@ -56,56 +56,49 @@ impl<V: AsMut<Vec<u8>>> FSEEncoder<'_, V> {
     pub fn encode_interleaved(&mut self, data: &[u8]) {
         self.write_table();
 
-        let mut state_1 = self.table.start_state(data[data.len() - 1]);
-        let mut state_2 = self.table.start_state(data[data.len() - 2]);
+        let mut ip = data.len();
+        let mut state_1;
+        let mut state_2;
 
-        // The first two symbols are represented by the start states
-        // Then encode the state transitions for two symbols at a time
-        let mut idx = data.len() - 4;
-        loop {
-            {
-                let state = state_1;
-                let x = data[idx + 1];
-                let next = self.table.next_state(x, state.index);
-                let diff = state.index - next.baseline;
-                self.writer.write_bits(diff as u64, next.num_bits as usize);
-                state_1 = next;
-            }
-            {
-                let state = state_2;
-                let x = data[idx];
-                let next = self.table.next_state(x, state.index);
-                let diff = state.index - next.baseline;
-                self.writer.write_bits(diff as u64, next.num_bits as usize);
-                state_2 = next;
-            }
-
-            if idx < 2 {
-                break;
-            }
-            idx -= 2;
-        }
-
-        // Determine if we have an even or odd number of symbols to encode
-        // If odd we need to encode the last states transition and encode the final states in the flipped order
-        if idx == 1 {
-            let state = state_1;
-            let x = data[0];
-            let next = self.table.next_state(x, state.index);
-            let diff = state.index - next.baseline;
-            self.writer.write_bits(diff as u64, next.num_bits as usize);
-            state_1 = next;
-
-            self.writer
-                .write_bits(state_2.index as u64, self.acc_log() as usize);
-            self.writer
-                .write_bits(state_1.index as u64, self.acc_log() as usize);
+        if data.len() & 1 != 0 {
+            ip -= 1;
+            state_1 = self.table.c_start_state_index(data[ip]);
+            ip -= 1;
+            state_2 = self.table.c_start_state_index(data[ip]);
+            ip -= 1;
+            Self::encode_symbol(&self.table, self.writer, &mut state_1, data[ip]);
         } else {
-            self.writer
-                .write_bits(state_1.index as u64, self.acc_log() as usize);
-            self.writer
-                .write_bits(state_2.index as u64, self.acc_log() as usize);
+            ip -= 1;
+            state_2 = self.table.c_start_state_index(data[ip]);
+            ip -= 1;
+            state_1 = self.table.c_start_state_index(data[ip]);
         }
+
+        if (data.len() - 2) & 2 != 0 {
+            ip -= 1;
+            Self::encode_symbol(&self.table, self.writer, &mut state_2, data[ip]);
+            ip -= 1;
+            Self::encode_symbol(&self.table, self.writer, &mut state_1, data[ip]);
+        }
+
+        while ip > 0 {
+            ip -= 1;
+            Self::encode_symbol(&self.table, self.writer, &mut state_2, data[ip]);
+            ip -= 1;
+            Self::encode_symbol(&self.table, self.writer, &mut state_1, data[ip]);
+
+            if ip > 0 {
+                ip -= 1;
+                Self::encode_symbol(&self.table, self.writer, &mut state_2, data[ip]);
+                ip -= 1;
+                Self::encode_symbol(&self.table, self.writer, &mut state_1, data[ip]);
+            }
+        }
+
+        self.writer
+            .write_bits(state_2 as u64, self.acc_log() as usize);
+        self.writer
+            .write_bits(state_1 as u64, self.acc_log() as usize);
 
         let bits_to_fill = self.writer.misaligned();
         if bits_to_fill == 0 {
@@ -113,6 +106,18 @@ impl<V: AsMut<Vec<u8>>> FSEEncoder<'_, V> {
         } else {
             self.writer.write_bits(1u32, bits_to_fill);
         }
+    }
+
+    fn encode_symbol<VV: AsMut<Vec<u8>>>(
+        table: &FSETable,
+        writer: &mut BitWriter<VV>,
+        state_index: &mut u32,
+        symbol: u8,
+    ) {
+        let next = table.next_state(symbol, *state_index);
+        let diff = *state_index - next.baseline;
+        writer.write_bits(u64::from(diff), next.num_bits as usize);
+        *state_index = next.index;
     }
 
     fn write_table(&mut self) {
@@ -144,6 +149,49 @@ impl FSETable {
     pub(crate) fn start_state(&self, symbol: u8) -> &State {
         let states = &self.states[symbol as usize];
         &states.states[0]
+    }
+
+    fn c_start_state_index(&self, symbol: u8) -> u32 {
+        let probability = self.normalized_probability(symbol);
+        debug_assert_ne!(probability, 0);
+
+        let mut total = 0usize;
+        for current_symbol in 0..usize::from(symbol) {
+            total += match self.states[current_symbol].probability {
+                -1 => 1,
+                probability if probability > 0 => probability as usize,
+                _ => 0,
+            };
+        }
+
+        let delta_nb_bits = self.delta_nb_bits(symbol);
+        let nb_bits_out = (delta_nb_bits + (1 << 15)) >> 16;
+        let value = (nb_bits_out << 16) - delta_nb_bits;
+        let delta_find_state = match probability {
+            -1 | 1 => total as isize - 1,
+            probability => total as isize - probability as isize,
+        };
+        let state_table_index = (value >> nb_bits_out) as isize + delta_find_state;
+        debug_assert!(state_table_index >= 0);
+        let state_table_index = state_table_index as usize;
+        let rank = state_table_index - total;
+        self.nth_symbol_state_by_decode_index(symbol, rank)
+    }
+
+    fn nth_symbol_state_by_decode_index(&self, symbol: u8, rank: usize) -> u32 {
+        let states = &self.states[usize::from(symbol)].states;
+        let mut lower_bound = None;
+        let mut selected = 0;
+        for _ in 0..=rank {
+            selected = states
+                .iter()
+                .filter(|state| lower_bound.is_none_or(|lower| state.index > lower))
+                .map(|state| state.index)
+                .min()
+                .expect("symbol state rank must exist");
+            lower_bound = Some(selected);
+        }
+        selected
     }
 
     pub(crate) fn can_encode_symbol(&self, symbol: u8) -> bool {
@@ -428,6 +476,32 @@ pub(crate) fn normalized_probabilities_from_counts(
     } else {
         old_normalize_counts(counts, max_log, avoid_0_numbit)
     }
+}
+
+/// Build the FSE table used for Huffman weight descriptions.
+///
+/// zstd's `HUF_compressWeights()` normalizes low-probability symbols as `1`
+/// instead of `-1`, which can produce a larger NCount header but a shorter
+/// compressed weight stream.
+pub(crate) fn build_huffman_weight_table_from_data(data: &[u8], max_log: u8) -> FSETable {
+    let mut counts = [0; 256];
+    let mut max_symbol = 0;
+    for symbol in data {
+        counts[usize::from(*symbol)] += 1;
+    }
+    for (idx, count) in counts.iter().copied().enumerate() {
+        if count > 0 {
+            max_symbol = idx;
+        }
+    }
+
+    let counts = &counts[..=max_symbol];
+    let total = counts.iter().sum::<usize>();
+    let acc_log = optimal_table_log(max_log, total, max_symbol);
+    let (probs, acc_log) = normalize_counts(counts, acc_log, 1)
+        .map(|probs| (probs, acc_log))
+        .unwrap_or_else(|| old_normalize_counts(counts, max_log, false));
+    build_table_from_probabilities(&probs, acc_log)
 }
 
 pub(crate) fn optimal_table_log(max_log: u8, total: usize, max_symbol: usize) -> u8 {
@@ -821,8 +895,9 @@ pub(crate) fn default_of_table() -> FSETable {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_table_from_data, build_table_from_probabilities, default_ll_table, default_ml_table,
-        default_of_table, ncount_cost_from_probabilities, normalize_counts, optimal_table_log,
+        build_huffman_weight_table_from_data, build_table_from_data,
+        build_table_from_probabilities, default_ll_table, default_ml_table, default_of_table,
+        ncount_cost_from_probabilities, normalize_counts, optimal_table_log,
     };
     use crate::bit_io::BitWriter;
     use alloc::vec::Vec;
@@ -891,6 +966,25 @@ mod tests {
         for (count, probability) in counts.iter().zip(normalized) {
             assert_eq!(*count == 0, probability == 0);
         }
+    }
+
+    #[test]
+    fn huffman_weight_table_uses_c_low_probability_policy() {
+        let mut weights = Vec::new();
+        weights.extend(alloc::vec![1; 70]);
+        weights.extend(alloc::vec![2; 96]);
+        weights.extend(alloc::vec![3; 42]);
+        weights.extend(alloc::vec![4; 26]);
+        weights.extend(alloc::vec![5; 18]);
+        weights.extend(alloc::vec![6; 3]);
+
+        let table = build_huffman_weight_table_from_data(&weights, 6);
+        let probabilities = (0..=6)
+            .map(|symbol| table.normalized_probability(symbol))
+            .collect::<Vec<_>>();
+
+        assert_eq!(table.acc_log(), 5);
+        assert_eq!(probabilities, [0, 8, 13, 5, 3, 2, 1]);
     }
 
     #[test]

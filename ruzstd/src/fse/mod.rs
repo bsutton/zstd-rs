@@ -26,6 +26,15 @@ fn tables_equal() {
     let enc_table = fse_encoder::build_table_from_probabilities(probs, 6);
 
     check_tables(&dec_table, &enc_table);
+
+    let huff_weight_probs = &[0, 8, 13, 5, 3, 2, 1];
+    let mut dec_table = FSETable::new(255);
+    dec_table
+        .build_from_probabilities(5, huff_weight_probs)
+        .unwrap();
+    let enc_table = fse_encoder::build_table_from_probabilities(huff_weight_probs, 5);
+
+    check_tables(&dec_table, &enc_table);
 }
 
 #[cfg(any(test, feature = "fuzz_exports"))]
