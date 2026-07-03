@@ -4,7 +4,8 @@ use crate::{
     bit_io::BitWriter,
     fse::fse_encoder::{
         build_table_from_probabilities, ncount_cost_from_probabilities,
-        normalized_probabilities_from_counts, FSETable,
+        normalize_counts_with_table_log, normalized_probabilities_from_counts, optimal_table_log,
+        FSETable,
     },
 };
 
@@ -285,8 +286,16 @@ fn build_sequence_table_from_raw_counts(
     last_code: usize,
     max_log: u8,
 ) -> FSETable {
+    let original_total = counts.iter().sum::<usize>();
+    let original_max_symbol = counts
+        .iter()
+        .rposition(|count| *count != 0)
+        .unwrap_or(last_code);
+    let table_log = optimal_table_log(max_log, original_total, original_max_symbol);
+
     // The final sequence initializes the FSE state. C zstd removes one
-    // duplicated final code before normalizing compressed sequence tables.
+    // duplicated final code before normalizing compressed sequence tables, but
+    // computes the FSE table log from the original sequence count first.
     if counts[last_code] > 1 {
         counts[last_code] -= 1;
     }
@@ -295,8 +304,15 @@ fn build_sequence_table_from_raw_counts(
         .iter()
         .rposition(|count| *count != 0)
         .unwrap_or(last_code);
-    let (probs, acc_log) =
-        normalized_probabilities_from_counts(&counts[..=max_symbol], max_log, true);
+    let adjusted_total = counts[..=max_symbol].iter().sum::<usize>();
+    let low_prob_count = if adjusted_total >= 2048 { -1 } else { 1 };
+    let (probs, acc_log) = normalize_counts_with_table_log(
+        &counts[..=max_symbol],
+        table_log,
+        max_log,
+        low_prob_count,
+        true,
+    );
     build_table_from_probabilities(&probs, acc_log)
 }
 

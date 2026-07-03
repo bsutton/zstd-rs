@@ -478,6 +478,18 @@ pub(crate) fn normalized_probabilities_from_counts(
     }
 }
 
+pub(crate) fn normalize_counts_with_table_log(
+    counts: &[usize],
+    table_log: u8,
+    max_log: u8,
+    low_prob_count: i32,
+    avoid_0_numbit: bool,
+) -> (Vec<i32>, u8) {
+    normalize_counts(counts, table_log, low_prob_count)
+        .map(|probs| (probs, table_log))
+        .unwrap_or_else(|| old_normalize_counts(counts, max_log, avoid_0_numbit))
+}
+
 /// Build the FSE table used for Huffman weight descriptions.
 ///
 /// zstd's `HUF_compressWeights()` normalizes low-probability symbols as `1`

@@ -1365,6 +1365,57 @@ fn encoded_sequence_table_removes_repeated_last_code_from_counts() {
     );
 }
 
+#[test]
+fn encoded_sequence_table_log_uses_original_sequence_count() {
+    let ll_default = default_ll_table();
+    let ml_default = default_ml_table();
+    let of_default = default_of_table();
+    let mut lengths = Vec::new();
+    lengths.extend(core::iter::repeat_n(0, 300));
+    lengths.extend(core::iter::repeat_n(1, 60));
+    lengths.extend(core::iter::repeat_n(2, 40));
+    lengths.extend(core::iter::repeat_n(3, 30));
+    lengths.extend(core::iter::repeat_n(4, 20));
+    lengths.extend(core::iter::repeat_n(8, 20));
+    lengths.extend(core::iter::repeat_n(20, 20));
+    lengths.extend(core::iter::repeat_n(40, 22));
+    lengths.push(0);
+    let sequences = sequences_for_literal_lengths(lengths.iter().copied());
+
+    let (ll_mode, _, _) = choose_sequence_table_modes(
+        &sequences,
+        SequenceModeSearchConfig {
+            ll_previous: None,
+            ll_default: &ll_default,
+            ml_previous: None,
+            ml_default: &ml_default,
+            of_previous: None,
+            of_default: &of_default,
+            repeat_table_max_sequences: 0,
+            llml_predefined_max_sequences: 0,
+            of_predefined_max_sequences: 0,
+            of_max_log: 8,
+            exact_sequence_mode_search: false,
+            c_fast_heuristics: false,
+            c_cost_model: false,
+        },
+    );
+
+    let FseTableMode::Encoded(table) = ll_mode else {
+        panic!("forced encoded table");
+    };
+    let max_code = sequences
+        .iter()
+        .map(|sequence| usize::from(encode_literal_length(sequence.ll).0))
+        .max()
+        .unwrap();
+    let expected_log = crate::fse::fse_encoder::optimal_table_log(9, sequences.len(), max_code);
+    let adjusted_log = crate::fse::fse_encoder::optimal_table_log(9, sequences.len() - 1, max_code);
+
+    assert_ne!(expected_log, adjusted_log);
+    assert_eq!(table.acc_log(), expected_log);
+}
+
 fn c_cost_config<'a>(
     ll_default: &'a crate::fse::fse_encoder::FSETable,
     ll_previous: Option<&'a crate::fse::fse_encoder::FSETable>,

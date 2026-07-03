@@ -784,6 +784,9 @@ fn inspect_archive(path: &std::path::Path) {
     let literal_counts_block = env::var("RUZSTD_INSPECT_LITERAL_COUNTS_BLOCK")
         .ok()
         .and_then(|value| value.parse::<usize>().ok());
+    let sequence_table_dump_block = env::var("RUZSTD_INSPECT_SEQUENCE_TABLE_DUMP_BLOCK")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok());
 
     loop {
         let (block_header, _) = block_decoder.read_block_header(&mut source).unwrap();
@@ -1007,6 +1010,9 @@ fn inspect_archive(path: &std::path::Path) {
                     print_top_code_counts("  of_codes", &of_counts, 8);
                 }
 
+                if sequence_table_dump_block == Some(block_index) {
+                    print_sequence_table_bytes(block_index, &sequences, sequence_payload);
+                }
                 if let Some(weights) = literal_weights {
                     print_huffman_weight_summary(block_index, &weights);
                     if huffman_weight_dump_block == Some(block_index) {
@@ -1068,6 +1074,109 @@ fn inspect_archive(path: &std::path::Path) {
         total_sequences,
         total_match_bytes,
     );
+}
+
+#[cfg(all(test, feature = "std"))]
+fn print_sequence_table_bytes(
+    block_index: usize,
+    sequences: &crate::blocks::sequence_section::SequencesHeader,
+    source: &[u8],
+) {
+    let Some(modes) = sequences.modes else {
+        return;
+    };
+
+    let mut offset = 0usize;
+    offset += print_sequence_mode_table_bytes(
+        block_index,
+        "ll",
+        modes.ll_mode(),
+        &source[offset..],
+        crate::blocks::sequence_section::MAX_LITERAL_LENGTH_CODE,
+        9,
+    );
+    offset += print_sequence_mode_table_bytes(
+        block_index,
+        "of",
+        modes.of_mode(),
+        &source[offset..],
+        crate::blocks::sequence_section::MAX_OFFSET_CODE,
+        8,
+    );
+    print_sequence_mode_table_bytes(
+        block_index,
+        "ml",
+        modes.ml_mode(),
+        &source[offset..],
+        crate::blocks::sequence_section::MAX_MATCH_LENGTH_CODE,
+        9,
+    );
+}
+
+#[cfg(all(test, feature = "std"))]
+fn print_sequence_mode_table_bytes(
+    block_index: usize,
+    label: &str,
+    mode: crate::blocks::sequence_section::ModeType,
+    source: &[u8],
+    max_symbol: u8,
+    max_log: u8,
+) -> usize {
+    match mode {
+        crate::blocks::sequence_section::ModeType::FSECompressed => {
+            let mut table = crate::fse::FSETable::new(max_symbol);
+            let len = table.build_decoder(source, max_log).unwrap();
+            let bytes = &source[..len];
+            std::println!(
+                "SEQTABLEDUMP idx={} table={} len={} bytes={}",
+                block_index,
+                label,
+                len,
+                bytes
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<Vec<_>>()
+                    .join(""),
+            );
+            std::println!(
+                "SEQTABLEFSE idx={} table={} probs={}",
+                block_index,
+                label,
+                table
+                    .symbol_probabilities()
+                    .iter()
+                    .map(|probability| format!("{probability}"))
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
+            len
+        }
+        crate::blocks::sequence_section::ModeType::RLE => {
+            std::println!(
+                "SEQTABLEDUMP idx={} table={} len=1 rle={}",
+                block_index,
+                label,
+                source[0],
+            );
+            1
+        }
+        crate::blocks::sequence_section::ModeType::Predefined => {
+            std::println!(
+                "SEQTABLEDUMP idx={} table={} len=0 predefined",
+                block_index,
+                label,
+            );
+            0
+        }
+        crate::blocks::sequence_section::ModeType::Repeat => {
+            std::println!(
+                "SEQTABLEDUMP idx={} table={} len=0 repeat",
+                block_index,
+                label,
+            );
+            0
+        }
+    }
 }
 
 #[cfg(all(test, feature = "std"))]
