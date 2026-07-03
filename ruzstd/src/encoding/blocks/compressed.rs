@@ -38,7 +38,7 @@ use crate::{
     encoding::frame_compressor::{CompressState, FseTables, OffsetHistory},
     encoding::util::likely_dependency_json_lockfile_text,
     encoding::{CompressionFileProfile, Matcher, Sequence},
-    fse::fse_encoder::{FSETable, State},
+    fse::fse_encoder::FSETable,
     huff0::huff0_encoder,
 };
 
@@ -381,28 +381,28 @@ fn encode_rle_sequences(
     }
 }
 
-fn init_fse_state<'a>(mode: &'a FseTableMode<'_>, symbol: u8) -> Option<&'a State> {
+fn init_fse_state(mode: &FseTableMode<'_>, symbol: u8) -> Option<u32> {
     match mode {
         FseTableMode::Rle(rle_symbol) => {
             debug_assert_eq!(*rle_symbol, symbol);
             None
         }
-        _ => mode.table().map(|table| table.start_state(symbol)),
+        _ => mode.table().map(|table| table.c_start_state_index(symbol)),
     }
 }
 
-fn update_fse_state<'a>(
-    table: Option<&'a FSETable>,
-    state: &mut Option<&'a State>,
+fn update_fse_state(
+    table: Option<&FSETable>,
+    state: &mut Option<u32>,
     symbol: u8,
     writer: &mut BitWriter<&mut Vec<u8>>,
 ) {
     if let Some(table) = table {
         if let Some(current) = *state {
-            let next = table.next_state(symbol, current.index);
-            let diff = current.index - next.baseline;
+            let next = table.next_state(symbol, current);
+            let diff = current - next.baseline;
             writer.write_bits(u64::from(diff), next.num_bits as usize);
-            *state = Some(next);
+            *state = Some(next.index);
         } else {
             unreachable!("non-RLE FSE mode must have a state");
         }
@@ -411,12 +411,12 @@ fn update_fse_state<'a>(
 
 fn flush_fse_state(
     table: Option<&FSETable>,
-    state: Option<&State>,
+    state: Option<u32>,
     writer: &mut BitWriter<&mut Vec<u8>>,
 ) {
     if let Some(table) = table {
         if let Some(state) = state {
-            writer.write_bits(u64::from(state.index), table.acc_log() as usize);
+            writer.write_bits(u64::from(state), table.acc_log() as usize);
         } else {
             unreachable!("non-RLE FSE mode must have a state");
         }

@@ -145,13 +145,7 @@ impl FSETable {
         states.get(idx, self.table_size)
     }
 
-    #[inline(always)]
-    pub(crate) fn start_state(&self, symbol: u8) -> &State {
-        let states = &self.states[symbol as usize];
-        &states.states[0]
-    }
-
-    fn c_start_state_index(&self, symbol: u8) -> u32 {
+    pub(crate) fn c_start_state_index(&self, symbol: u8) -> u32 {
         let probability = self.normalized_probability(symbol);
         debug_assert_ne!(probability, 0);
 
