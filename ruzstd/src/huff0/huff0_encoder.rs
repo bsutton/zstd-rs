@@ -775,19 +775,20 @@ fn rank_limited_weights(counts: &[usize]) -> Vec<usize> {
     redistribute_weights(&mut weights, limit);
 
     weights.reverse();
-    let mut counts_sorted = counts.iter().enumerate().collect::<Vec<_>>();
+    let mut counts_sorted = counts
+        .iter()
+        .enumerate()
+        .filter(|(_, count)| **count > 0)
+        .collect::<Vec<_>>();
     counts_sorted.sort_by_key(|(_, c1)| *c1);
 
     let mut weights_distributed = alloc::vec![0; counts.len()];
     for (idx, count) in counts_sorted {
-        if *count == 0 {
-            weights_distributed[idx] = 0;
-        } else {
-            weights_distributed[idx] = match weights.pop() {
-                Some(weight) => weight,
-                None => invalid_huffman_tree(),
-            };
-        }
+        debug_assert!(*count > 0);
+        weights_distributed[idx] = match weights.pop() {
+            Some(weight) => weight,
+            None => invalid_huffman_tree(),
+        };
     }
 
     weights_distributed
