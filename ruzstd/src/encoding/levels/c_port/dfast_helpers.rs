@@ -62,19 +62,7 @@ pub(super) fn read32(src: &[u8], pos: usize) -> u32 {
     }
 }
 
-pub(super) fn count_match(
-    src: &[u8],
-    mut pos: usize,
-    mut match_pos: usize,
-    match_limit: usize,
-) -> usize {
-    let start = pos;
-    while pos < match_limit && match_pos < src.len() && src[pos] == src[match_pos] {
-        pos += 1;
-        match_pos += 1;
-    }
-    pos - start
-}
+pub(super) use super::match_count::count_match;
 
 pub(super) fn store_match(
     sequences: &mut Vec<StoredSequence>,
