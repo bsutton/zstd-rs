@@ -372,6 +372,9 @@ impl SymbolStates {
             debug_assert_ne!(state_idx, u16::MAX as usize);
             return &self.states[state_idx];
         }
+        if self.states.len() == 1 {
+            return &self.states[0];
+        }
 
         let start_search_at = (idx_usize * self.states.len()) / max_idx;
         self.states[start_search_at..]
