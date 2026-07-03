@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::fast_helpers::{hash_ptr, hash_small_ptr, lowest_prefix_index_with_loaded_dict, read32};
-use super::match_count::count_match;
+use super::match_count::count_match_behind as count_match;
 use super::params::CompressionParameters;
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 
@@ -225,10 +225,10 @@ fn compress_block_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
             let current0 = ip0;
             hash_table[hash0] = current0 as u32;
 
-            if rep_offset1 > 0
-                && ip2 >= rep_offset1
-                && read32(src, ip2) == read32(src, ip2 - rep_offset1)
-            {
+            if rep_offset1 > 0 && {
+                debug_assert!(ip2 >= rep_offset1);
+                read32(src, ip2) == read32(src, ip2 - rep_offset1)
+            } {
                 ip0 = ip2;
                 let mut match0 = ip0 - rep_offset1;
                 let backward = usize::from(ip0 > 0 && src[ip0 - 1] == src[match0 - 1]);
@@ -450,10 +450,10 @@ fn consume_immediate_repcodes<const MIN_MATCH: u32>(
         return;
     }
 
-    while *ip <= ilimit
-        && *ip >= *rep_offset2
-        && read32(src, *ip) == read32(src, *ip - *rep_offset2)
-    {
+    while *ip <= ilimit && {
+        debug_assert!(*ip >= *rep_offset2);
+        read32(src, *ip) == read32(src, *ip - *rep_offset2)
+    } {
         let repeat_length = count_match(src, *ip + 4, *ip + 4 - *rep_offset2, match_limit) + 4;
         core::mem::swap(rep_offset1, rep_offset2);
         hash_table[hash_small_ptr::<MIN_MATCH>(src, *ip, hlog)] = *ip as u32;

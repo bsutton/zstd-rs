@@ -224,10 +224,10 @@ fn compress_block_double_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
             hash_long[hl0] = curr as u32;
             hash_small[hs0] = curr as u32;
 
-            if offset_1 > 0
-                && ip + 1 >= offset_1
-                && read32(src, ip + 1 - offset_1) == read32(src, ip + 1)
-            {
+            if offset_1 > 0 && {
+                debug_assert!(ip + 1 >= offset_1);
+                read32(src, ip + 1 - offset_1) == read32(src, ip + 1)
+            } {
                 let match_length =
                     count_match(src, ip + 1 + 4, ip + 1 + 4 - offset_1, block_end) + 4;
                 ip += 1;
@@ -445,11 +445,10 @@ fn consume_immediate_repcodes<const MIN_MATCH: u32>(
     offset_2: &mut usize,
     block_end: usize,
 ) {
-    while *ip <= ilimit
-        && *offset_2 > 0
-        && *ip >= *offset_2
-        && read32(src, *ip) == read32(src, *ip - *offset_2)
-    {
+    while *ip <= ilimit && *offset_2 > 0 && {
+        debug_assert!(*ip >= *offset_2);
+        read32(src, *ip) == read32(src, *ip - *offset_2)
+    } {
         let repeat_length = count_match(src, *ip + 4, *ip + 4 - *offset_2, block_end) + 4;
         core::mem::swap(offset_1, offset_2);
         hash_small[hash_small_ptr::<MIN_MATCH>(src, *ip, h_bits_s)] = *ip as u32;

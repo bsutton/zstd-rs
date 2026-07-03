@@ -8,7 +8,7 @@ use super::{
         compress_block_fast_no_dict_with_state_and_loaded_dict, FastBlockOutput, FastMatchState,
     },
     fast_helpers::{hash_small_ptr, lowest_prefix_index_with_loaded_dict, read32},
-    match_count::count_match,
+    match_count::count_match_behind as count_match,
     params::CompressionParameters,
     sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence},
 };

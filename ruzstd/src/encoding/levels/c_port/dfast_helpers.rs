@@ -62,7 +62,7 @@ pub(super) fn read32(src: &[u8], pos: usize) -> u32 {
     }
 }
 
-pub(super) use super::match_count::count_match;
+pub(super) use super::match_count::count_match_behind as count_match;
 
 pub(super) fn store_match(
     sequences: &mut Vec<StoredSequence>,
