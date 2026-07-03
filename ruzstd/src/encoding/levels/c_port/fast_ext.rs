@@ -8,6 +8,7 @@ use super::{
         compress_block_fast_no_dict_with_state_and_loaded_dict, FastBlockOutput, FastMatchState,
     },
     fast_helpers::{hash_small_ptr, lowest_prefix_index_with_loaded_dict, read32},
+    match_count::count_match,
     params::CompressionParameters,
     sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence},
 };
@@ -454,13 +455,4 @@ fn match4_found(
 
 fn index_overlap_check(prefix_lowest_index: usize, rep_index: usize) -> bool {
     prefix_lowest_index.wrapping_sub(1).wrapping_sub(rep_index) >= 3
-}
-
-fn count_match(src: &[u8], mut pos: usize, mut match_pos: usize, match_limit: usize) -> usize {
-    let start = pos;
-    while pos < match_limit && match_pos < src.len() && src[pos] == src[match_pos] {
-        pos += 1;
-        match_pos += 1;
-    }
-    pos - start
 }

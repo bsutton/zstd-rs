@@ -4,6 +4,7 @@ use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::fast_helpers::{hash_ptr, hash_small_ptr, lowest_prefix_index_with_loaded_dict, read32};
+use super::match_count::count_match;
 use super::params::CompressionParameters;
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 
@@ -478,13 +479,4 @@ fn match4_found(
         && current + 4 <= match_limit
         && match_idx.checked_add(4).is_some_and(|end| end <= src.len())
         && read32(src, current) == read32(src, match_idx)
-}
-
-fn count_match(src: &[u8], mut pos: usize, mut match_pos: usize, match_limit: usize) -> usize {
-    let start = pos;
-    while pos < match_limit && match_pos < src.len() && src[pos] == src[match_pos] {
-        pos += 1;
-        match_pos += 1;
-    }
-    pos - start
 }
