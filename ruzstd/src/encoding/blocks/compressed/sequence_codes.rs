@@ -109,6 +109,7 @@ const fn small_match_length_codes() -> [(u8, u32, usize); 128] {
     codes
 }
 
+#[inline(always)]
 pub(super) fn encode_offset(len: u32) -> (u8, u32, usize) {
     let log = len.ilog2();
     let lower = len & ((1 << log) - 1);
