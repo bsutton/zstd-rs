@@ -96,10 +96,10 @@ pub fn compress_c_level<R: Read, W: Write>(mut source: R, mut target: W, level: 
 }
 
 /// Compress a full source into a Vec using the faithful C no-dictionary level table.
-pub fn compress_to_vec_c_level<R: Read>(source: R, level: i32) -> Vec<u8> {
-    let mut vec = Vec::new();
-    compress_c_level(source, &mut vec, level);
-    vec
+pub fn compress_to_vec_c_level<R: Read>(mut source: R, level: i32) -> Vec<u8> {
+    let mut input = Vec::new();
+    source.read_to_end(&mut input).unwrap();
+    levels::c_port::encode_frame_no_dict(&input, level)
 }
 
 /// Errors returned while preparing a C-level dictionary compression.
@@ -128,13 +128,14 @@ pub fn compress_c_level_with_dictionary<R: Read, W: Write>(
 /// Compress a full source into a Vec using the faithful C level table and
 /// C-style automatic dictionary parsing.
 pub fn compress_to_vec_c_level_with_dictionary<R: Read>(
-    source: R,
+    mut source: R,
     level: i32,
     dictionary: &[u8],
 ) -> Result<Vec<u8>, CLevelDictionaryError> {
-    let mut vec = Vec::new();
-    compress_c_level_with_dictionary(source, &mut vec, level, dictionary)?;
-    Ok(vec)
+    let mut input = Vec::new();
+    source.read_to_end(&mut input).unwrap();
+    levels::c_port::encode_frame_with_dictionary(&input, level, dictionary)
+        .map_err(map_c_level_dictionary_error)
 }
 
 fn map_c_level_dictionary_error(
