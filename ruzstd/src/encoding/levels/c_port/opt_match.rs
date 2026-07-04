@@ -212,12 +212,51 @@ fn insert_bt1_no_dict(
     let mut match_end_idx = ip + 9;
     let mut best_length = 8_usize;
     let mut nb_compares = 1_usize << params.search_log;
+    // Mirrors zstd's optional ZSTD_C_PREDICT path. Keep it off for tiny hash
+    // tables, matching the C warning that prediction is fragile for hlog <= 11.
+    let prediction_enabled = params.hash_log > 11;
+    let previous_slot = tree_slot(ip.wrapping_sub(1), mask);
+    let mut predicted_smaller = if prediction_enabled {
+        nonzero_successor(state.chain_table[previous_slot])
+    } else {
+        0
+    };
+    let mut predicted_larger = if prediction_enabled {
+        nonzero_successor(state.chain_table[previous_slot + 1])
+    } else {
+        0
+    };
 
     state.hash_table[hash] = ip as u32;
 
     while nb_compares > 0 && match_index >= window_low {
         nb_compares -= 1;
         let next_slot = tree_slot(match_index, mask);
+        let predict_slot = tree_slot(match_index.wrapping_sub(1), mask);
+
+        if prediction_enabled && match_index == predicted_smaller {
+            write_tree_slot(state, smaller_slot, match_index as u32);
+            if match_index <= bt_low {
+                smaller_slot = None;
+                break;
+            }
+            smaller_slot = Some(next_slot + 1);
+            match_index = state.chain_table[next_slot + 1] as usize;
+            predicted_smaller = nonzero_successor(state.chain_table[predict_slot + 1]);
+            continue;
+        }
+        if prediction_enabled && match_index == predicted_larger {
+            write_tree_slot(state, larger_slot, match_index as u32);
+            if match_index <= bt_low {
+                larger_slot = None;
+                break;
+            }
+            larger_slot = Some(next_slot);
+            match_index = state.chain_table[next_slot] as usize;
+            predicted_larger = nonzero_successor(state.chain_table[predict_slot]);
+            continue;
+        }
+
         let mut match_length = common_smaller.min(common_larger);
         match_length += count_match(
             src,
@@ -481,6 +520,10 @@ fn bt_mask(params: CompressionParameters) -> usize {
 
 fn tree_slot(index: usize, mask: usize) -> usize {
     2 * (index & mask)
+}
+
+fn nonzero_successor(index: u32) -> usize {
+    index as usize + usize::from(index > 0)
 }
 
 fn write_tree_slot(state: &mut GreedyMatchState, slot: Option<usize>, value: u32) {
