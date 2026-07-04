@@ -5,6 +5,7 @@
 //! until it has enough parity coverage to replace the current strategy code.
 
 mod block_compressor;
+mod block_emit;
 mod block_policy;
 mod bt_match;
 mod c_frame_header;

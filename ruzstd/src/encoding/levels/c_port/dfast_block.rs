@@ -3,9 +3,10 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use super::block_policy::{
-    compressed_block_is_worthwhile, should_skip_sequence_build, BlockEncodingPolicy,
+use super::block_emit::{
+    append_prepared_block_or_raw, append_special_block, PreparedBlockEmission,
 };
+use super::block_policy::BlockEncodingPolicy;
 use super::dfast::{
     compress_block_double_fast_no_dict,
     compress_block_double_fast_no_dict_with_state_and_loaded_dict, DFastBlockOutput,
@@ -15,13 +16,8 @@ use super::dfast_ext::compress_block_double_fast_ext_dict_with_state;
 use super::params::CompressionParameters;
 use super::sequence_store::RepeatOffsets;
 use crate::{
-    common::MAX_BLOCK_SIZE,
     encoding::{
-        block_header::BlockHeader,
-        blocks::{
-            compress_prepared_block_with_stats, BlockCompressionConfig, PreparedBlock,
-            PreparedSequence,
-        },
+        blocks::{BlockCompressionConfig, PreparedBlock, PreparedSequence},
         frame_compressor::{FseTableSnapshot, FseTables, OffsetHistory},
     },
     huff0::huff0_encoder::HuffmanTable,
@@ -201,8 +197,11 @@ pub(crate) fn append_block_double_fast_no_dict_with_policy(
     policy: BlockEncodingPolicy,
     output: &mut Vec<u8>,
 ) -> DFastBlockEncoding {
-    if let Some(encoded) = encode_special_block(src, last_block, repeat_offsets, policy, output) {
-        return encoded;
+    if append_special_block(src, last_block, policy, output) {
+        return DFastBlockEncoding {
+            repeat_offsets,
+            new_huffman_table: None,
+        };
     }
 
     let previous_fse = context.fse_tables.snapshot_previous();
@@ -288,8 +287,11 @@ pub(crate) fn append_block_double_fast_no_dict_with_state_and_policy(
 ) -> DFastBlockEncoding {
     let block = &source.src[source.block_range.clone()];
 
-    if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, policy, output) {
-        return encoded;
+    if append_special_block(block, last_block, policy, output) {
+        return DFastBlockEncoding {
+            repeat_offsets,
+            new_huffman_table: None,
+        };
     }
 
     let previous_fse = context.fse_tables.snapshot_previous();
@@ -361,8 +363,11 @@ pub(crate) fn append_block_double_fast_ext_dict_with_state_and_policy(
 ) -> DFastBlockEncoding {
     let block = &source.src[source.block_range.clone()];
 
-    if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, policy, output) {
-        return encoded;
+    if append_special_block(block, last_block, policy, output) {
+        return DFastBlockEncoding {
+            repeat_offsets,
+            new_huffman_table: None,
+        };
     }
 
     let previous_fse = context.fse_tables.snapshot_previous();
@@ -396,42 +401,28 @@ fn encode_prepared_block(
     context: DFastBlockEncodeContext<'_, '_>,
     output: &mut Vec<u8>,
 ) -> DFastBlockEncoding {
-    let block_start = output.len();
-    output.extend_from_slice(&[0; 3]);
-    let compressed_start = output.len();
-    let compression_result = compress_prepared_block_with_stats(
-        output,
+    let compressed_repeat_offsets = prepared.repeat_offsets;
+    match append_prepared_block_or_raw(
+        block,
+        last_block,
+        params.strategy,
         config,
         prepared.prepared.as_ref(),
+        previous_fse,
+        previous_offsets,
+        context.previous_huff_table,
         context.fse_tables,
         context.offset_history,
-        context.previous_huff_table,
-    );
-    let compressed_size = output.len() - compressed_start;
-
-    if compression_result.should_emit_raw_block
-        || !compressed_block_is_worthwhile(block.len(), compressed_size, params.strategy)
-        || compressed_size > MAX_BLOCK_SIZE as usize
-    {
-        output.truncate(block_start);
-        context.fse_tables.restore_previous(previous_fse);
-        *context.offset_history = previous_offsets;
-        write_raw_block(last_block, block.len() as u32, block, output);
-        DFastBlockEncoding {
+        output,
+    ) {
+        PreparedBlockEmission::Raw => DFastBlockEncoding {
             repeat_offsets,
             new_huffman_table: None,
-        }
-    } else {
-        let header = BlockHeader {
-            last_block,
-            block_type: crate::blocks::block::BlockType::Compressed,
-            block_size: compressed_size as u32,
-        };
-        output[block_start..compressed_start].copy_from_slice(&header.serialize_to_bytes());
-        DFastBlockEncoding {
-            repeat_offsets: prepared.repeat_offsets,
-            new_huffman_table: compression_result.new_huffman_table,
-        }
+        },
+        PreparedBlockEmission::Compressed { new_huffman_table } => DFastBlockEncoding {
+            repeat_offsets: compressed_repeat_offsets,
+            new_huffman_table,
+        },
     }
 }
 
@@ -472,65 +463,4 @@ fn prepare_from_dfast_output(
         literals,
         sequences,
     }
-}
-
-fn encode_special_block(
-    block: &[u8],
-    last_block: bool,
-    repeat_offsets: RepeatOffsets,
-    policy: BlockEncodingPolicy,
-    bytes: &mut Vec<u8>,
-) -> Option<DFastBlockEncoding> {
-    if block.is_empty() {
-        write_raw_block(last_block, 0, block, bytes);
-        return Some(DFastBlockEncoding {
-            repeat_offsets,
-            new_huffman_table: None,
-        });
-    }
-
-    if should_skip_sequence_build(block.len()) {
-        write_raw_block(last_block, block.len() as u32, block, bytes);
-        return Some(DFastBlockEncoding {
-            repeat_offsets,
-            new_huffman_table: None,
-        });
-    }
-
-    if policy.allows_rle() {
-        if let Some(rle_byte) = rle_byte(block) {
-            write_rle_block(last_block, block.len() as u32, rle_byte, bytes);
-            return Some(DFastBlockEncoding {
-                repeat_offsets,
-                new_huffman_table: None,
-            });
-        }
-    }
-
-    None
-}
-
-fn rle_byte(data: &[u8]) -> Option<u8> {
-    let first = *data.first()?;
-    data.iter().all(|byte| *byte == first).then_some(first)
-}
-
-fn write_rle_block(last_block: bool, block_size: u32, rle_byte: u8, output: &mut Vec<u8>) {
-    let header = BlockHeader {
-        last_block,
-        block_type: crate::blocks::block::BlockType::RLE,
-        block_size,
-    };
-    header.serialize(output);
-    output.push(rle_byte);
-}
-
-fn write_raw_block(last_block: bool, block_size: u32, data: &[u8], output: &mut Vec<u8>) {
-    let header = BlockHeader {
-        last_block,
-        block_type: crate::blocks::block::BlockType::Raw,
-        block_size,
-    };
-    header.serialize(output);
-    output.extend_from_slice(data);
 }
