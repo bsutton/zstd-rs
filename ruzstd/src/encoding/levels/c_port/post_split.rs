@@ -8,7 +8,7 @@ use super::{
     },
     greedy_block::{GreedyBlockEncodeContext, GreedyEncodedBlock, GreedyPreparedBlock},
     params::Strategy,
-    sequence_store::RepeatOffsets,
+    sequence_store::{OffBase, RepeatOffsets},
 };
 #[cfg(test)]
 use crate::encoding::blocks::PreparedSequence;
@@ -51,16 +51,23 @@ pub(super) fn encode_split_block(
 
     let mut bytes = Vec::new();
     let mut last_huff_table = None;
-    let mut next_repeat_offsets = repeat_offsets;
+    let mut decompression_repeat_offsets = repeat_offsets;
+    let mut compression_repeat_offsets = repeat_offsets;
 
     let mut start_seq = 0usize;
     for (idx, &end_seq) in partitions.iter().enumerate() {
         let last_partition = idx + 1 == partitions.len();
-        let chunk = prepared_chunk(block, &prepared.prepared, start_seq, end_seq);
+        let mut chunk = prepared_chunk(block, &prepared.prepared, start_seq, end_seq);
+        let decompression_repeat_offsets_before = decompression_repeat_offsets;
+        resolve_partition_off_codes(
+            &mut chunk.prepared,
+            &mut decompression_repeat_offsets,
+            &mut compression_repeat_offsets,
+        );
         let encoded = encode_partition(
             &chunk.source,
             last_block && last_partition,
-            next_repeat_offsets,
+            decompression_repeat_offsets_before,
             chunk.prepared.as_ref(),
             PartitionEncodeContext {
                 policy,
@@ -72,7 +79,7 @@ pub(super) fn encode_split_block(
             },
         );
         bytes.extend_from_slice(&encoded.bytes);
-        next_repeat_offsets = encoded.repeat_offsets;
+        decompression_repeat_offsets = encoded.repeat_offsets;
         if encoded.new_huffman_table.is_some() {
             last_huff_table = encoded.new_huffman_table;
         }
@@ -81,7 +88,7 @@ pub(super) fn encode_split_block(
 
     Some(GreedyEncodedBlock {
         bytes,
-        repeat_offsets: next_repeat_offsets,
+        repeat_offsets: decompression_repeat_offsets,
         new_huffman_table: last_huff_table,
     })
 }
@@ -227,6 +234,35 @@ fn sequence_prefix(prepared: &PreparedBlock, seq_count: usize) -> SequencePrefix
     SequencePrefix {
         literal_pos,
         source_pos,
+    }
+}
+
+fn resolve_partition_off_codes(
+    prepared: &mut PreparedBlock,
+    decompression_repeat_offsets: &mut RepeatOffsets,
+    compression_repeat_offsets: &mut RepeatOffsets,
+) {
+    for sequence in &mut prepared.sequences {
+        let original_off_base = sequence
+            .encoded_offset_value
+            .and_then(OffBase::from_c_value)
+            .expect("C-port split partitions require C offBase values");
+        let mut decompression_off_base = original_off_base;
+
+        if matches!(original_off_base, OffBase::Repeat(_)) {
+            let decompression_raw_offset =
+                decompression_repeat_offsets.resolve(original_off_base, sequence.ll);
+            let compression_raw_offset =
+                compression_repeat_offsets.resolve(original_off_base, sequence.ll);
+            if decompression_raw_offset != compression_raw_offset {
+                decompression_off_base = OffBase::Offset(compression_raw_offset);
+                sequence.raw_offset = compression_raw_offset;
+                sequence.encoded_offset_value = Some(decompression_off_base.to_c_value());
+            }
+        }
+
+        decompression_repeat_offsets.update(decompression_off_base, sequence.ll);
+        compression_repeat_offsets.update(original_off_base, sequence.ll);
     }
 }
 
@@ -380,6 +416,52 @@ mod tests {
         assert_eq!(second.source, b"bb45678tail");
         assert_eq!(second.prepared.literals, b"bbtail");
         assert_eq!(second.prepared.sequences.len(), 1);
+    }
+
+    #[test]
+    fn partition_offcode_resolution_rewrites_repcodes_after_raw_partition_like_c() {
+        let mut first_partition = PreparedBlock {
+            literals: b"a".to_vec(),
+            sequences: vec![PreparedSequence {
+                ll: 1,
+                ml: 3,
+                raw_offset: 4,
+                encoded_offset_value: Some(OffBase::offset_to_c_value(4)),
+            }],
+        };
+        let mut second_partition = PreparedBlock {
+            literals: b"b".to_vec(),
+            sequences: vec![PreparedSequence {
+                ll: 1,
+                ml: 3,
+                raw_offset: 4,
+                encoded_offset_value: Some(1),
+            }],
+        };
+        let initial_repeats = RepeatOffsets::new();
+        let mut compression_repeats = initial_repeats;
+        let mut decompression_repeats = initial_repeats;
+
+        resolve_partition_off_codes(
+            &mut first_partition,
+            &mut decompression_repeats,
+            &mut compression_repeats,
+        );
+        decompression_repeats = initial_repeats;
+
+        resolve_partition_off_codes(
+            &mut second_partition,
+            &mut decompression_repeats,
+            &mut compression_repeats,
+        );
+
+        assert_eq!(
+            second_partition.sequences[0].encoded_offset_value,
+            Some(OffBase::offset_to_c_value(4))
+        );
+        assert_eq!(second_partition.sequences[0].raw_offset, 4);
+        assert_eq!(decompression_repeats.as_offsets(), [4, 1, 4]);
+        assert_eq!(compression_repeats.as_offsets(), [4, 1, 4]);
     }
 
     #[test]
