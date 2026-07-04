@@ -107,6 +107,14 @@ pub(super) fn load_dictionary_hash_chain(
 pub(super) use super::match_count::count_match;
 pub(super) fn hash_ptr(src: &[u8], pos: usize, h_bits: u32, min_match: u32) -> usize {
     match min_match {
+        5 => hash_ptr_mls::<5>(src, pos, h_bits),
+        6 => hash_ptr_mls::<6>(src, pos, h_bits),
+        _ => hash_ptr_mls::<4>(src, pos, h_bits),
+    }
+}
+
+pub(super) fn hash_ptr_mls<const MIN_MATCH: u32>(src: &[u8], pos: usize, h_bits: u32) -> usize {
+    match MIN_MATCH {
         5 => hash5(read64(src, pos), h_bits),
         6 => hash6(read64(src, pos), h_bits),
         _ => hash4(read32(src, pos), h_bits),

@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use super::{
     greedy::GreedyMatchState,
     hash_chain_match::{
-        count_match, equal_min_match, hash3_ptr, hash_ptr, lowest_prefix_index_with_loaded_dict,
+        count_match, equal_min_match, hash3_ptr, hash_ptr_mls, lowest_prefix_index_with_loaded_dict,
     },
     params::CompressionParameters,
     sequence_store::{OffBase, RepeatCode, RepeatOffsets},
@@ -135,6 +135,23 @@ pub(super) fn bt_get_all_matches_no_dict(
         return;
     }
 
+    let params = request.params;
+    debug_assert_tables_ready(state, params);
+    let mls = params.min_match.clamp(3, 6);
+    match mls {
+        3 => bt_get_all_matches_no_dict_mls::<3>(matches, request, state),
+        4 => bt_get_all_matches_no_dict_mls::<4>(matches, request, state),
+        5 => bt_get_all_matches_no_dict_mls::<5>(matches, request, state),
+        6 => bt_get_all_matches_no_dict_mls::<6>(matches, request, state),
+        _ => unreachable!("mls is clamped to 3..=6"),
+    }
+}
+
+fn bt_get_all_matches_no_dict_mls<const MLS: u32>(
+    matches: &mut Vec<OptMatch>,
+    request: BtMatchRequest<'_>,
+    state: &mut GreedyMatchState,
+) {
     let BtMatchRequest {
         src,
         ip,
@@ -146,18 +163,8 @@ pub(super) fn bt_get_all_matches_no_dict(
         bounds,
     } = request;
 
-    debug_assert_tables_ready(state, params);
-    let mls = params.min_match.clamp(3, 6);
-    update_tree_no_dict(
-        src,
-        ip,
-        block_end,
-        mls,
-        params,
-        state,
-        bounds.loaded_dict_end,
-    );
-    insert_bt_and_get_all_matches_no_dict(
+    update_tree_no_dict_mls::<MLS>(src, ip, block_end, params, state, bounds.loaded_dict_end);
+    insert_bt_and_get_all_matches_no_dict::<MLS>(
         matches,
         src,
         ip,
@@ -165,7 +172,6 @@ pub(super) fn bt_get_all_matches_no_dict(
         rep,
         ll0,
         length_to_beat,
-        mls,
         params,
         state,
         bounds,
@@ -181,30 +187,48 @@ pub(super) fn update_tree_no_dict(
     state: &mut GreedyMatchState,
     loaded_dict_end: usize,
 ) {
-    let config = super::hash_chain_match::MatchSearchConfig::new(params, mls, loaded_dict_end);
+    match mls {
+        3 => update_tree_no_dict_mls::<3>(src, target, block_end, params, state, loaded_dict_end),
+        4 => update_tree_no_dict_mls::<4>(src, target, block_end, params, state, loaded_dict_end),
+        5 => update_tree_no_dict_mls::<5>(src, target, block_end, params, state, loaded_dict_end),
+        6 => update_tree_no_dict_mls::<6>(src, target, block_end, params, state, loaded_dict_end),
+        _ => unreachable!("mls is clamped to 3..=6"),
+    }
+}
+
+fn update_tree_no_dict_mls<const MLS: u32>(
+    src: &[u8],
+    target: usize,
+    block_end: usize,
+    params: CompressionParameters,
+    state: &mut GreedyMatchState,
+    loaded_dict_end: usize,
+) {
     let mut idx = state.next_to_update;
     while idx < target {
-        let forward = insert_bt1_no_dict(src, idx, block_end, target, state, config);
+        let forward =
+            insert_bt1_no_dict::<MLS>(src, idx, block_end, target, state, params, loaded_dict_end);
         debug_assert!(forward > 0);
         idx += forward;
     }
     state.next_to_update = target;
 }
 
-fn insert_bt1_no_dict(
+fn insert_bt1_no_dict<const MLS: u32>(
     src: &[u8],
     ip: usize,
     block_end: usize,
     target: usize,
     state: &mut GreedyMatchState,
-    config: super::hash_chain_match::MatchSearchConfig,
+    params: CompressionParameters,
+    loaded_dict_end: usize,
 ) -> usize {
-    let params = config.params;
-    let hash = hash_ptr(src, ip, params.hash_log, config.min_match);
+    let hash = hash_ptr_mls::<MLS>(src, ip, params.hash_log);
     let mut match_index = state.hash_table[hash] as usize;
     let mask = bt_mask(params);
     let bt_low = ip.saturating_sub(mask);
-    let window_low = config.lowest_prefix_index(target).max(1);
+    let window_low =
+        lowest_prefix_index_with_loaded_dict(target, params.window_log, loaded_dict_end).max(1);
     let mut common_smaller = 0_usize;
     let mut common_larger = 0_usize;
     let mut smaller_slot = Some(tree_slot(ip, mask));
@@ -305,7 +329,7 @@ fn insert_bt1_no_dict(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn insert_bt_and_get_all_matches_no_dict(
+fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
     matches: &mut Vec<OptMatch>,
     src: &[u8],
     ip: usize,
@@ -313,14 +337,13 @@ fn insert_bt_and_get_all_matches_no_dict(
     rep: RepeatOffsets,
     ll0: bool,
     length_to_beat: u32,
-    mls: u32,
     params: CompressionParameters,
     state: &mut GreedyMatchState,
     bounds: OptMatchBounds,
 ) {
     let sufficient_len = params.target_length.min((ZSTD_OPT_NUM - 1) as u32) as usize;
-    let min_match = if mls == 3 { 3 } else { 4 };
-    let hash = hash_ptr(src, ip, params.hash_log, mls);
+    let min_match = if MLS == 3 { 3 } else { 4 };
+    let hash = hash_ptr_mls::<MLS>(src, ip, params.hash_log);
     let mut match_index = state.hash_table[hash] as usize;
     let mask = bt_mask(params);
     let bt_low = ip.saturating_sub(mask);
@@ -351,7 +374,7 @@ fn insert_bt_and_get_all_matches_no_dict(
         return;
     }
 
-    if mls == 3 && best_length < 3 {
+    if MLS == 3 && best_length < 3 {
         if let Some(match_index3) = insert_and_find_first_index_hash3(src, ip, state) {
             let within_price_heuristic = ip - match_index3 < (1 << 18);
             if match_index3 >= match_low && within_price_heuristic {
