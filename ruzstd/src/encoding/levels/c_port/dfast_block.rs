@@ -38,6 +38,11 @@ pub(crate) struct DFastEncodedBlock {
     pub(crate) new_huffman_table: Option<HuffmanTable>,
 }
 
+pub(crate) struct DFastBlockEncoding {
+    pub(crate) repeat_offsets: RepeatOffsets,
+    pub(crate) new_huffman_table: Option<HuffmanTable>,
+}
+
 pub(crate) struct DFastBlockEncodeContext<'a, 'table> {
     pub(crate) previous_huff_table: Option<&'table HuffmanTable>,
     pub(crate) fse_tables: &'a mut FseTables,
@@ -167,9 +172,36 @@ pub(crate) fn encode_block_double_fast_no_dict_with_policy(
     policy: BlockEncodingPolicy,
 ) -> DFastEncodedBlock {
     let mut bytes = Vec::new();
+    let encoding = append_block_double_fast_no_dict_with_policy(
+        src,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        context,
+        policy,
+        &mut bytes,
+    );
 
-    if let Some(encoded) = encode_special_block(src, last_block, repeat_offsets, policy, &mut bytes)
-    {
+    DFastEncodedBlock {
+        bytes,
+        repeat_offsets: encoding.repeat_offsets,
+        new_huffman_table: encoding.new_huffman_table,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn append_block_double_fast_no_dict_with_policy(
+    src: &[u8],
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    context: DFastBlockEncodeContext<'_, '_>,
+    policy: BlockEncodingPolicy,
+    output: &mut Vec<u8>,
+) -> DFastBlockEncoding {
+    if let Some(encoded) = encode_special_block(src, last_block, repeat_offsets, policy, output) {
         return encoded;
     }
 
@@ -186,7 +218,7 @@ pub(crate) fn encode_block_double_fast_no_dict_with_policy(
         previous_fse,
         previous_offsets,
         context,
-        bytes,
+        output,
     )
 }
 
@@ -222,12 +254,41 @@ pub(crate) fn encode_block_double_fast_no_dict_with_state_and_policy(
     context: DFastBlockEncodeContext<'_, '_>,
     policy: BlockEncodingPolicy,
 ) -> DFastEncodedBlock {
-    let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
+    let encoding = append_block_double_fast_no_dict_with_state_and_policy(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        match_state,
+        context,
+        policy,
+        &mut bytes,
+    );
 
-    if let Some(encoded) =
-        encode_special_block(block, last_block, repeat_offsets, policy, &mut bytes)
-    {
+    DFastEncodedBlock {
+        bytes,
+        repeat_offsets: encoding.repeat_offsets,
+        new_huffman_table: encoding.new_huffman_table,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn append_block_double_fast_no_dict_with_state_and_policy(
+    source: DFastBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut DFastMatchState,
+    context: DFastBlockEncodeContext<'_, '_>,
+    policy: BlockEncodingPolicy,
+    output: &mut Vec<u8>,
+) -> DFastBlockEncoding {
+    let block = &source.src[source.block_range.clone()];
+
+    if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, policy, output) {
         return encoded;
     }
 
@@ -251,7 +312,7 @@ pub(crate) fn encode_block_double_fast_no_dict_with_state_and_policy(
         previous_fse,
         previous_offsets,
         context,
-        bytes,
+        output,
     )
 }
 
@@ -266,12 +327,41 @@ pub(crate) fn encode_block_double_fast_ext_dict_with_state_and_policy(
     context: DFastBlockEncodeContext<'_, '_>,
     policy: BlockEncodingPolicy,
 ) -> DFastEncodedBlock {
-    let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
+    let encoding = append_block_double_fast_ext_dict_with_state_and_policy(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        match_state,
+        context,
+        policy,
+        &mut bytes,
+    );
 
-    if let Some(encoded) =
-        encode_special_block(block, last_block, repeat_offsets, policy, &mut bytes)
-    {
+    DFastEncodedBlock {
+        bytes,
+        repeat_offsets: encoding.repeat_offsets,
+        new_huffman_table: encoding.new_huffman_table,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn append_block_double_fast_ext_dict_with_state_and_policy(
+    source: DFastExtDictBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut DFastMatchState,
+    context: DFastBlockEncodeContext<'_, '_>,
+    policy: BlockEncodingPolicy,
+    output: &mut Vec<u8>,
+) -> DFastBlockEncoding {
+    let block = &source.src[source.block_range.clone()];
+
+    if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, policy, output) {
         return encoded;
     }
 
@@ -289,7 +379,7 @@ pub(crate) fn encode_block_double_fast_ext_dict_with_state_and_policy(
         previous_fse,
         previous_offsets,
         context,
-        bytes,
+        output,
     )
 }
 
@@ -304,31 +394,30 @@ fn encode_prepared_block(
     previous_fse: FseTableSnapshot,
     previous_offsets: OffsetHistory,
     context: DFastBlockEncodeContext<'_, '_>,
-    mut bytes: Vec<u8>,
-) -> DFastEncodedBlock {
-    let block_start = bytes.len();
-    bytes.extend_from_slice(&[0; 3]);
-    let compressed_start = bytes.len();
+    output: &mut Vec<u8>,
+) -> DFastBlockEncoding {
+    let block_start = output.len();
+    output.extend_from_slice(&[0; 3]);
+    let compressed_start = output.len();
     let compression_result = compress_prepared_block_with_stats(
-        &mut bytes,
+        output,
         config,
         prepared.prepared.as_ref(),
         context.fse_tables,
         context.offset_history,
         context.previous_huff_table,
     );
-    let compressed_size = bytes.len() - compressed_start;
+    let compressed_size = output.len() - compressed_start;
 
     if compression_result.should_emit_raw_block
         || !compressed_block_is_worthwhile(block.len(), compressed_size, params.strategy)
         || compressed_size > MAX_BLOCK_SIZE as usize
     {
-        bytes.truncate(block_start);
+        output.truncate(block_start);
         context.fse_tables.restore_previous(previous_fse);
         *context.offset_history = previous_offsets;
-        write_raw_block(last_block, block.len() as u32, block, &mut bytes);
-        DFastEncodedBlock {
-            bytes,
+        write_raw_block(last_block, block.len() as u32, block, output);
+        DFastBlockEncoding {
             repeat_offsets,
             new_huffman_table: None,
         }
@@ -338,9 +427,8 @@ fn encode_prepared_block(
             block_type: crate::blocks::block::BlockType::Compressed,
             block_size: compressed_size as u32,
         };
-        bytes[block_start..compressed_start].copy_from_slice(&header.serialize_to_bytes());
-        DFastEncodedBlock {
-            bytes,
+        output[block_start..compressed_start].copy_from_slice(&header.serialize_to_bytes());
+        DFastBlockEncoding {
             repeat_offsets: prepared.repeat_offsets,
             new_huffman_table: compression_result.new_huffman_table,
         }
@@ -392,11 +480,10 @@ fn encode_special_block(
     repeat_offsets: RepeatOffsets,
     policy: BlockEncodingPolicy,
     bytes: &mut Vec<u8>,
-) -> Option<DFastEncodedBlock> {
+) -> Option<DFastBlockEncoding> {
     if block.is_empty() {
         write_raw_block(last_block, 0, block, bytes);
-        return Some(DFastEncodedBlock {
-            bytes: core::mem::take(bytes),
+        return Some(DFastBlockEncoding {
             repeat_offsets,
             new_huffman_table: None,
         });
@@ -404,8 +491,7 @@ fn encode_special_block(
 
     if should_skip_sequence_build(block.len()) {
         write_raw_block(last_block, block.len() as u32, block, bytes);
-        return Some(DFastEncodedBlock {
-            bytes: core::mem::take(bytes),
+        return Some(DFastBlockEncoding {
             repeat_offsets,
             new_huffman_table: None,
         });
@@ -414,8 +500,7 @@ fn encode_special_block(
     if policy.allows_rle() {
         if let Some(rle_byte) = rle_byte(block) {
             write_rle_block(last_block, block.len() as u32, rle_byte, bytes);
-            return Some(DFastEncodedBlock {
-                bytes: core::mem::take(bytes),
+            return Some(DFastBlockEncoding {
                 repeat_offsets,
                 new_huffman_table: None,
             });

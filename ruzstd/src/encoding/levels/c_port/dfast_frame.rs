@@ -7,8 +7,9 @@ use super::{
     cctx_params::CctxParameters,
     dfast::DFastMatchState,
     dfast_block::{
-        encode_block_double_fast_ext_dict_with_state_and_policy, encode_block_double_fast_no_dict,
-        encode_block_double_fast_no_dict_with_state_and_policy, DFastBlockEncodeContext,
+        append_block_double_fast_ext_dict_with_state_and_policy,
+        append_block_double_fast_no_dict_with_policy,
+        append_block_double_fast_no_dict_with_state_and_policy, DFastBlockEncodeContext,
         DFastBlockSource, DFastExtDictBlockSource,
     },
     dfast_dict::load_prefix,
@@ -33,7 +34,7 @@ pub(crate) fn encode_frame_double_fast_no_dict(src: &[u8], level: i32) -> Vec<u8
     let mut match_state = DFastMatchState::new();
 
     if src.is_empty() {
-        let encoded_block = encode_block_double_fast_no_dict(
+        append_block_double_fast_no_dict_with_policy(
             src,
             true,
             params,
@@ -44,8 +45,9 @@ pub(crate) fn encode_frame_double_fast_no_dict(src: &[u8], level: i32) -> Vec<u8
                 fse_tables: &mut frame_state.fse_tables,
                 offset_history: &mut frame_state.offset_history,
             },
+            FrameBlockState::block_policy(true),
+            &mut output,
         );
-        output.extend_from_slice(&encoded_block.bytes);
         return output;
     }
 
@@ -58,7 +60,8 @@ pub(crate) fn encode_frame_double_fast_no_dict(src: &[u8], level: i32) -> Vec<u8
         );
         let block_end = block_start + block_size;
         let policy = FrameBlockState::block_policy(block_start == 0);
-        let encoded_block = encode_block_double_fast_no_dict_with_state_and_policy(
+        let encoded_start = output.len();
+        let encoded_block = append_block_double_fast_no_dict_with_state_and_policy(
             DFastBlockSource {
                 src,
                 block_range: block_start..block_end,
@@ -75,14 +78,14 @@ pub(crate) fn encode_frame_double_fast_no_dict(src: &[u8], level: i32) -> Vec<u8
                 offset_history: &mut frame_state.offset_history,
             },
             policy,
+            &mut output,
         );
         frame_state.record_encoded_block(
             block_size,
-            encoded_block.bytes.len(),
+            output.len() - encoded_start,
             encoded_block.repeat_offsets,
             encoded_block.new_huffman_table,
         );
-        output.extend_from_slice(&encoded_block.bytes);
         block_start = block_end;
     }
 
@@ -106,7 +109,7 @@ pub(crate) fn encode_frame_double_fast_with_dictionary(
     );
 
     if src.is_empty() {
-        let encoded_block = encode_block_double_fast_no_dict(
+        append_block_double_fast_no_dict_with_policy(
             src,
             true,
             params,
@@ -117,8 +120,9 @@ pub(crate) fn encode_frame_double_fast_with_dictionary(
                 fse_tables: &mut context.frame_state.fse_tables,
                 offset_history: &mut context.frame_state.offset_history,
             },
+            FrameBlockState::block_policy(true),
+            &mut context.output,
         );
-        context.output.extend_from_slice(&encoded_block.bytes);
         return context.output;
     }
 
@@ -138,8 +142,9 @@ pub(crate) fn encode_frame_double_fast_with_dictionary(
             fse_tables: &mut context.frame_state.fse_tables,
             offset_history: &mut context.frame_state.offset_history,
         };
+        let encoded_start = context.output.len();
         let encoded_block = if loaded_dict_end == 0 {
-            encode_block_double_fast_no_dict_with_state_and_policy(
+            append_block_double_fast_no_dict_with_state_and_policy(
                 DFastBlockSource {
                     src: &context.combined,
                     block_range: block_start..block_end,
@@ -152,9 +157,10 @@ pub(crate) fn encode_frame_double_fast_with_dictionary(
                 &mut match_state,
                 block_context,
                 policy,
+                &mut context.output,
             )
         } else {
-            encode_block_double_fast_ext_dict_with_state_and_policy(
+            append_block_double_fast_ext_dict_with_state_and_policy(
                 DFastExtDictBlockSource {
                     src: &context.combined,
                     block_range: block_start..block_end,
@@ -168,15 +174,15 @@ pub(crate) fn encode_frame_double_fast_with_dictionary(
                 &mut match_state,
                 block_context,
                 policy,
+                &mut context.output,
             )
         };
         context.frame_state.record_encoded_block(
             block_size,
-            encoded_block.bytes.len(),
+            context.output.len() - encoded_start,
             encoded_block.repeat_offsets,
             encoded_block.new_huffman_table,
         );
-        context.output.extend_from_slice(&encoded_block.bytes);
         block_start = block_end;
     }
 
