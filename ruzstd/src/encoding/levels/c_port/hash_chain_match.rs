@@ -1,7 +1,5 @@
 //! Hash-chain search primitives shared by the C greedy/lazy/lazy2 ports.
 
-use core::convert::TryInto;
-
 use super::{greedy::GreedyMatchState, params::CompressionParameters, sequence_store::OffBase};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -131,7 +129,15 @@ pub(super) fn equal_min_match(src: &[u8], left: usize, right: usize, min_match: 
 }
 
 pub(super) fn read32(src: &[u8], pos: usize) -> u32 {
-    u32::from_le_bytes(src[pos..pos + 4].try_into().expect("read32 in bounds"))
+    debug_assert!(pos + 4 <= src.len());
+    // SAFETY: The hash-chain and binary-tree match finders only call read32()
+    // for positions that have already been bounded by the block/search limits.
+    // Unaligned loads mirror zstd's MEM_read32() hot path.
+    unsafe {
+        u32::from_le(core::ptr::read_unaligned(
+            src.as_ptr().add(pos).cast::<u32>(),
+        ))
+    }
 }
 
 pub(super) fn lowest_prefix_index(pos: usize, window_log: u32) -> usize {
@@ -172,7 +178,15 @@ fn hash6(value: u64, h_bits: u32) -> usize {
 }
 
 fn read64(src: &[u8], pos: usize) -> u64 {
-    u64::from_le_bytes(src[pos..pos + 8].try_into().expect("read64 in bounds"))
+    debug_assert!(pos + 8 <= src.len());
+    // SAFETY: The hash-chain and binary-tree match finders only call read64()
+    // for positions that have already been bounded by the block/search limits.
+    // Unaligned loads mirror zstd's MEM_read64() hot path.
+    unsafe {
+        u64::from_le(core::ptr::read_unaligned(
+            src.as_ptr().add(pos).cast::<u64>(),
+        ))
+    }
 }
 
 #[cfg(test)]
