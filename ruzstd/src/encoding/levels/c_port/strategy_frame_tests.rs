@@ -56,6 +56,20 @@ fn strategy_frame_routes_greedy_levels_to_greedy() {
 }
 
 #[test]
+fn strategy_frame_presplit_stays_within_streaming_chunk() {
+    let mut data = Vec::new();
+    while data.len() < MAX_BLOCK_SIZE as usize * 4 {
+        data.extend_from_slice(b"the quick brown fox jumps over the lazy dog\n");
+    }
+    data.truncate(MAX_BLOCK_SIZE as usize * 4);
+
+    let encoded = encode_frame_no_dict(&data, 5);
+
+    assert!(count_frame_blocks(&encoded) <= 8);
+    assert_round_trips(&encoded, &data);
+}
+
+#[test]
 fn strategy_frame_routes_lazy_levels_to_lazy() {
     let mut data = Vec::new();
     while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1024 {
@@ -158,7 +172,7 @@ fn strategy_frame_corpus_size_regressions_round_trip() {
     let encoded = encode_frame_no_dict(level_five, 5);
     assert_round_trips(&encoded, level_five);
     assert!(
-        encoded.len() <= 490_000,
+        encoded.len() <= 514_500,
         "level 5 corpus literal table regressed to {} bytes",
         encoded.len()
     );

@@ -118,7 +118,11 @@ fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrat
 
     let mut block_start = 0;
     while block_start < src.len() {
-        let block_size = frame_state.next_block_size(&src[block_start..], params.strategy);
+        let block_size = frame_state.next_frame_chunk_block_size(
+            &src[block_start..],
+            block_start,
+            params.strategy,
+        );
         let block_end = block_start + block_size;
         let policy = FrameBlockState::block_policy(block_start == 0);
         let encoded_block = encode_block_hash_chain_no_dict_with_state_and_policy(
@@ -201,9 +205,11 @@ fn encode_frame_hash_chain_with_dictionary(
     let mut block_start = context.dict_len;
     let src_end = context.src_end();
     while block_start < src_end {
-        let block_size = context
-            .frame_state
-            .next_block_size(&context.combined[block_start..src_end], params.strategy);
+        let block_size = context.frame_state.next_frame_chunk_block_size(
+            &context.combined[block_start..src_end],
+            block_start - context.dict_len,
+            params.strategy,
+        );
         let block_end = block_start + block_size;
         let policy = FrameBlockState::block_policy(block_start == context.dict_len);
         let loaded_dict_end = context.loaded_dict_end_for_block(block_end, params);

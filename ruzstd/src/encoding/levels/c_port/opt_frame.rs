@@ -155,7 +155,11 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
 
     let mut block_start = 0;
     while block_start < src.len() {
-        let block_size = frame_state.next_block_size(&src[block_start..], params.strategy);
+        let block_size = frame_state.next_frame_chunk_block_size(
+            &src[block_start..],
+            block_start,
+            params.strategy,
+        );
         let block_end = block_start + block_size;
         if block_start == 0
             && strategy == OptFrameStrategy::BtUltra2
@@ -266,9 +270,11 @@ fn encode_frame_opt_with_dictionary(
     let mut block_start = context.dict_len;
     let src_end = context.src_end();
     while block_start < src_end {
-        let block_size = context
-            .frame_state
-            .next_block_size(&context.combined[block_start..src_end], params.strategy);
+        let block_size = context.frame_state.next_frame_chunk_block_size(
+            &context.combined[block_start..src_end],
+            block_start - context.dict_len,
+            params.strategy,
+        );
         let block_end = block_start + block_size;
         if block_start == context.dict_len
             && strategy == OptFrameStrategy::BtUltra2

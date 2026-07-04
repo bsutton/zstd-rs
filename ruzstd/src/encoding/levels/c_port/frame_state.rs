@@ -8,6 +8,7 @@ use super::{
     sequence_store::RepeatOffsets,
 };
 use crate::{
+    common::MAX_BLOCK_SIZE,
     encoding::{
         blocks::BlockCompressionConfig,
         frame_compressor::{FseTables, OffsetHistory},
@@ -54,6 +55,19 @@ impl FrameBlockState {
 
     pub(crate) fn next_block_size(&mut self, remaining: &[u8], strategy: Strategy) -> usize {
         self.progress.next_block_size(remaining, strategy)
+    }
+
+    pub(crate) fn next_frame_chunk_block_size(
+        &mut self,
+        remaining: &[u8],
+        source_offset: usize,
+        strategy: Strategy,
+    ) -> usize {
+        // C's streaming path feeds compression in block-sized frame chunks, so
+        // pre-splitting can only subdivide the current 128 KiB chunk once.
+        let chunk_remaining = MAX_BLOCK_SIZE as usize - (source_offset % MAX_BLOCK_SIZE as usize);
+        let visible_remaining = remaining.len().min(chunk_remaining);
+        self.next_block_size(&remaining[..visible_remaining], strategy)
     }
 
     pub(crate) fn block_policy(first_block: bool) -> BlockEncodingPolicy {
