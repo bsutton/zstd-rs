@@ -100,40 +100,33 @@ fn choose_table_with_policy<'a>(
     predefined_max_sequences: usize,
     selection_policy: TableSelectionPolicy,
 ) -> FseTableMode<'a> {
-    let first_code = code(&sequences[0]);
-    let all_same_code = sequences
-        .iter()
-        .skip(1)
-        .all(|sequence| code(sequence) == first_code);
-
     match selection_policy {
         TableSelectionPolicy::CFast { default_norm_log } => {
+            let counts = CodeCounts::from_codes(sequences.iter().map(code));
             return choose_c_fast_table(
                 previous,
                 default_table,
                 sequences,
                 code,
+                &counts,
                 max_log,
                 repeat_table_max_sequences,
                 predefined_max_sequences,
                 default_norm_log,
-                first_code,
-                all_same_code,
             );
         }
         TableSelectionPolicy::CCost => {
-            return choose_c_cost_table(
-                previous,
-                default_table,
-                sequences,
-                code,
-                max_log,
-                first_code,
-                all_same_code,
-            );
+            let counts = CodeCounts::from_codes(sequences.iter().map(code));
+            return choose_c_cost_table(previous, default_table, sequences, code, &counts, max_log);
         }
         TableSelectionPolicy::Legacy => {}
     }
+
+    let first_code = code(&sequences[0]);
+    let all_same_code = sequences
+        .iter()
+        .skip(1)
+        .all(|sequence| code(sequence) == first_code);
 
     if all_same_code && sequences.len() > 2 {
         return FseTableMode::Rle(first_code);
@@ -170,14 +163,14 @@ fn choose_c_fast_table<'a>(
     default_table: &'a FSETable,
     sequences: &[crate::blocks::sequence_section::Sequence],
     code: impl Fn(&crate::blocks::sequence_section::Sequence) -> u8 + Copy,
+    counts: &CodeCounts,
     max_log: u8,
     repeat_table_max_sequences: usize,
     predefined_max_sequences: usize,
     default_norm_log: u8,
-    first_code: u8,
-    all_same_code: bool,
 ) -> FseTableMode<'a> {
-    if all_same_code {
+    if counts.most_frequent() == counts.total() {
+        let first_code = counts.max_symbol() as u8;
         let default_allowed = default_table.can_encode_symbol(first_code);
         return if default_allowed && sequences.len() <= 2 {
             FseTableMode::Predefined(default_table)
@@ -186,7 +179,6 @@ fn choose_c_fast_table<'a>(
         };
     }
 
-    let counts = CodeCounts::from_codes(sequences.iter().map(code));
     let default_allowed = counts.default_allowed(default_table);
 
     if default_allowed {
@@ -203,7 +195,11 @@ fn choose_c_fast_table<'a>(
         }
     }
 
-    FseTableMode::Encoded(build_sequence_table(sequences, code, max_log))
+    FseTableMode::Encoded(build_sequence_table_from_counts(
+        counts,
+        code(&sequences[sequences.len() - 1]),
+        max_log,
+    ))
 }
 
 fn choose_c_cost_table<'a>(
@@ -211,14 +207,13 @@ fn choose_c_cost_table<'a>(
     default_table: &'a FSETable,
     sequences: &[crate::blocks::sequence_section::Sequence],
     code: impl Fn(&crate::blocks::sequence_section::Sequence) -> u8 + Copy,
+    counts: &CodeCounts,
     max_log: u8,
-    first_code: u8,
-    all_same_code: bool,
 ) -> FseTableMode<'a> {
-    let counts = CodeCounts::from_codes(sequences.iter().map(code));
     let default_allowed = counts.default_allowed(default_table);
 
-    if all_same_code {
+    if counts.most_frequent() == counts.total() {
+        let first_code = counts.max_symbol() as u8;
         return if default_allowed && sequences.len() <= 2 {
             FseTableMode::Predefined(default_table)
         } else {
@@ -230,11 +225,11 @@ fn choose_c_cost_table<'a>(
     let (encoded_probs, encoded_acc_log) =
         normalized_probabilities_from_counts(&counts.counts()[..=max_symbol], max_log, true);
     let compressed_cost =
-        ncount_cost_from_probabilities(&encoded_probs, encoded_acc_log) + entropy_cost(&counts);
+        ncount_cost_from_probabilities(&encoded_probs, encoded_acc_log) + entropy_cost(counts);
     let basic_cost = default_allowed
-        .then(|| cross_entropy_cost(default_table, &counts))
+        .then(|| cross_entropy_cost(default_table, counts))
         .flatten();
-    let repeat_cost = previous.and_then(|previous| repeat_table_cost(previous, &counts));
+    let repeat_cost = previous.and_then(|previous| repeat_table_cost(previous, counts));
 
     if basic_cost.is_some_and(|basic_cost| {
         basic_cost <= repeat_cost.unwrap_or(usize::MAX) && basic_cost <= compressed_cost
@@ -250,7 +245,7 @@ fn choose_c_cost_table<'a>(
 
     let last_code = code(&sequences[sequences.len() - 1]);
     let encoded_table = if counts.counts()[usize::from(last_code)] > 1 {
-        build_sequence_table_from_counts(&counts, last_code, max_log)
+        build_sequence_table_from_counts(counts, last_code, max_log)
     } else {
         build_table_from_probabilities(&encoded_probs, encoded_acc_log)
     };
