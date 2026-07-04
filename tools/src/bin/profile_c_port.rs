@@ -1,6 +1,6 @@
 use std::{env, fs, hint::black_box, io, path::PathBuf, time::Instant};
 
-use ruzstd::encoding::compress_to_vec_c_level;
+use ruzstd::encoding::compress_slice_c_level;
 
 fn main() -> io::Result<()> {
     let args = Args::parse()?;
@@ -9,7 +9,7 @@ fn main() -> io::Result<()> {
     let started = Instant::now();
 
     for _ in 0..args.runs {
-        let compressed = compress_to_vec_c_level(black_box(input.as_slice()), args.level);
+        let compressed = compress_slice_c_level(black_box(input.as_slice()), args.level);
         total_bytes = total_bytes.wrapping_add(compressed.len());
         black_box(&compressed);
     }

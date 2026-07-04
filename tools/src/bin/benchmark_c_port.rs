@@ -6,7 +6,7 @@ use std::{
     time::Instant,
 };
 
-use ruzstd::encoding::compress_to_vec_c_level;
+use ruzstd::encoding::compress_slice_c_level;
 use zstd_rs_tools::{
     benchmark_tmp, csv_escape, has_flag, parse_value, repo_root, run_command_silent,
     verify_decoded_matches, write_all,
@@ -175,7 +175,7 @@ fn run_benchmarks(args: &Args) -> io::Result<Vec<Row>> {
                 .output_dir
                 .join(format!("{}.l{level}.c.zst", fixture.name));
 
-            let rust = compress_to_vec_c_level(input.as_slice(), *level);
+            let rust = compress_slice_c_level(&input, *level);
             fs::write(&rust_output, &rust)?;
             verify_decoded_matches(&args.zstd_bin, &rust_output, &fixture.path)?;
             remove_output_unless_kept(&rust_output, args.keep_outputs)?;
@@ -195,7 +195,7 @@ fn run_benchmarks(args: &Args) -> io::Result<Vec<Row>> {
                 sync_if_requested(args.no_sync)?;
                 let before_cpu = CpuSample::now();
                 let before = Instant::now();
-                let rust = compress_to_vec_c_level(input.as_slice(), *level);
+                let rust = compress_slice_c_level(&input, *level);
                 let rust_wall = before.elapsed().as_secs_f64();
                 let rust_cpu = before_cpu.elapsed().unwrap_or(rust_wall);
                 fs::write(&rust_output, &rust)?;

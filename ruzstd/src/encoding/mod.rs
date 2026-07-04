@@ -99,7 +99,16 @@ pub fn compress_c_level<R: Read, W: Write>(mut source: R, mut target: W, level: 
 pub fn compress_to_vec_c_level<R: Read>(mut source: R, level: i32) -> Vec<u8> {
     let mut input = Vec::new();
     source.read_to_end(&mut input).unwrap();
-    levels::c_port::encode_frame_no_dict(&input, level)
+    compress_slice_c_level(&input, level)
+}
+
+/// Compress a complete in-memory source into a Vec using the faithful C
+/// no-dictionary level table.
+///
+/// This avoids the extra staging copy required by the generic `Read` entry
+/// point when the caller already has the full source in memory.
+pub fn compress_slice_c_level(source: &[u8], level: i32) -> Vec<u8> {
+    levels::c_port::encode_frame_no_dict(source, level)
 }
 
 /// Errors returned while preparing a C-level dictionary compression.
@@ -134,7 +143,17 @@ pub fn compress_to_vec_c_level_with_dictionary<R: Read>(
 ) -> Result<Vec<u8>, CLevelDictionaryError> {
     let mut input = Vec::new();
     source.read_to_end(&mut input).unwrap();
-    levels::c_port::encode_frame_with_dictionary(&input, level, dictionary)
+    compress_slice_c_level_with_dictionary(&input, level, dictionary)
+}
+
+/// Compress a complete in-memory source into a Vec using the faithful C level
+/// table and C-style automatic dictionary parsing.
+pub fn compress_slice_c_level_with_dictionary(
+    source: &[u8],
+    level: i32,
+    dictionary: &[u8],
+) -> Result<Vec<u8>, CLevelDictionaryError> {
+    levels::c_port::encode_frame_with_dictionary(source, level, dictionary)
         .map_err(map_c_level_dictionary_error)
 }
 
@@ -283,7 +302,8 @@ pub enum Sequence<'data> {
 #[cfg(test)]
 mod tests {
     use super::{
-        compress_c_level, compress_c_level_with_dictionary, compress_to_vec_c_level,
+        compress_c_level, compress_c_level_with_dictionary, compress_slice_c_level,
+        compress_slice_c_level_with_dictionary, compress_to_vec_c_level,
         compress_to_vec_c_level_with_dictionary, CLevelDictionaryError, CompressionLevel,
     };
     use crate::decoding::{dictionary::Dictionary, FrameDecoder};
@@ -304,6 +324,8 @@ mod tests {
         for level in [1, 3, 5, 8, 13, 16, 18, 19, 22] {
             let encoded = compress_to_vec_c_level(data.as_slice(), level);
             assert_round_trips(&encoded, &data);
+            let encoded_from_slice = compress_slice_c_level(&data, level);
+            assert_eq!(encoded_from_slice, encoded);
         }
     }
 
@@ -326,6 +348,9 @@ mod tests {
             let encoded =
                 compress_to_vec_c_level_with_dictionary(data.as_slice(), level, &dict).unwrap();
             assert_round_trips_with_dictionary(&encoded, &data, &dict);
+            let encoded_from_slice =
+                compress_slice_c_level_with_dictionary(&data, level, &dict).unwrap();
+            assert_eq!(encoded_from_slice, encoded);
         }
     }
 
