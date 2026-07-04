@@ -3,8 +3,9 @@
 use alloc::vec::Vec;
 
 use super::{
-    c_frame_header::write_frame_header, cctx_params::CctxParameters, dictionary::ParsedDictionary,
-    frame_state::FrameBlockState, params::CParamMode,
+    c_frame_header::write_frame_header, cctx_params::CctxParameters,
+    compress_bound::compress_bound, dictionary::ParsedDictionary, frame_state::FrameBlockState,
+    params::CParamMode,
 };
 
 pub(crate) struct DictionaryFrameContext {
@@ -33,7 +34,7 @@ impl DictionaryFrameContext {
         combined.extend_from_slice(src);
 
         let dictionary_id = (dictionary.dict_id != 0).then_some(dictionary.dict_id);
-        let mut output = Vec::new();
+        let mut output = Vec::with_capacity(compress_bound(src.len()));
         write_frame_header(&mut output, src.len(), params, dictionary_id);
         let frame_state = FrameBlockState::with_dictionary(params, output.len(), &dictionary);
 

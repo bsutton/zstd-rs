@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use super::{
     c_frame_header::write_frame_header_no_dict,
     cctx_params::CctxParameters,
+    compress_bound::compress_bound,
     dictionary::ParsedDictionary,
     dictionary_frame::DictionaryFrameContext,
     fast::FastMatchState,
@@ -23,7 +24,7 @@ pub(crate) fn encode_single_block_frame_fast_no_dict(src: &[u8], level: i32) -> 
 }
 
 pub(crate) fn encode_frame_fast_no_dict(src: &[u8], level: i32) -> Vec<u8> {
-    let mut output = Vec::new();
+    let mut output = Vec::with_capacity(compress_bound(src.len()));
     let cctx = CctxParameters::for_level(level, src.len() as u64, 0);
     cctx.assert_resolved();
     let params = cctx.compression;

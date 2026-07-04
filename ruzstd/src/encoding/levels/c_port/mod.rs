@@ -10,6 +10,7 @@ mod block_policy;
 mod bt_match;
 mod c_frame_header;
 mod cctx_params;
+mod compress_bound;
 mod dfast;
 mod dfast_block;
 mod dfast_dict;
