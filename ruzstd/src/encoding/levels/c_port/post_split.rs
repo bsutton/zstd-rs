@@ -13,7 +13,9 @@ use super::{
 use crate::encoding::blocks::PreparedSequence;
 use crate::{
     encoding::{
-        blocks::{compress_prepared_block, BlockCompressionConfig, PreparedBlock},
+        blocks::{
+            compress_prepared_block, BlockCompressionConfig, PreparedBlock, PreparedBlockRef,
+        },
         frame_compressor::{FseTables, OffsetHistory},
     },
     huff0::huff0_encoder::HuffmanTable,
@@ -161,11 +163,11 @@ fn estimate_partition_size(
     end_seq: usize,
     context: EstimateContext<'_>,
 ) -> usize {
-    let chunk = prepared_chunk(block, prepared, start_seq, end_seq);
+    let chunk = prepared_chunk_ref(block, prepared, start_seq, end_seq);
     if chunk.source.is_empty() {
         return 3;
     }
-    if rle_byte(&chunk.source).is_some() {
+    if rle_byte(chunk.source).is_some() {
         return 4;
     }
 
@@ -175,7 +177,7 @@ fn estimate_partition_size(
     compress_prepared_block(
         &mut bytes,
         context.config,
-        chunk.prepared.as_ref(),
+        chunk.prepared,
         &mut fse_tables,
         &mut offset_history,
         context.previous_huff_table,
@@ -194,6 +196,27 @@ fn prepared_chunk(
     start_seq: usize,
     end_seq: usize,
 ) -> PreparedChunk {
+    let chunk = prepared_chunk_ref(block, prepared, start_seq, end_seq);
+    PreparedChunk {
+        source: chunk.source.to_vec(),
+        prepared: PreparedBlock {
+            literals: chunk.prepared.literals.to_vec(),
+            sequences: chunk.prepared.sequences.to_vec(),
+        },
+    }
+}
+
+struct PreparedChunkRef<'a> {
+    source: &'a [u8],
+    prepared: PreparedBlockRef<'a>,
+}
+
+fn prepared_chunk_ref<'a>(
+    block: &'a [u8],
+    prepared: &'a PreparedBlock,
+    start_seq: usize,
+    end_seq: usize,
+) -> PreparedChunkRef<'a> {
     debug_assert!(start_seq <= end_seq);
     debug_assert!(end_seq <= prepared.sequences.len());
 
@@ -204,11 +227,11 @@ fn prepared_chunk(
         end.source_pos = block.len();
     }
 
-    PreparedChunk {
-        source: block[start.source_pos..end.source_pos].to_vec(),
-        prepared: PreparedBlock {
-            literals: prepared.literals[start.literal_pos..end.literal_pos].to_vec(),
-            sequences: prepared.sequences[start_seq..end_seq].to_vec(),
+    PreparedChunkRef {
+        source: &block[start.source_pos..end.source_pos],
+        prepared: PreparedBlockRef {
+            literals: &prepared.literals[start.literal_pos..end.literal_pos],
+            sequences: &prepared.sequences[start_seq..end_seq],
         },
     }
 }
