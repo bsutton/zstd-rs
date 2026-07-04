@@ -376,6 +376,22 @@ fn suspect_literal_sampling_uses_raw_literals_before_full_histogram() {
 }
 
 #[test]
+fn literal_stats_combined_scan_matches_four_stream_counts() {
+    let literals = (0..4097)
+        .map(|idx| ((idx * 37 + idx / 11) & 0xff) as u8)
+        .collect::<Vec<_>>();
+
+    let (stats, stream_counts) = LiteralStats::from_literals_with_stream_counts(&literals, true);
+    let separate_stats = LiteralStats::from_literals(&literals);
+
+    assert_eq!(stats.counts(), separate_stats.counts());
+    assert_eq!(
+        stream_counts.unwrap(),
+        huff0_encoder::four_stream_counts(&literals)
+    );
+}
+
+#[test]
 fn rle_sequence_modes_round_trip_through_decoder() {
     let sequences = [
         crate::blocks::sequence_section::Sequence {

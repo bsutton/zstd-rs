@@ -80,7 +80,13 @@ pub(super) fn compress_literals(
         return None;
     }
 
-    let literal_stats = LiteralStats::from_literals(literals);
+    let force_single_stream =
+        force_single_stream_max_literals.is_some_and(|max_literals| literals.len() <= max_literals);
+    let (size_format, size_bits) =
+        compressed_literals_size_format(literals.len(), force_single_stream);
+    let four_streams = size_format != 0;
+    let (literal_stats, four_stream_counts) =
+        LiteralStats::from_literals_with_stream_counts(literals, four_streams);
     if literal_stats.largest == literals.len()
         || literal_stats.likely_incompressible(literals.len())
     {
@@ -92,12 +98,6 @@ pub(super) fn compress_literals(
         return None;
     }
 
-    let force_single_stream =
-        force_single_stream_max_literals.is_some_and(|max_literals| literals.len() <= max_literals);
-    let (size_format, size_bits) =
-        compressed_literals_size_format(literals.len(), force_single_stream);
-    let four_streams = size_format != 0;
-    let four_stream_counts = four_streams.then(|| huff0_encoder::four_stream_counts(literals));
     let header_len = compressed_literals_header_len(size_format);
     let new_encoder_table = if search_smallest_table {
         huff0_encoder::HuffmanTable::build_smallest_from_counts(
@@ -327,21 +327,39 @@ pub(super) struct LiteralStats {
 }
 
 impl LiteralStats {
+    #[cfg(test)]
     pub(super) fn from_literals(literals: &[u8]) -> Self {
+        Self::from_literals_with_stream_counts(literals, false).0
+    }
+
+    pub(super) fn from_literals_with_stream_counts(
+        literals: &[u8],
+        collect_stream_counts: bool,
+    ) -> (Self, Option<[[usize; 256]; 4]>) {
         let mut counts = [0; 256];
         let mut max_symbol = 0usize;
         let mut largest = 0usize;
-        for literal in literals {
-            let symbol = *literal as usize;
+        let mut stream_counts = collect_stream_counts.then_some([[0usize; 256]; 4]);
+        let split_size = literals.len().div_ceil(4);
+
+        for (pos, literal) in literals.iter().copied().enumerate() {
+            let symbol = usize::from(literal);
             counts[symbol] += 1;
             largest = largest.max(counts[symbol]);
             max_symbol = max_symbol.max(symbol);
+            if let Some(stream_counts) = &mut stream_counts {
+                let stream_idx = pos / split_size;
+                stream_counts[stream_idx][symbol] += 1;
+            }
         }
-        Self {
-            counts,
-            max_symbol,
-            largest,
-        }
+        (
+            Self {
+                counts,
+                max_symbol,
+                largest,
+            },
+            stream_counts,
+        )
     }
 
     pub(super) fn counts(&self) -> &[usize] {
