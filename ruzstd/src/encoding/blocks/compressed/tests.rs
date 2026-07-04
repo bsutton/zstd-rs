@@ -12,6 +12,15 @@ fn offset_history(newest: u32, second: u32, third: u32) -> OffsetHistory {
     }
 }
 
+#[test]
+fn legacy_decoder_guard_rejects_tiny_encoded_sequence_section() {
+    assert!(should_emit_raw_for_legacy_decoder(2, 1));
+    assert!(should_emit_raw_for_legacy_decoder(3, 0));
+    assert!(!should_emit_raw_for_legacy_decoder(0, 1));
+    assert!(!should_emit_raw_for_legacy_decoder(2, 2));
+    assert!(!should_emit_raw_for_legacy_decoder(4, 0));
+}
+
 struct LiteralPayloadMatcher {
     literals: Vec<u8>,
     emitted: bool,

@@ -16,7 +16,10 @@ use crate::{
     common::MAX_BLOCK_SIZE,
     encoding::{
         block_header::BlockHeader,
-        blocks::{compress_prepared_block, BlockCompressionConfig, PreparedBlock},
+        blocks::{
+            compress_prepared_block, compress_prepared_block_with_stats, BlockCompressionConfig,
+            PreparedBlock,
+        },
         frame_compressor::{FseTables, OffsetHistory},
     },
     huff0::huff0_encoder::HuffmanTable,
@@ -307,7 +310,7 @@ fn encode_partition(
     let block_start = bytes.len();
     bytes.extend_from_slice(&[0; 3]);
     let compressed_start = bytes.len();
-    let new_huffman_table = compress_prepared_block(
+    let compression_result = compress_prepared_block_with_stats(
         &mut bytes,
         context.config,
         prepared,
@@ -317,7 +320,8 @@ fn encode_partition(
     );
     let compressed_size = bytes.len() - compressed_start;
 
-    if !compressed_block_is_worthwhile(block.len(), compressed_size, context.strategy)
+    if compression_result.should_emit_raw_block
+        || !compressed_block_is_worthwhile(block.len(), compressed_size, context.strategy)
         || compressed_size > MAX_BLOCK_SIZE as usize
     {
         bytes.truncate(block_start);
@@ -340,7 +344,7 @@ fn encode_partition(
         GreedyEncodedBlock {
             bytes,
             repeat_offsets: RepeatOffsets::from_offsets(newest, second, third),
-            new_huffman_table,
+            new_huffman_table: compression_result.new_huffman_table,
         }
     }
 }

@@ -19,7 +19,8 @@ use crate::{
     encoding::{
         block_header::BlockHeader,
         blocks::{
-            compress_prepared_block, BlockCompressionConfig, PreparedBlock, PreparedSequence,
+            compress_prepared_block_with_stats, BlockCompressionConfig, PreparedBlock,
+            PreparedSequence,
         },
         frame_compressor::{FseTableSnapshot, FseTables, OffsetHistory},
     },
@@ -344,7 +345,7 @@ pub(super) fn encode_prepared_block(
     let block_start = bytes.len();
     bytes.extend_from_slice(&[0; 3]);
     let compressed_start = bytes.len();
-    let new_huffman_table = compress_prepared_block(
+    let compression_result = compress_prepared_block_with_stats(
         &mut bytes,
         config,
         prepared.prepared.as_ref(),
@@ -354,7 +355,8 @@ pub(super) fn encode_prepared_block(
     );
     let compressed_size = bytes.len() - compressed_start;
 
-    if !compressed_block_is_worthwhile(block.len(), compressed_size, params.strategy)
+    if compression_result.should_emit_raw_block
+        || !compressed_block_is_worthwhile(block.len(), compressed_size, params.strategy)
         || compressed_size > MAX_BLOCK_SIZE as usize
     {
         bytes.truncate(block_start);
@@ -376,7 +378,7 @@ pub(super) fn encode_prepared_block(
         GreedyEncodedBlock {
             bytes,
             repeat_offsets: prepared.repeat_offsets,
-            new_huffman_table,
+            new_huffman_table: compression_result.new_huffman_table,
         }
     }
 }

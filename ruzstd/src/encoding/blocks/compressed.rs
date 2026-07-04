@@ -53,6 +53,11 @@ pub(crate) struct PreparedBlock {
     pub(crate) sequences: Vec<PreparedSequence>,
 }
 
+pub(crate) struct CompressedBlockResult {
+    pub(crate) new_huffman_table: Option<huff0_encoder::HuffmanTable>,
+    pub(crate) should_emit_raw_block: bool,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct PreparedBlockRef<'a> {
     pub(crate) literals: &'a [u8],
@@ -139,7 +144,29 @@ pub(crate) fn compress_prepared_block(
     offset_history: &mut OffsetHistory,
     previous_huff_table: Option<&huff0_encoder::HuffmanTable>,
 ) -> Option<huff0_encoder::HuffmanTable> {
-    let mut new_huffman_table = None;
+    compress_prepared_block_with_stats(
+        output,
+        config,
+        prepared,
+        fse_tables,
+        offset_history,
+        previous_huff_table,
+    )
+    .new_huffman_table
+}
+
+pub(crate) fn compress_prepared_block_with_stats(
+    output: &mut Vec<u8>,
+    config: BlockCompressionConfig,
+    prepared: PreparedBlockRef<'_>,
+    fse_tables: &mut FseTables,
+    offset_history: &mut OffsetHistory,
+    previous_huff_table: Option<&huff0_encoder::HuffmanTable>,
+) -> CompressedBlockResult {
+    let mut result = CompressedBlockResult {
+        new_huffman_table: None,
+        should_emit_raw_block: false,
+    };
     let mut next_offset_history = *offset_history;
     let sequences = encode_sequences_for_history(prepared.sequences, &mut next_offset_history);
 
@@ -173,7 +200,7 @@ pub(crate) fn compress_prepared_block(
             suspect_uncompressible_literals(prepared.literals.len(), sequences.len()),
             &mut writer,
         ) {
-            new_huffman_table = Some(table);
+            result.new_huffman_table = Some(table);
         }
     } else {
         raw_literals(prepared.literals, &mut writer);
@@ -217,11 +244,23 @@ pub(crate) fn compress_prepared_block(
 
         writer.write_bits(encode_fse_table_modes(&ll_mode, &ml_mode, &of_mode), 8);
 
-        encode_table(&ll_mode, &mut writer);
-        encode_table(&of_mode, &mut writer);
-        encode_table(&ml_mode, &mut writer);
+        let mut last_count_size = encode_table_count_size(&ll_mode, &mut writer);
+        let off_count_size = encode_table_count_size(&of_mode, &mut writer);
+        if off_count_size != 0 {
+            last_count_size = off_count_size;
+        }
+        let ml_count_size = encode_table_count_size(&ml_mode, &mut writer);
+        if ml_count_size != 0 {
+            last_count_size = ml_count_size;
+        }
 
+        let bitstream_start = writer.index();
         encode_sequences(&sequences, &mut writer, &ll_mode, &ml_mode, &of_mode);
+        let bitstream_size = byte_size_between(bitstream_start, writer.index());
+
+        if should_emit_raw_for_legacy_decoder(last_count_size, bitstream_size) {
+            result.should_emit_raw_block = true;
+        }
 
         let ll_update = fse_table_update(ll_mode);
         let ml_update = fse_table_update(ml_mode);
@@ -232,7 +271,29 @@ pub(crate) fn compress_prepared_block(
     }
     writer.flush();
     *offset_history = next_offset_history;
-    new_huffman_table
+    result
+}
+
+fn encode_table_count_size(mode: &FseTableMode<'_>, writer: &mut BitWriter<&mut Vec<u8>>) -> usize {
+    let start = writer.index();
+    encode_table(mode, writer);
+    if matches!(mode, FseTableMode::Encoded(_)) {
+        byte_size_between(start, writer.index())
+    } else {
+        0
+    }
+}
+
+fn byte_size_between(start_bits: usize, end_bits: usize) -> usize {
+    debug_assert!(start_bits.is_multiple_of(8));
+    debug_assert!(end_bits.is_multiple_of(8));
+    (end_bits - start_bits) / 8
+}
+
+fn should_emit_raw_for_legacy_decoder(last_count_size: usize, bitstream_size: usize) -> bool {
+    // Mirrors zstd's compatibility guard for decoders <= 1.3.4, which
+    // rejected compressed sequence tables when FSE_readNCount saw <4 bytes.
+    last_count_size != 0 && last_count_size + bitstream_size < 4
 }
 
 enum FseTableUpdate {
