@@ -1,49 +1,38 @@
 # C Compressor Port Source Map
 
-Authoritative C source checkout: `/tmp/zstd-reference`.
+Authoritative C source: the local `zstd-sys` checkout matching `Cargo.lock`.
 
-Do not re-discover or re-clone the C implementation for this port. Start from
-`/tmp/zstd-reference`, and only use other local zstd checkouts for deliberate
-comparisons.
+Do not re-discover or re-clone the C implementation for this port unless the
+local `zstd-sys` checkout is missing. Use other local zstd checkouts only for
+deliberate comparisons.
 
 This module is a staged Rust port of the upstream zstd C compressor. Keep new
 code split by the same behavioral boundaries as the C implementation, while
 using Rust ownership and types instead of transliterating pointer-heavy C.
 
-Local C checkout:
+Local C source:
 
-- Use `/tmp/zstd-reference` as the authoritative local C source tree for this
-  porting work.
-- `/tmp/facebook-zstd` is also present, but prefer `/tmp/zstd-reference` unless
-  a deliberate comparison between checkouts is needed.
-- If `/tmp/zstd-reference` is unavailable in a fresh session, use the local
-  `zstd-sys` source matching `Cargo.lock`:
+- Use the local `zstd-sys` source matching `Cargo.lock` as the authoritative C
+  source tree for this porting work:
   `/home/bsutton/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zstd-sys-2.0.16+zstd.1.5.7/zstd`.
-  Recreate `/tmp/zstd-reference` from the same upstream version before doing
-  broad line-by-line parity audits.
+- `/tmp/zstd-reference` may exist in some sessions as a scratch checkout, but
+  `/tmp` can be cleaned. Recreate it from the same upstream version before doing
+  broad line-by-line parity audits that need an editable copy.
 
 Primary C references:
 
-- `/tmp/zstd-reference/lib/compress/clevels.h`: compression level parameter
-  table.
-- `/tmp/zstd-reference/lib/compress/zstd_compress.c`: frame/block
-  orchestration, parameter adjustment, block compressor selection, and one-shot
-  API behavior.
-- `/tmp/zstd-reference/lib/compress/zstd_fast.c`: level 1/2 fast match finder.
-- `/tmp/zstd-reference/lib/compress/zstd_double_fast.c`: double-fast match
-  finder.
-- `/tmp/zstd-reference/lib/compress/zstd_lazy.c`: greedy, lazy, lazy2, and
-  btlazy2 search.
-- `/tmp/zstd-reference/lib/compress/zstd_opt.c`: btopt, btultra, and btultra2
-  parser.
-- `/tmp/zstd-reference/lib/compress/zstd_compress_literals.c`: literal block
-  compression.
-- `/tmp/zstd-reference/lib/compress/zstd_compress_sequences.c`: sequence entropy
-  encoding.
-- `/tmp/zstd-reference/lib/compress/zstd_compress_superblock.c`: superblock
-  path.
-- `/tmp/zstd-reference/lib/compress/zstd_compress.c`: dictionary loading via
-  `ZSTD_compress_insertDictionary()` and `ZSTD_loadDictionaryContent()`.
+- `lib/compress/clevels.h`: compression level parameter table.
+- `lib/compress/zstd_compress.c`: frame/block orchestration, parameter
+  adjustment, block compressor selection, one-shot API behavior, and dictionary
+  loading via `ZSTD_compress_insertDictionary()` and
+  `ZSTD_loadDictionaryContent()`.
+- `lib/compress/zstd_fast.c`: level 1/2 fast match finder.
+- `lib/compress/zstd_double_fast.c`: double-fast match finder.
+- `lib/compress/zstd_lazy.c`: greedy, lazy, lazy2, and btlazy2 search.
+- `lib/compress/zstd_opt.c`: btopt, btultra, and btultra2 parser.
+- `lib/compress/zstd_compress_literals.c`: literal block compression.
+- `lib/compress/zstd_compress_sequences.c`: sequence entropy encoding.
+- `lib/compress/zstd_compress_superblock.c`: superblock path.
 
 Porting rule: add parity tests at the module boundary before wiring the module
 into the active encoder path.
