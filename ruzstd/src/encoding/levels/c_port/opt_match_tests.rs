@@ -24,6 +24,7 @@ fn opt_match_collector_reports_repcodes_before_tree_matches() {
     let data = b"abcabcabcxyz";
     let params = params_for_min_match(4);
     let mut state = GreedyMatchState::new();
+    state.ensure_tables(params);
     let mut matches = Vec::new();
 
     bt_get_all_matches_no_dict(
@@ -53,6 +54,7 @@ fn opt_match_collector_reports_increasing_tree_matches() {
     let data = b"xabcdefghijabcdefghij-tail";
     let params = params_for_min_match(4);
     let mut state = GreedyMatchState::new();
+    state.ensure_tables(params);
     let mut matches = Vec::new();
 
     bt_get_all_matches_no_dict(
@@ -75,6 +77,7 @@ fn opt_match_collector_uses_hash3_for_min_match_three() {
     let data = b"xabc---abcXYZ";
     let params = params_for_min_match(3);
     let mut state = GreedyMatchState::new();
+    state.ensure_tables(params);
     let mut matches = Vec::new();
 
     bt_get_all_matches_no_dict(

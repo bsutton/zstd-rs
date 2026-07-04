@@ -151,6 +151,7 @@ fn opt_match_collection_appends_ldm_candidate_like_c() {
     let params = btopt_params(data.len());
     let mut state = OptBlockState::new();
     state.reset_for_frame(params);
+    state.match_state.ensure_tables(params);
     let sequences = [LdmRawSequence {
         offset: 4,
         lit_length: 4,

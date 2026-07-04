@@ -146,7 +146,7 @@ pub(super) fn bt_get_all_matches_no_dict(
         bounds,
     } = request;
 
-    state.ensure_tables(params);
+    debug_assert_tables_ready(state, params);
     let mls = params.min_match.clamp(3, 6);
     update_tree_no_dict(
         src,
@@ -531,3 +531,28 @@ fn write_tree_slot(state: &mut GreedyMatchState, slot: Option<usize>, value: u32
         state.chain_table[slot] = value;
     }
 }
+
+#[cfg(debug_assertions)]
+fn debug_assert_tables_ready(state: &GreedyMatchState, params: CompressionParameters) {
+    debug_assert_eq!(state.hash_log, params.hash_log);
+    debug_assert_eq!(state.chain_log, params.chain_log);
+    debug_assert_eq!(state.hash_table.len(), 1_usize << params.hash_log);
+    debug_assert_eq!(state.chain_table.len(), 1_usize << params.chain_log);
+
+    let hash_log3 = if params.min_match == 3 {
+        params.window_log.min(17)
+    } else {
+        0
+    };
+    debug_assert_eq!(state.hash_log3, hash_log3);
+    let hash3_size = if hash_log3 > 0 {
+        1_usize << hash_log3
+    } else {
+        0
+    };
+    debug_assert_eq!(state.hash_table3.len(), hash3_size);
+}
+
+#[cfg(not(debug_assertions))]
+#[inline(always)]
+fn debug_assert_tables_ready(_state: &GreedyMatchState, _params: CompressionParameters) {}
