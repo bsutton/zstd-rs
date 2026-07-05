@@ -112,8 +112,6 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
     }
 
     // SAFETY: row_start is bounded as above and insert_pos is masked to the row.
-    // SAFETY: callers pass rows with exactly 16, 32, or 64 bytes, and each
-    // load starts at a 16-byte chunk boundary inside that row.
     unsafe {
         let insert_pos = next_row_index(state.tag_table.get_unchecked_mut(row_start), row_mask);
         let row_pos = row_start + insert_pos;
@@ -341,6 +339,9 @@ fn row_match_mask_sse2(tag_row: &[u8], tag: u8, head: usize) -> u64 {
     debug_assert!(matches!(tag_row.len(), 16 | 32 | 64));
     debug_assert!(head < tag_row.len());
 
+    // SAFETY: row tables are allocated as 16, 32, or 64 byte rows. Each load
+    // starts at a 16-byte chunk boundary inside that row, and unaligned loads
+    // mirror the C implementation's `_mm_loadu_si128()` use.
     unsafe {
         use core::arch::x86_64::{
             __m128i, _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8,
