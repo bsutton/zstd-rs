@@ -41,6 +41,44 @@ pub(super) fn count_match(
 }
 
 #[inline(always)]
+pub(super) fn count_match_no_dict(
+    src: &[u8],
+    mut pos: usize,
+    mut match_pos: usize,
+    match_limit: usize,
+) -> usize {
+    debug_assert!(match_pos <= pos);
+    debug_assert!(match_limit <= src.len());
+
+    let start = pos;
+
+    while pos + 8 <= match_limit {
+        let diff = read64(src, pos) ^ read64(src, match_pos);
+        if diff != 0 {
+            return pos - start + common_prefix_bytes(diff);
+        }
+        pos += 8;
+        match_pos += 8;
+    }
+
+    if pos + 4 <= match_limit && read32(src, pos) == read32(src, match_pos) {
+        pos += 4;
+        match_pos += 4;
+    }
+
+    if pos + 2 <= match_limit && read16(src, pos) == read16(src, match_pos) {
+        pos += 2;
+        match_pos += 2;
+    }
+
+    if pos < match_limit && src[pos] == src[match_pos] {
+        pos += 1;
+    }
+
+    pos - start
+}
+
+#[inline(always)]
 pub(super) fn count_match_behind(
     src: &[u8],
     mut pos: usize,
@@ -121,7 +159,7 @@ fn read64(src: &[u8], pos: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{count_match, count_match_behind};
+    use super::{count_match, count_match_behind, count_match_no_dict};
 
     #[test]
     fn counts_full_match_to_limit() {
@@ -133,6 +171,15 @@ mod tests {
     fn stops_inside_first_word() {
         let data = b"abcxefghabcdzzzz";
         assert_eq!(count_match(data, 0, 8, 8), 3);
+    }
+
+    #[test]
+    fn no_dict_counter_matches_general_counter() {
+        let data = b"0123456789abcdef0123456789abcx";
+        assert_eq!(
+            count_match_no_dict(data, 16, 0, data.len()),
+            count_match(data, 16, 0, data.len())
+        );
     }
 
     #[test]

@@ -6,7 +6,8 @@ use super::{collect_repcode_matches, should_stop_after_best_match, OptMatch, Opt
 use crate::encoding::levels::c_port::{
     greedy::GreedyMatchState,
     hash_chain_match::{
-        count_match, hash3_ptr, hash_ptr_mls, lowest_prefix_index_with_loaded_dict,
+        count_match, count_match_no_dict, hash3_ptr, hash_ptr_mls,
+        lowest_prefix_index_with_loaded_dict,
     },
     params::CompressionParameters,
     sequence_store::{OffBase, RepeatOffsets},
@@ -131,7 +132,7 @@ fn insert_bt1_no_dict<const MLS: u32>(
         }
 
         let mut match_length = common_smaller.min(common_larger);
-        match_length += count_match(
+        match_length += count_match_no_dict(
             src,
             ip + match_length,
             match_index + match_length,

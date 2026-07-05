@@ -104,7 +104,7 @@ pub(super) fn load_dictionary_hash_chain(
     let _ = insert_and_find_first_index(src, target, params, min_match, state);
 }
 
-pub(super) use super::match_count::count_match;
+pub(super) use super::match_count::{count_match, count_match_no_dict};
 pub(super) fn hash_ptr(src: &[u8], pos: usize, h_bits: u32, min_match: u32) -> usize {
     match min_match {
         5 => hash_ptr_mls::<5>(src, pos, h_bits),
