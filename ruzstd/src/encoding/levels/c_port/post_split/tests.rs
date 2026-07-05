@@ -142,6 +142,61 @@ fn derive_block_splits_finds_cheaper_halves() {
 }
 
 #[test]
+fn estimate_partition_size_does_not_use_rle_emission_cost_like_c() {
+    let block = [0x44; 64];
+    let prepared = PreparedBlock {
+        literals: block.to_vec(),
+        sequences: Vec::new(),
+    };
+
+    let estimate = estimate_partition_size(
+        &block,
+        &prepared,
+        0,
+        0,
+        EstimateContext {
+            config: BlockCompressionConfig::for_c_strategy(7),
+            fse_tables: &FseTables::new(),
+            offset_history: OffsetHistory::new(),
+            previous_huff_table: None,
+        },
+    );
+
+    assert_ne!(estimate, 4);
+}
+
+#[test]
+fn estimate_partition_size_does_not_cap_to_raw_block_size_like_c() {
+    let mut block = Vec::with_capacity(1024);
+    let mut state = 0x1234_5678_u32;
+    for _ in 0..1024 {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        block.push(state as u8);
+    }
+    let prepared = PreparedBlock {
+        literals: block.clone(),
+        sequences: Vec::new(),
+    };
+
+    let estimate = estimate_partition_size(
+        &block,
+        &prepared,
+        0,
+        0,
+        EstimateContext {
+            config: BlockCompressionConfig::for_c_strategy(7),
+            fse_tables: &FseTables::new(),
+            offset_history: OffsetHistory::new(),
+            previous_huff_table: None,
+        },
+    );
+
+    assert!(estimate > block.len(), "{estimate} <= {}", block.len());
+}
+
+#[test]
 fn partition_rle_obeys_first_block_policy_like_c() {
     let encoded = encode_rle_candidate_partition(BlockEncodingPolicy::frame_first_block());
     assert_ne!(parse_block_header(&encoded.bytes).1, BlockType::RLE);

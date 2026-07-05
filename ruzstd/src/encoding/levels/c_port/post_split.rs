@@ -167,9 +167,6 @@ fn estimate_partition_size(
     if chunk.source.is_empty() {
         return 3;
     }
-    if rle_byte(chunk.source).is_some() {
-        return 4;
-    }
 
     let mut bytes = Vec::new();
     let mut fse_tables = context.fse_tables.clone();
@@ -182,7 +179,7 @@ fn estimate_partition_size(
         &mut offset_history,
         context.previous_huff_table,
     );
-    3 + bytes.len().min(chunk.source.len())
+    3 + bytes.len()
 }
 
 struct PreparedChunk {
@@ -342,11 +339,6 @@ struct PartitionEncodeContext<'a, 'table> {
     fse_tables: &'a mut FseTables,
     offset_history: &'a mut OffsetHistory,
     previous_huff_table: Option<&'table HuffmanTable>,
-}
-
-fn rle_byte(data: &[u8]) -> Option<u8> {
-    let first = *data.first()?;
-    data.iter().all(|byte| *byte == first).then_some(first)
 }
 
 #[cfg(test)]
