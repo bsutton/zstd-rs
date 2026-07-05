@@ -203,6 +203,7 @@ pub(super) fn update_tree_no_dict(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[inline(always)]
 pub(super) fn collect_repcode_matches(
     matches: &mut Vec<OptMatch>,
     src: &[u8],
@@ -261,6 +262,7 @@ pub(super) fn collect_repcode_matches(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[inline(always)]
 fn collect_repcode_matches_no_dict(
     matches: &mut Vec<OptMatch>,
     src: &[u8],
@@ -309,6 +311,7 @@ fn collect_repcode_matches_no_dict(
     }
 }
 
+#[inline(always)]
 pub(super) fn should_stop_after_best_match(
     matches: &[OptMatch],
     ip: usize,
@@ -320,6 +323,7 @@ pub(super) fn should_stop_after_best_match(
     })
 }
 
+#[inline(always)]
 fn repcode_to_off_base(code: usize) -> u32 {
     match code {
         1 => OffBase::Repeat(RepeatCode::First),
