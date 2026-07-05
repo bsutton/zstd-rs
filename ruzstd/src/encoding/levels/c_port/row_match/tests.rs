@@ -45,6 +45,26 @@ fn row_match_mask_preserves_circular_scan_order() {
 }
 
 #[test]
+fn row_match_mask_matches_scalar_for_all_row_widths() {
+    for width in [16usize, 32, 64] {
+        let mut row = vec![0u8; width];
+        for (idx, byte) in row.iter_mut().enumerate() {
+            *byte = (idx.wrapping_mul(37).wrapping_add(width) & 0xff) as u8;
+        }
+        for idx in (3..width).step_by(7) {
+            row[idx] = 0x5a;
+        }
+
+        for head in [0usize, 1, width / 3, width - 1] {
+            assert_eq!(
+                row_match_mask(&row, 0x5a, head),
+                row_match_mask_scalar(&row, 0x5a, head)
+            );
+        }
+    }
+}
+
+#[test]
 fn row_finder_reports_previous_match() {
     let data = b"abcdefghabcdefgh-tail";
     let mut state = GreedyMatchState::new();

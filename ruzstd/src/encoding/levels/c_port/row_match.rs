@@ -112,6 +112,8 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
     }
 
     // SAFETY: row_start is bounded as above and insert_pos is masked to the row.
+    // SAFETY: callers pass rows with exactly 16, 32, or 64 bytes, and each
+    // load starts at a 16-byte chunk boundary inside that row.
     unsafe {
         let insert_pos = next_row_index(state.tag_table.get_unchecked_mut(row_start), row_mask);
         let row_pos = row_start + insert_pos;
@@ -322,6 +324,50 @@ fn next_row_index(head: &mut u8, row_mask: usize) -> usize {
 
 #[inline(always)]
 fn row_match_mask(tag_row: &[u8], tag: u8, head: usize) -> u64 {
+    #[cfg(all(target_arch = "x86_64", target_feature = "sse2"))]
+    {
+        row_match_mask_sse2(tag_row, tag, head)
+    }
+
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "sse2")))]
+    {
+        row_match_mask_scalar(tag_row, tag, head)
+    }
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "sse2"))]
+#[inline(always)]
+fn row_match_mask_sse2(tag_row: &[u8], tag: u8, head: usize) -> u64 {
+    debug_assert!(matches!(tag_row.len(), 16 | 32 | 64));
+    debug_assert!(head < tag_row.len());
+
+    unsafe {
+        use core::arch::x86_64::{
+            __m128i, _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8,
+        };
+
+        let comparison = _mm_set1_epi8(tag as i8);
+        let load_mask = |chunk_start: usize| -> u64 {
+            let chunk = _mm_loadu_si128(tag_row.as_ptr().add(chunk_start).cast::<__m128i>());
+            let equal = _mm_cmpeq_epi8(chunk, comparison);
+            _mm_movemask_epi8(equal) as u64
+        };
+
+        let matches = match tag_row.len() {
+            16 => load_mask(0),
+            32 => load_mask(0) | (load_mask(16) << 16),
+            64 => {
+                load_mask(0) | (load_mask(16) << 16) | (load_mask(32) << 32) | (load_mask(48) << 48)
+            }
+            _ => unreachable!("row width is clamped to 16, 32, or 64 bytes"),
+        };
+        rotate_right_within(matches, head, tag_row.len())
+    }
+}
+
+#[cfg(any(test, not(all(target_arch = "x86_64", target_feature = "sse2"))))]
+#[inline(always)]
+fn row_match_mask_scalar(tag_row: &[u8], tag: u8, head: usize) -> u64 {
     debug_assert!(matches!(tag_row.len(), 16 | 32 | 64));
     debug_assert!(head < tag_row.len());
 
