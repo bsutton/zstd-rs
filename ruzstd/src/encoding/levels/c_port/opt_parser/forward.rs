@@ -93,8 +93,10 @@ pub(super) fn forward_pass(
         refresh_node_reps(cur, state);
 
         let inr = ip + cur;
+        // C still lets later priced positions collapse into literals here.
         if inr > ilimit {
-            break;
+            cur += 1;
+            continue;
         }
         if cur == last_pos {
             break;
