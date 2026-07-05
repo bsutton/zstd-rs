@@ -170,7 +170,7 @@ fn fill_hash_cache_impl<const ROW_LOG: u32>(
             state.hash_salt,
         );
         #[cfg(target_arch = "x86_64")]
-        prefetch_row(state, ((hash >> TAG_BITS) as usize) << ROW_LOG);
+        prefetch_row(state, ((hash >> TAG_BITS) as usize) << ROW_LOG, ROW_LOG);
         state.row_hash_cache[idx & ROW_HASH_CACHE_MASK] = hash;
         idx += 1;
     }
@@ -289,16 +289,22 @@ fn next_cached_hash(
         state.hash_salt,
     );
     #[cfg(target_arch = "x86_64")]
-    prefetch_row(state, ((new_hash >> TAG_BITS) as usize) << row_log);
+    prefetch_row(state, ((new_hash >> TAG_BITS) as usize) << row_log, row_log);
     let cached = state.row_hash_cache[idx & ROW_HASH_CACHE_MASK];
     state.row_hash_cache[idx & ROW_HASH_CACHE_MASK] = new_hash;
     cached
 }
 
 #[cfg(target_arch = "x86_64")]
-fn prefetch_row(state: &GreedyMatchState, row_start: usize) {
+fn prefetch_row(state: &GreedyMatchState, row_start: usize, row_log: u32) {
     prefetch_read(state.hash_table.as_ptr().wrapping_add(row_start));
+    if row_log >= 5 {
+        prefetch_read(state.hash_table.as_ptr().wrapping_add(row_start + 16));
+    }
     prefetch_read(state.tag_table.as_ptr().wrapping_add(row_start));
+    if row_log == 6 {
+        prefetch_read(state.tag_table.as_ptr().wrapping_add(row_start + 32));
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
