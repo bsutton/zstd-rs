@@ -85,10 +85,9 @@ fn insert_bt1_no_dict<const MLS: u32>(
     let mut match_end_idx = ip + 9;
     let mut best_length = 8_usize;
     let mut nb_compares = 1_usize << params.search_log;
-    // Mirrors zstd's optional ZSTD_C_PREDICT path. The local C build does not
-    // define it, but keeping it for larger hash tables avoids a large Rust CPU
-    // regression while preserving valid tree structure.
-    let prediction_enabled = params.hash_log > 11;
+    // The C sources used for parity do not define `ZSTD_C_PREDICT`. Enabling
+    // it changes the binary-tree shape and can alter optimal-parser choices.
+    let prediction_enabled = false;
     let previous_slot = tree_slot(ip.wrapping_sub(1), mask);
     let mut predicted_smaller = if prediction_enabled {
         nonzero_successor(state.chain_table[previous_slot])
