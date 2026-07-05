@@ -23,6 +23,15 @@ struct Args {
     output_dir: PathBuf,
 }
 
+#[derive(Clone, Debug)]
+struct BlockDelta {
+    index: usize,
+    delta: i64,
+    abs_delta: usize,
+    rust: BlockInfo,
+    c: BlockInfo,
+}
+
 fn main() -> io::Result<()> {
     let args = parse_args()?;
     fs::create_dir_all(&args.output_dir)?;
@@ -270,6 +279,72 @@ fn print_comparison(rust: &[BlockInfo], c: &[BlockInfo]) {
         None if rust.len() == c.len() => println!("first_diff=none"),
         None => println!("first_diff=block_count rust={} c={}", rust.len(), c.len()),
     }
+    print_largest_block_deltas(rust, c);
+}
+
+fn print_largest_block_deltas(rust: &[BlockInfo], c: &[BlockInfo]) {
+    let common = rust.len().min(c.len());
+    let mut deltas = (0..common)
+        .filter_map(|index| {
+            let rust_block = rust[index].clone();
+            let c_block = c[index].clone();
+            let delta = rust_block.content_size as i64 - c_block.content_size as i64;
+            let type_changed = rust_block.block_type != c_block.block_type;
+            (delta != 0 || type_changed).then(|| BlockDelta {
+                index,
+                delta,
+                abs_delta: rust_block.content_size.abs_diff(c_block.content_size),
+                rust: rust_block,
+                c: c_block,
+            })
+        })
+        .collect::<Vec<_>>();
+    deltas.sort_by(|left, right| {
+        right
+            .abs_delta
+            .cmp(&left.abs_delta)
+            .then_with(|| left.index.cmp(&right.index))
+    });
+
+    println!("largest_deltas:");
+    if deltas.is_empty() {
+        println!("delta,none");
+        return;
+    }
+    for delta in deltas.into_iter().take(12) {
+        println!(
+            "delta,{},{},{:?},{},{},{:?},{},{}{}",
+            delta.index,
+            delta.delta,
+            delta.rust.block_type,
+            delta.rust.content_size,
+            describe_section(delta.rust.section_info.as_ref()),
+            delta.c.block_type,
+            delta.c.content_size,
+            describe_section(delta.c.section_info.as_ref()),
+            if delta.rust.block_type == delta.c.block_type {
+                ""
+            } else {
+                ",type_changed"
+            }
+        );
+    }
+}
+
+fn describe_section(info: Option<&CompressedSectionInfo>) -> String {
+    let Some(info) = info else {
+        return "-".to_string();
+    };
+    format!(
+        "{:?}/regen:{}/payload:{}/seqs:{}/modes:{}/{}/{}",
+        info.literal_type,
+        info.literal_regenerated_size,
+        info.literal_payload_size,
+        info.sequences,
+        mode_label(info.ll_mode),
+        mode_label(info.of_mode),
+        mode_label(info.ml_mode)
+    )
 }
 
 fn block_type_counts(blocks: &[BlockInfo]) -> (usize, usize, usize) {
