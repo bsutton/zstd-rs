@@ -22,6 +22,7 @@ struct Args {
     zstd_bin: PathBuf,
     c_mode: CMode,
     output_dir: PathBuf,
+    block_limit: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -79,8 +80,8 @@ fn main() -> io::Result<()> {
         fs::metadata(&rust_output)?.len(),
         fs::metadata(&c_output)?.len()
     );
-    print_blocks("rust", &rust);
-    print_blocks("c", &c);
+    print_blocks("rust", &rust, args.block_limit);
+    print_blocks("c", &c, args.block_limit);
     print_comparison(&rust, &c);
 
     Ok(())
@@ -110,6 +111,7 @@ fn parse_args() -> io::Result<Args> {
                 .display()
                 .to_string(),
         )),
+        block_limit: parse_usize(&parse_value(&raw, "--block-limit", "24"))?,
     })
 }
 
@@ -124,6 +126,7 @@ Options:
   --zstd-bin PATH   Path to the C zstd binary.
   --c-mode MODE     C zstd mode: single-thread or t1. Default single-thread.
   --output-dir DIR  Directory for generated .zst files.
+  --block-limit N   Number of leading blocks to print for each output, default 24.
   -h, --help        Show this help message."
     );
 }
@@ -137,6 +140,11 @@ fn parse_c_mode(raw: &str) -> io::Result<CMode> {
             format!("unsupported --c-mode {raw:?}; expected single-thread or t1"),
         )),
     }
+}
+
+fn parse_usize(raw: &str) -> io::Result<usize> {
+    raw.parse()
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))
 }
 
 fn run_c_zstd(
@@ -180,7 +188,7 @@ fn zstd_cli_level_args(level: i32) -> Vec<String> {
     }
 }
 
-fn print_blocks(label: &str, blocks: &[BlockInfo]) {
+fn print_blocks(label: &str, blocks: &[BlockInfo], block_limit: usize) {
     let compressed_bytes = blocks
         .iter()
         .map(|block| block.content_size + 3)
@@ -191,7 +199,7 @@ fn print_blocks(label: &str, blocks: &[BlockInfo]) {
         blocks.len(),
     );
     print_section_summary(label, blocks);
-    for block in blocks.iter().take(24) {
+    for block in blocks.iter().take(block_limit) {
         println!(
             "{label},{},{},{:?},{},{},{},{}{}",
             block.index,
@@ -204,8 +212,8 @@ fn print_blocks(label: &str, blocks: &[BlockInfo]) {
             section_suffix(block.section_info.as_ref())
         );
     }
-    if blocks.len() > 24 {
-        println!("{label}: ... {} more blocks", blocks.len() - 24);
+    if blocks.len() > block_limit {
+        println!("{label}: ... {} more blocks", blocks.len() - block_limit);
     }
 }
 
