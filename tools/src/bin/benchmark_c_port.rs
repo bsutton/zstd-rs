@@ -106,7 +106,23 @@ fn parse_args() -> io::Result<Args> {
 
 fn print_help() {
     println!(
-        "Usage: benchmark_c_port [--fixtures DIR] [--levels CSV] [--runs N] \\\n    [--limit N] [--zstd-bin PATH] [--output-dir DIR] [--csv-output PATH] \\\n    [--md-output PATH] [--no-sync] [--keep-outputs]\n\nOptions:\n  --fixtures DIR    Fixture directory, walked recursively.\n  --levels CSV      C compression levels to test, for example 1,3,9,19.\n  --runs N          Timed runs per fixture and level.\n  --limit N         Limit fixture count after sorting by path.\n  --zstd-bin PATH   Path to the C zstd binary.\n  --output-dir DIR  Temporary directory for compressed outputs.\n  --csv-output PATH CSV output path.\n  --md-output PATH  Markdown output path.\n  --no-sync         Skip sync before timed runs.\n  --keep-outputs    Keep compressed outputs for inspection.\n  -h, --help        Show this help message."
+        "\
+Usage: benchmark_c_port [--fixtures DIR] [--levels CSV] [--runs N] \
+    [--limit N] [--zstd-bin PATH] [--output-dir DIR] [--csv-output PATH] \
+    [--md-output PATH] [--no-sync] [--keep-outputs]
+
+Options:
+  --fixtures DIR    Fixture directory, walked recursively.
+  --levels CSV      C compression levels to test, for example -5,0,1,3,9,19.
+  --runs N          Timed runs per fixture and level.
+  --limit N         Limit fixture count after sorting by path.
+  --zstd-bin PATH   Path to the C zstd binary.
+  --output-dir DIR  Temporary directory for compressed outputs.
+  --csv-output PATH CSV output path.
+  --md-output PATH  Markdown output path.
+  --no-sync         Skip sync before timed runs.
+  --keep-outputs    Keep compressed outputs for inspection.
+  -h, --help        Show this help message."
     );
 }
 
@@ -283,12 +299,11 @@ fn collect_fixture_paths(path: &Path, paths: &mut Vec<PathBuf>) -> io::Result<()
 
 fn run_c_zstd(zstd_bin: &Path, level: i32, input: &Path, output: &Path) -> io::Result<()> {
     let mut command = Command::new(zstd_bin);
-    command
-        .args(["-q", "-f", "--single-thread", "--no-check"])
-        .arg(format!("-{level}"))
-        .arg(input)
-        .arg("-o")
-        .arg(output);
+    command.args(["-q", "-f", "--single-thread", "--no-check"]);
+    if let Some(level_arg) = zstd_cli_level_arg(level) {
+        command.arg(level_arg);
+    }
+    command.arg(input).arg("-o").arg(output);
     run_command_silent(&mut command)
 }
 
@@ -304,11 +319,11 @@ fn run_c_zstd_timed(
         .args(["-f", "%e\t%U\t%S", "-o"])
         .arg(&time_file)
         .arg(zstd_bin)
-        .args(["-q", "-f", "--single-thread", "--no-check"])
-        .arg(format!("-{level}"))
-        .arg(input)
-        .arg("-o")
-        .arg(output);
+        .args(["-q", "-f", "--single-thread", "--no-check"]);
+    if let Some(level_arg) = zstd_cli_level_arg(level) {
+        timed.arg(level_arg);
+    }
+    timed.arg(input).arg("-o").arg(output);
     run_command_silent(&mut timed)?;
     let text = fs::read_to_string(&time_file)?;
     fs::remove_file(&time_file)?;
@@ -320,6 +335,14 @@ fn run_c_zstd_timed(
     let user = fields[1].parse::<f64>().unwrap_or(0.0);
     let system = fields[2].parse::<f64>().unwrap_or(0.0);
     Ok((wall, user + system))
+}
+
+fn zstd_cli_level_arg(level: i32) -> Option<String> {
+    match level.cmp(&0) {
+        Ordering::Less => Some(format!("--fast={}", level.unsigned_abs())),
+        Ordering::Equal => None,
+        Ordering::Greater => Some(format!("-{level}")),
+    }
 }
 
 fn sync_if_requested(no_sync: bool) -> io::Result<()> {
@@ -496,4 +519,24 @@ fn format_number(value: u64) -> String {
         out.push(ch);
     }
     out.chars().rev().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::zstd_cli_level_arg;
+
+    #[test]
+    fn c_level_zero_uses_cli_default() {
+        assert_eq!(zstd_cli_level_arg(0), None);
+    }
+
+    #[test]
+    fn positive_c_levels_use_dash_level() {
+        assert_eq!(zstd_cli_level_arg(16), Some("-16".to_string()));
+    }
+
+    #[test]
+    fn negative_c_levels_use_fast_mode() {
+        assert_eq!(zstd_cli_level_arg(-5), Some("--fast=5".to_string()));
+    }
 }
