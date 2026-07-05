@@ -8,7 +8,7 @@ use super::{
     compress_bound::compress_bound,
     dictionary::ParsedDictionary,
     dictionary_frame::DictionaryFrameContext,
-    frame_state::FrameBlockState,
+    frame_state::{streaming_dict_limit, FrameBlockState},
     greedy::GreedyMatchState,
     greedy_block::{
         encode_block_hash_chain_no_dict, encode_block_hash_chain_no_dict_with_state_and_policy,
@@ -286,44 +286,4 @@ fn encode_frame_hash_chain_with_dictionary(
     }
 
     context.output
-}
-
-fn streaming_dict_limit(dict_limit: usize, block_start: usize, window_log: u32) -> usize {
-    let max_distance = 1_usize << window_log;
-    // C's streaming no-dictionary path moves the previous prefix behind
-    // `dictLimit` once the active block starts beyond the match window.
-    if block_start.saturating_sub(dict_limit) > max_distance {
-        block_start
-    } else {
-        dict_limit
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::streaming_dict_limit;
-
-    #[test]
-    fn streaming_dict_limit_stays_put_within_window() {
-        assert_eq!(streaming_dict_limit(0, 1 << 21, 21), 0);
-    }
-
-    #[test]
-    fn streaming_dict_limit_advances_after_window_is_exceeded() {
-        assert_eq!(streaming_dict_limit(0, (1 << 21) + 1, 21), (1 << 21) + 1);
-    }
-
-    #[test]
-    fn streaming_dict_limit_uses_previous_limit_as_base() {
-        let previous = (1 << 21) + 1;
-
-        assert_eq!(
-            streaming_dict_limit(previous, previous + (1 << 21), 21),
-            previous
-        );
-        assert_eq!(
-            streaming_dict_limit(previous, previous + (1 << 21) + 1, 21),
-            previous + (1 << 21) + 1
-        );
-    }
 }

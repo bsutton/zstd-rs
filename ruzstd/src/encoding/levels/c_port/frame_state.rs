@@ -98,6 +98,21 @@ impl FrameBlockState {
     }
 }
 
+pub(crate) fn streaming_dict_limit(
+    dict_limit: usize,
+    block_start: usize,
+    window_log: u32,
+) -> usize {
+    let max_distance = 1_usize << window_log;
+    // C's streaming no-dictionary path moves the previous prefix behind
+    // `dictLimit` once the active block starts beyond the match window.
+    if block_start.saturating_sub(dict_limit) > max_distance {
+        block_start
+    } else {
+        dict_limit
+    }
+}
+
 fn block_config(params: CompressionParameters) -> BlockCompressionConfig {
     let mut config = BlockCompressionConfig::for_c_strategy(params.strategy as u8);
     if params.strategy == Strategy::Fast && params.target_length > 0 {
@@ -155,6 +170,30 @@ mod tests {
         assert_eq!(
             state.next_frame_chunk_block_size(&data[900..], 900, Strategy::Greedy),
             124
+        );
+    }
+
+    #[test]
+    fn streaming_dict_limit_stays_put_within_window() {
+        assert_eq!(streaming_dict_limit(0, 1 << 21, 21), 0);
+    }
+
+    #[test]
+    fn streaming_dict_limit_advances_after_window_is_exceeded() {
+        assert_eq!(streaming_dict_limit(0, (1 << 21) + 1, 21), (1 << 21) + 1);
+    }
+
+    #[test]
+    fn streaming_dict_limit_uses_previous_limit_as_base() {
+        let previous = (1 << 21) + 1;
+
+        assert_eq!(
+            streaming_dict_limit(previous, previous + (1 << 21), 21),
+            previous
+        );
+        assert_eq!(
+            streaming_dict_limit(previous, previous + (1 << 21) + 1, 21),
+            previous + (1 << 21) + 1
         );
     }
 }

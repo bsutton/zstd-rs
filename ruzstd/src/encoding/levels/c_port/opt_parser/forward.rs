@@ -145,6 +145,9 @@ pub(super) fn forward_pass(
         }
 
         update_match_prices(cur, min_match, match_count, &mut last_pos, opt_level, state);
+        // C refreshes the sentinel after each match-price update so stale
+        // prices beyond the current frontier cannot influence later literals.
+        state.opt[last_pos + 1].price = ZSTD_MAX_PRICE;
         cur += 1;
     }
 

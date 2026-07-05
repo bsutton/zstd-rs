@@ -10,7 +10,7 @@ use super::{
     compress_bound::compress_bound,
     dictionary::ParsedDictionary,
     dictionary_frame::DictionaryFrameContext,
-    frame_state::FrameBlockState,
+    frame_state::{streaming_dict_limit, FrameBlockState},
     greedy_block::{GreedyBlockEncodeContext, GreedyBlockSource},
     greedy_ext_block::GreedyExtDictBlockSource,
     ldm::{
@@ -127,6 +127,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
     let mut frame_state = FrameBlockState::new(params, cctx.max_block_size);
     let mut opt_state = OptBlockState::new();
     opt_state.reset_for_frame(params);
+    let mut dict_limit = 0_usize;
 
     if src.is_empty() {
         let encoded_block = encode_block_opt_no_dict_with_state(
@@ -162,6 +163,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
             params.strategy,
         );
         let block_end = block_start + block_size;
+        dict_limit = streaming_dict_limit(dict_limit, block_start, params.window_log);
         if block_start == 0
             && strategy == OptFrameStrategy::BtUltra2
             && src[block_start..block_end].len() > ZSTD_PREDEF_THRESHOLD
@@ -170,28 +172,51 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
         }
         let mut ldm_cursor =
             ldm_store.map(|store| LdmOptCursor::from_store_for_block(store, block_size as u32));
+        let block_context = GreedyBlockEncodeContext {
+            previous_huff_table: frame_state.last_huff_table.as_ref(),
+            fse_tables: &mut frame_state.fse_tables,
+            offset_history: &mut frame_state.offset_history,
+        };
+        let policy = FrameBlockState::block_policy(block_start == 0);
 
-        let encoded_block = encode_block_opt_no_dict_with_state(
-            GreedyBlockSource {
-                src,
-                block_range: block_start..block_end,
-                loaded_dict_end: 0,
-            },
-            block_end == src.len(),
-            params,
-            frame_state.block_config,
-            frame_state.repeat_offsets,
-            &mut opt_state,
-            GreedyBlockEncodeContext {
-                previous_huff_table: frame_state.last_huff_table.as_ref(),
-                fse_tables: &mut frame_state.fse_tables,
-                offset_history: &mut frame_state.offset_history,
-            },
-            strategy,
-            post_block_splitter,
-            FrameBlockState::block_policy(block_start == 0),
-            ldm_cursor.as_mut(),
-        );
+        let encoded_block = if dict_limit == 0 {
+            encode_block_opt_no_dict_with_state(
+                GreedyBlockSource {
+                    src,
+                    block_range: block_start..block_end,
+                    loaded_dict_end: 0,
+                },
+                block_end == src.len(),
+                params,
+                frame_state.block_config,
+                frame_state.repeat_offsets,
+                &mut opt_state,
+                block_context,
+                strategy,
+                post_block_splitter,
+                policy,
+                ldm_cursor.as_mut(),
+            )
+        } else {
+            encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
+                GreedyExtDictBlockSource {
+                    src,
+                    block_range: block_start..block_end,
+                    dict_limit,
+                    loaded_dict_end: 0,
+                },
+                block_end == src.len(),
+                params,
+                frame_state.block_config,
+                frame_state.repeat_offsets,
+                &mut opt_state,
+                block_context,
+                opt_parser_strategy(strategy),
+                post_block_splitter,
+                policy,
+                ldm_cursor.as_mut(),
+            )
+        };
         if let Some(store) = ldm_store.as_mut() {
             store.skip_bytes(block_size as u32);
         }
