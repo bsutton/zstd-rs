@@ -300,7 +300,7 @@ fn choose_table_uses_rle_for_repeated_codes() {
 }
 
 #[test]
-fn previous_huffman_table_lowers_literal_compression_threshold() {
+fn valid_previous_huffman_table_lowers_literal_compression_threshold() {
     assert!(should_compress_literals(
         COMPRESS_LITERALS_SIZE_MIN,
         false,
@@ -308,6 +308,11 @@ fn previous_huffman_table_lowers_literal_compression_threshold() {
     ));
     assert!(!should_compress_literals(
         COMPRESS_LITERALS_SIZE_MIN - 1,
+        false,
+        COMPRESS_LITERALS_SIZE_MIN
+    ));
+    assert!(!should_compress_literals(
+        REPEAT_LITERALS_SIZE_MIN,
         false,
         COMPRESS_LITERALS_SIZE_MIN
     ));
@@ -351,7 +356,15 @@ fn suspect_literal_sampling_uses_raw_literals_before_full_histogram() {
     let mut sampled_output = Vec::new();
     let sampled_table = {
         let mut sampled_writer = BitWriter::from(&mut sampled_output);
-        compress_literals(&literals, None, true, None, true, &mut sampled_writer)
+        compress_literals(
+            &literals,
+            None,
+            false,
+            true,
+            None,
+            true,
+            &mut sampled_writer,
+        )
     };
 
     assert!(sampled_table.is_none());
@@ -364,7 +377,7 @@ fn suspect_literal_sampling_uses_raw_literals_before_full_histogram() {
     let mut full_output = Vec::new();
     let full_table = {
         let mut full_writer = BitWriter::from(&mut full_output);
-        compress_literals(&literals, None, true, None, false, &mut full_writer)
+        compress_literals(&literals, None, false, true, None, false, &mut full_writer)
     };
 
     assert!(full_table.is_some());

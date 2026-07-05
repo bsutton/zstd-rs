@@ -54,6 +54,7 @@ pub(super) fn append_prepared_block_or_raw(
         fse_tables,
         offset_history,
         previous_huff_table,
+        false,
     );
     let compressed_size = output.len() - compressed_start;
 

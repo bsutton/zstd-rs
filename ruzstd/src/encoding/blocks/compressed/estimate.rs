@@ -37,12 +37,14 @@ pub(crate) fn estimate_prepared_block_size(
     fse_tables: &FseTables,
     offset_history: OffsetHistory,
     previous_huff_table: Option<&huff0_encoder::HuffmanTable>,
+    previous_huff_table_is_valid: bool,
 ) -> usize {
     let mut next_offset_history = offset_history;
     let sequences = encode_sequences_for_history(prepared.sequences, &mut next_offset_history);
     let literal_size = estimate_literal_section_size(
         prepared.literals,
         previous_huff_table,
+        previous_huff_table_is_valid,
         config,
         sequences.len(),
     );
@@ -54,11 +56,12 @@ pub(crate) fn estimate_prepared_block_size(
 fn estimate_literal_section_size(
     literals: &[u8],
     previous_table: Option<&huff0_encoder::HuffmanTable>,
+    previous_table_is_valid: bool,
     config: BlockCompressionConfig,
     sequence_count: usize,
 ) -> usize {
     if config.literal_compression_disabled
-        || literals.len() <= estimate_min_literals_to_compress(previous_table.is_some())
+        || literals.len() <= estimate_min_literals_to_compress(previous_table_is_valid)
     {
         return literals.len();
     }

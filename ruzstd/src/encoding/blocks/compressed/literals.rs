@@ -13,10 +13,10 @@ const SUSPECT_INCOMPRESSIBLE_SAMPLE_RATIO: usize = 10;
 
 pub(super) fn should_compress_literals(
     len: usize,
-    has_previous_table: bool,
+    previous_table_is_valid: bool,
     compression_min_size: usize,
 ) -> bool {
-    let min_size = if has_previous_table {
+    let min_size = if previous_table_is_valid {
         REPEAT_LITERALS_SIZE_MIN
     } else {
         compression_min_size
@@ -68,6 +68,7 @@ pub(super) fn rle_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>
 pub(super) fn compress_literals(
     literals: &[u8],
     last_table: Option<&huff0_encoder::HuffmanTable>,
+    previous_table_is_valid: bool,
     search_smallest_table: bool,
     force_single_stream_max_literals: Option<usize>,
     suspect_uncompressible: bool,
@@ -130,6 +131,7 @@ pub(super) fn compress_literals(
                 four_stream_counts.as_ref(),
                 new_choice,
                 force_single_stream,
+                previous_table_is_valid,
             )
         })
         .unwrap_or(new_choice);
@@ -210,13 +212,17 @@ fn repeat_huffman_choice<'table>(
     four_stream_counts: Option<&[[usize; 256]; 4]>,
     new_choice: LiteralEncodingChoice<'_>,
     force_single_stream: bool,
+    previous_table_is_valid: bool,
 ) -> Option<LiteralEncodingChoice<'table>> {
     if !previous_table.can_encode_counts(literal_stats.counts()) {
         return None;
     }
 
-    let (size_format, size_bits) =
-        compressed_literals_repeat_size_format(literals.len(), force_single_stream);
+    let (size_format, size_bits) = compressed_literals_repeat_size_format(
+        literals.len(),
+        force_single_stream,
+        previous_table_is_valid,
+    );
     let header_len = compressed_literals_header_len(size_format);
     let four_streams = size_format != 0;
     let estimated_len = if four_streams {
@@ -261,8 +267,15 @@ pub(super) fn compressed_literals_size_format(
     }
 }
 
-fn compressed_literals_repeat_size_format(len: usize, force_single_stream: bool) -> (u8, usize) {
-    if force_single_stream || len < REPEAT_SINGLE_STREAM_LITERALS_MAX {
+fn compressed_literals_repeat_size_format(
+    len: usize,
+    force_single_stream: bool,
+    previous_table_is_valid: bool,
+) -> (u8, usize) {
+    if (force_single_stream && len < HUFFMAN_4_STREAMS_MIN * 4)
+        || (previous_table_is_valid && len < REPEAT_SINGLE_STREAM_LITERALS_MAX)
+        || len < HUFFMAN_4_STREAMS_MIN
+    {
         return (0b00, 10);
     }
 

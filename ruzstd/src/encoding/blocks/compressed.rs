@@ -149,6 +149,26 @@ pub(crate) fn compress_prepared_block(
     offset_history: &mut OffsetHistory,
     previous_huff_table: Option<&huff0_encoder::HuffmanTable>,
 ) -> Option<huff0_encoder::HuffmanTable> {
+    compress_prepared_block_with_huffman_repeat(
+        output,
+        config,
+        prepared,
+        fse_tables,
+        offset_history,
+        previous_huff_table,
+        previous_huff_table.is_some(),
+    )
+}
+
+pub(crate) fn compress_prepared_block_with_huffman_repeat(
+    output: &mut Vec<u8>,
+    config: BlockCompressionConfig,
+    prepared: PreparedBlockRef<'_>,
+    fse_tables: &mut FseTables,
+    offset_history: &mut OffsetHistory,
+    previous_huff_table: Option<&huff0_encoder::HuffmanTable>,
+    previous_huff_table_is_valid: bool,
+) -> Option<huff0_encoder::HuffmanTable> {
     compress_prepared_block_with_stats(
         output,
         config,
@@ -156,6 +176,7 @@ pub(crate) fn compress_prepared_block(
         fse_tables,
         offset_history,
         previous_huff_table,
+        previous_huff_table_is_valid,
     )
     .new_huffman_table
 }
@@ -167,6 +188,7 @@ pub(crate) fn compress_prepared_block_with_stats(
     fse_tables: &mut FseTables,
     offset_history: &mut OffsetHistory,
     previous_huff_table: Option<&huff0_encoder::HuffmanTable>,
+    previous_huff_table_is_valid: bool,
 ) -> CompressedBlockResult {
     let mut result = CompressedBlockResult {
         new_huffman_table: None,
@@ -181,7 +203,7 @@ pub(crate) fn compress_prepared_block_with_stats(
     if !config.literal_compression_disabled
         && should_compress_literals(
             prepared.literals.len(),
-            previous_huff_table.is_some(),
+            previous_huff_table_is_valid,
             config.literal_compression_min_size,
         )
     {
@@ -202,6 +224,7 @@ pub(crate) fn compress_prepared_block_with_stats(
         if let Some(table) = compress_literals(
             prepared.literals,
             previous_huff_table,
+            previous_huff_table_is_valid,
             search_smallest_huffman_table,
             config.file_type_single_stream_huffman_max_literals,
             suspect_uncompressible_literals(prepared.literals.len(), sequences.len()),
