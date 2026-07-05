@@ -21,10 +21,12 @@ pub(super) struct FrameProgress {
 }
 
 impl FrameProgress {
-    pub(super) fn new(produced_size: usize) -> Self {
+    pub(super) fn new() -> Self {
+        // C adds the frame header to producedCSize only after frame chunking,
+        // so the pre-split savings gate starts from zero for a one-shot frame.
         Self {
             consumed_src_size: 0,
-            produced_size,
+            produced_size: 0,
         }
     }
 
@@ -276,12 +278,12 @@ mod tests {
 
     #[test]
     fn frame_progress_tracks_c_savings_gate_inputs() {
-        let mut progress = FrameProgress::new(9);
+        let mut progress = FrameProgress::new();
         progress.record_block(BLOCK_SIZE_MAX, 100);
 
         assert_eq!(
             progress.consumed_src_size as i64 - progress.produced_size as i64,
-            130_963
+            130_972
         );
     }
 

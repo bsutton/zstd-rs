@@ -26,7 +26,7 @@ pub(crate) struct FrameBlockState {
 }
 
 impl FrameBlockState {
-    pub(crate) fn new(params: CompressionParameters, frame_header_len: usize) -> Self {
+    pub(crate) fn new(params: CompressionParameters) -> Self {
         let block_config = block_config(params);
         Self {
             fse_tables: FseTables::new(),
@@ -34,13 +34,12 @@ impl FrameBlockState {
             last_huff_table: None,
             repeat_offsets: RepeatOffsets::new(),
             block_config,
-            progress: FrameProgress::new(frame_header_len),
+            progress: FrameProgress::new(),
         }
     }
 
     pub(crate) fn with_dictionary(
         params: CompressionParameters,
-        frame_header_len: usize,
         dictionary: &ParsedDictionary<'_>,
     ) -> Self {
         let offsets = dictionary.repeat_offsets.as_offsets();
@@ -51,7 +50,7 @@ impl FrameBlockState {
             last_huff_table: dictionary.initial_huffman_table(),
             repeat_offsets: dictionary.repeat_offsets,
             block_config,
-            progress: FrameProgress::new(frame_header_len),
+            progress: FrameProgress::new(),
         }
     }
 
