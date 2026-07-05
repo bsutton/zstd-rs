@@ -20,7 +20,14 @@ struct Args {
     input: PathBuf,
     level: i32,
     zstd_bin: PathBuf,
+    c_mode: CMode,
     output_dir: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CMode {
+    SingleThread,
+    T1,
 }
 
 #[derive(Clone, Debug)]
@@ -52,16 +59,23 @@ fn main() -> io::Result<()> {
     fs::write(&rust_output, compress_slice_c_level(&input, args.level))?;
     verify_decoded_matches(&args.zstd_bin, &rust_output, &args.input)?;
 
-    run_c_zstd(&args.zstd_bin, args.level, &args.input, &c_output)?;
+    run_c_zstd(
+        &args.zstd_bin,
+        args.c_mode,
+        args.level,
+        &args.input,
+        &c_output,
+    )?;
     verify_decoded_matches(&args.zstd_bin, &c_output, &args.input)?;
 
     let rust = inspect_frame(&fs::read(&rust_output)?)?;
     let c = inspect_frame(&fs::read(&c_output)?)?;
 
     println!(
-        "input={} level={} rust_bytes={} c_bytes={}",
+        "input={} level={} c_mode={} rust_bytes={} c_bytes={}",
         args.input.display(),
         args.level,
+        args.c_mode.description(),
         fs::metadata(&rust_output)?.len(),
         fs::metadata(&c_output)?.len()
     );
@@ -87,6 +101,7 @@ fn parse_args() -> io::Result<Args> {
         input,
         level,
         zstd_bin: PathBuf::from(parse_value(&raw, "--zstd-bin", "/usr/bin/zstd")),
+        c_mode: parse_c_mode(&parse_value(&raw, "--c-mode", "single-thread"))?,
         output_dir: PathBuf::from(parse_value(
             &raw,
             "--output-dir",
@@ -107,17 +122,53 @@ Options:
   --input FILE      Input fixture to compress and inspect.
   --level N         Compression level, default 5.
   --zstd-bin PATH   Path to the C zstd binary.
+  --c-mode MODE     C zstd mode: single-thread or t1. Default single-thread.
   --output-dir DIR  Directory for generated .zst files.
   -h, --help        Show this help message."
     );
 }
 
-fn run_c_zstd(zstd_bin: &Path, level: i32, input: &Path, output: &Path) -> io::Result<()> {
+fn parse_c_mode(raw: &str) -> io::Result<CMode> {
+    match raw {
+        "single-thread" => Ok(CMode::SingleThread),
+        "t1" | "T1" => Ok(CMode::T1),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unsupported --c-mode {raw:?}; expected single-thread or t1"),
+        )),
+    }
+}
+
+fn run_c_zstd(
+    zstd_bin: &Path,
+    mode: CMode,
+    level: i32,
+    input: &Path,
+    output: &Path,
+) -> io::Result<()> {
     let mut command = Command::new(zstd_bin);
-    command.args(["-q", "-f", "--single-thread", "--no-check"]);
+    command.args(["-q", "-f"]);
+    command.args(mode.zstd_args());
+    command.arg("--no-check");
     command.args(zstd_cli_level_args(level));
     command.arg(input).arg("-o").arg(output);
     run_command_silent(&mut command)
+}
+
+impl CMode {
+    fn zstd_args(self) -> &'static [&'static str] {
+        match self {
+            Self::SingleThread => &["--single-thread"],
+            Self::T1 => &["-T1"],
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::SingleThread => "--single-thread",
+            Self::T1 => "-T1",
+        }
+    }
 }
 
 fn zstd_cli_level_args(level: i32) -> Vec<String> {
