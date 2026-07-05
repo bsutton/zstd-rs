@@ -6,8 +6,7 @@ use super::{collect_repcode_matches, should_stop_after_best_match, OptMatch, Opt
 use crate::encoding::levels::c_port::{
     greedy::GreedyMatchState,
     hash_chain_match::{
-        count_match, count_match_no_dict, hash3_ptr, hash_ptr_mls,
-        lowest_prefix_index_with_loaded_dict,
+        count_match_no_dict, hash3_ptr, hash_ptr_mls, lowest_prefix_index_with_loaded_dict,
     },
     params::CompressionParameters,
     sequence_store::{OffBase, RepeatOffsets},
@@ -228,7 +227,7 @@ fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
         if let Some(match_index3) = insert_and_find_first_index_hash3(src, ip, state) {
             let within_price_heuristic = ip - match_index3 < (1 << 18);
             if match_index3 >= match_low && within_price_heuristic {
-                let len = count_match(src, ip, match_index3, block_end);
+                let len = count_match_no_dict(src, ip, match_index3, block_end);
                 if len >= 3 {
                     best_length = len;
                     matches.clear();
@@ -251,7 +250,7 @@ fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
         nb_compares -= 1;
         let next_slot = tree_slot(match_index, mask);
         let mut match_length = common_smaller.min(common_larger);
-        match_length += count_match(
+        match_length += count_match_no_dict(
             src,
             ip + match_length,
             match_index + match_length,
