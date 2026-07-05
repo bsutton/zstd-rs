@@ -39,6 +39,14 @@ into the active encoder path.
 
 Current parity notes:
 
+- Be explicit about which C entry point a benchmark uses. The `zstd` CLI can
+  produce different block boundaries from `ZSTD_compress2()` one-shot
+  compression, even with `--single-thread`. For example, on
+  `decodecorpus_files/z000044` at level 19, a local debug harness calling
+  `ZSTD_compress2()` produced 231,857 bytes, matching Rust's 231,859 bytes,
+  while the CLI comparison produced 231,665 bytes by taking a different
+  streaming/chunking path. Treat CLI-only block-shape deltas as streaming-mode
+  evidence until they reproduce through the one-shot C API.
 - `targetCBlockSize` / superblock compression is selected by C only when
   `ZSTD_c_targetCBlockSize` is explicitly non-zero. Normal level-based
   compression, including the local level-16 benchmarks, uses the regular
