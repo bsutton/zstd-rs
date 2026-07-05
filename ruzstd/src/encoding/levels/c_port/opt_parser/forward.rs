@@ -168,13 +168,14 @@ fn update_literal_price(
 ) {
     let previous = state.opt[cur - 1];
     let litlen = previous.litlen + 1;
+    let litlen_increment = ll_increment_price(litlen, opt_level, &state.price_state);
     let price = previous.price
         + price_i32(
             state
                 .price_state
                 .raw_literal_cost(src[ip + cur - 1], opt_level),
         )
-        + ll_increment_price(litlen, opt_level, &state.price_state);
+        + litlen_increment;
 
     if price <= state.opt[cur].price {
         let prev_match = state.opt[cur];
@@ -184,16 +185,21 @@ fn update_literal_price(
             ..previous
         };
 
+        let one_literal_increment = if opt_level == OptLevel::BtUltra {
+            ll_increment_price(1, opt_level, &state.price_state)
+        } else {
+            0
+        };
         if opt_level == OptLevel::BtUltra
             && prev_match.litlen == 0
-            && ll_increment_price(1, opt_level, &state.price_state) < 0
+            && one_literal_increment < 0
             && ip + cur < block_end
         {
-            let with_one_literal = prev_match.price
-                + price_i32(state.price_state.raw_literal_cost(src[ip + cur], opt_level))
-                + ll_increment_price(1, opt_level, &state.price_state);
+            let next_literal_cost =
+                price_i32(state.price_state.raw_literal_cost(src[ip + cur], opt_level));
+            let with_one_literal = prev_match.price + next_literal_cost + one_literal_increment;
             let with_more_literals = price
-                + price_i32(state.price_state.raw_literal_cost(src[ip + cur], opt_level))
+                + next_literal_cost
                 + ll_increment_price(litlen + 1, opt_level, &state.price_state);
             if with_one_literal < with_more_literals && with_one_literal < state.opt[cur + 1].price
             {
