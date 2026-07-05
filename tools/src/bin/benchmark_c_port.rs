@@ -300,9 +300,7 @@ fn collect_fixture_paths(path: &Path, paths: &mut Vec<PathBuf>) -> io::Result<()
 fn run_c_zstd(zstd_bin: &Path, level: i32, input: &Path, output: &Path) -> io::Result<()> {
     let mut command = Command::new(zstd_bin);
     command.args(["-q", "-f", "--single-thread", "--no-check"]);
-    if let Some(level_arg) = zstd_cli_level_arg(level) {
-        command.arg(level_arg);
-    }
+    command.args(zstd_cli_level_args(level));
     command.arg(input).arg("-o").arg(output);
     run_command_silent(&mut command)
 }
@@ -320,9 +318,7 @@ fn run_c_zstd_timed(
         .arg(&time_file)
         .arg(zstd_bin)
         .args(["-q", "-f", "--single-thread", "--no-check"]);
-    if let Some(level_arg) = zstd_cli_level_arg(level) {
-        timed.arg(level_arg);
-    }
+    timed.args(zstd_cli_level_args(level));
     timed.arg(input).arg("-o").arg(output);
     run_command_silent(&mut timed)?;
     let text = fs::read_to_string(&time_file)?;
@@ -337,11 +333,12 @@ fn run_c_zstd_timed(
     Ok((wall, user + system))
 }
 
-fn zstd_cli_level_arg(level: i32) -> Option<String> {
+fn zstd_cli_level_args(level: i32) -> Vec<String> {
     match level.cmp(&0) {
-        Ordering::Less => Some(format!("--fast={}", level.unsigned_abs())),
-        Ordering::Equal => None,
-        Ordering::Greater => Some(format!("-{level}")),
+        Ordering::Less => vec![format!("--fast={}", level.unsigned_abs())],
+        Ordering::Equal => Vec::new(),
+        Ordering::Greater if level > 19 => vec!["--ultra".to_string(), format!("-{level}")],
+        Ordering::Greater => vec![format!("-{level}")],
     }
 }
 
@@ -523,20 +520,28 @@ fn format_number(value: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::zstd_cli_level_arg;
+    use super::zstd_cli_level_args;
 
     #[test]
     fn c_level_zero_uses_cli_default() {
-        assert_eq!(zstd_cli_level_arg(0), None);
+        assert!(zstd_cli_level_args(0).is_empty());
     }
 
     #[test]
     fn positive_c_levels_use_dash_level() {
-        assert_eq!(zstd_cli_level_arg(16), Some("-16".to_string()));
+        assert_eq!(zstd_cli_level_args(16), vec!["-16".to_string()]);
+    }
+
+    #[test]
+    fn ultra_c_levels_enable_ultra_mode() {
+        assert_eq!(
+            zstd_cli_level_args(22),
+            vec!["--ultra".to_string(), "-22".to_string()]
+        );
     }
 
     #[test]
     fn negative_c_levels_use_fast_mode() {
-        assert_eq!(zstd_cli_level_arg(-5), Some("--fast=5".to_string()));
+        assert_eq!(zstd_cli_level_args(-5), vec!["--fast=5".to_string()]);
     }
 }

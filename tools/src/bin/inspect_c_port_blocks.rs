@@ -115,18 +115,17 @@ Options:
 fn run_c_zstd(zstd_bin: &Path, level: i32, input: &Path, output: &Path) -> io::Result<()> {
     let mut command = Command::new(zstd_bin);
     command.args(["-q", "-f", "--single-thread", "--no-check"]);
-    if let Some(level_arg) = zstd_cli_level_arg(level) {
-        command.arg(level_arg);
-    }
+    command.args(zstd_cli_level_args(level));
     command.arg(input).arg("-o").arg(output);
     run_command_silent(&mut command)
 }
 
-fn zstd_cli_level_arg(level: i32) -> Option<String> {
+fn zstd_cli_level_args(level: i32) -> Vec<String> {
     match level.cmp(&0) {
-        Ordering::Less => Some(format!("--fast={}", level.unsigned_abs())),
-        Ordering::Equal => None,
-        Ordering::Greater => Some(format!("-{level}")),
+        Ordering::Less => vec![format!("--fast={}", level.unsigned_abs())],
+        Ordering::Equal => Vec::new(),
+        Ordering::Greater if level > 19 => vec!["--ultra".to_string(), format!("-{level}")],
+        Ordering::Greater => vec![format!("-{level}")],
     }
 }
 
