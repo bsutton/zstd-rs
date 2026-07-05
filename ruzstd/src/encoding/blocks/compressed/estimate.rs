@@ -147,11 +147,10 @@ fn estimate_huffman_content_size(
     counts: &[usize],
     stream_counts: Option<&[[usize; 256]; 4]>,
 ) -> usize {
-    if let Some(stream_counts) = stream_counts {
-        table.encoded_len_from_stream_counts(stream_counts, false)
-    } else {
-        table.encoded_len_from_counts(counts, false)
-    }
+    // Match `HUF_estimateCompressedSize()`: estimate from the full histogram
+    // without per-stream padding, then add the 4-stream jump table size.
+    table.estimated_compressed_size_from_counts(counts)
+        + if stream_counts.is_some() { 6 } else { 0 }
 }
 
 fn sampled_literals_likely_incompressible(literals: &[u8]) -> bool {

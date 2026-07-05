@@ -431,6 +431,16 @@ impl HuffmanTable {
                 .sum::<usize>()
     }
 
+    pub(crate) fn estimated_compressed_size_from_counts(&self, counts: &[usize]) -> usize {
+        let bit_len = counts
+            .iter()
+            .copied()
+            .zip(self.codes.iter().copied())
+            .map(|(count, (_, num_bits))| count * usize::from(num_bits))
+            .sum::<usize>();
+        bit_len >> 3
+    }
+
     fn table_description_len(&self) -> usize {
         self.table_description_len
     }
@@ -1166,6 +1176,21 @@ fn encoded_len_matches_single_stream_encoder() {
     assert_eq!(
         table.encoded_len_from_counts(&counts, false),
         table.encoded_len(data, false, false)
+    );
+}
+
+#[test]
+fn estimated_compressed_size_matches_c_unpadded_bit_count() {
+    let data = b"abbcccddddeeeee";
+    let table = HuffmanTable::build_from_data(data);
+    let mut counts = [0usize; 256];
+    for byte in data {
+        counts[usize::from(*byte)] += 1;
+    }
+
+    assert_eq!(
+        table.estimated_compressed_size_from_counts(&counts),
+        table.encoded_len_from_counts(&counts, false) - 1
     );
 }
 
