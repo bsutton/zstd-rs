@@ -369,4 +369,8 @@ impl LiteralStats {
     pub(super) fn likely_incompressible(&self, len: usize) -> bool {
         self.largest <= (len >> 7) + 4
     }
+
+    pub(super) fn largest(&self) -> usize {
+        self.largest
+    }
 }

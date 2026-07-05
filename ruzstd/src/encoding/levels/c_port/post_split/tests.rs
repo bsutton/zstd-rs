@@ -162,7 +162,7 @@ fn estimate_partition_size_does_not_use_rle_emission_cost_like_c() {
         },
     );
 
-    assert_ne!(estimate, 4);
+    assert_eq!(estimate, 6);
 }
 
 #[test]
@@ -193,7 +193,7 @@ fn estimate_partition_size_does_not_cap_to_raw_block_size_like_c() {
         },
     );
 
-    assert!(estimate > block.len(), "{estimate} <= {}", block.len());
+    assert_eq!(estimate, block.len() + 5);
 }
 
 #[test]

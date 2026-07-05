@@ -14,7 +14,7 @@ use crate::encoding::blocks::PreparedSequence;
 use crate::{
     encoding::{
         blocks::{
-            compress_prepared_block, BlockCompressionConfig, PreparedBlock, PreparedBlockRef,
+            estimate_prepared_block_size, BlockCompressionConfig, PreparedBlock, PreparedBlockRef,
         },
         frame_compressor::{FseTables, OffsetHistory},
     },
@@ -168,18 +168,13 @@ fn estimate_partition_size(
         return 3;
     }
 
-    let mut bytes = Vec::new();
-    let mut fse_tables = context.fse_tables.clone();
-    let mut offset_history = context.offset_history;
-    compress_prepared_block(
-        &mut bytes,
+    estimate_prepared_block_size(
         context.config,
         chunk.prepared,
-        &mut fse_tables,
-        &mut offset_history,
+        context.fse_tables,
+        context.offset_history,
         context.previous_huff_table,
-    );
-    3 + bytes.len()
+    )
 }
 
 struct PreparedChunk {
