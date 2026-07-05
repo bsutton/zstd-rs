@@ -4,7 +4,9 @@ use alloc::vec::Vec;
 
 use super::{
     greedy::GreedyMatchState,
-    hash_chain_match::{count_match, equal_min_match, lowest_prefix_index_with_loaded_dict},
+    hash_chain_match::{
+        count_match, count_match_no_dict, equal_min_match, lowest_prefix_index_with_loaded_dict,
+    },
     params::CompressionParameters,
     sequence_store::{OffBase, RepeatCode, RepeatOffsets},
 };
@@ -216,6 +218,22 @@ pub(super) fn collect_repcode_matches(
 ) {
     let offsets = rep.as_offsets();
     let window_low = bounds.lowest_match_index(ip, params);
+    if !bounds.ext_dict {
+        collect_repcode_matches_no_dict(
+            matches,
+            src,
+            ip,
+            block_end,
+            offsets,
+            ll0,
+            min_match,
+            window_low,
+            sufficient_len,
+            best_length,
+        );
+        return;
+    }
+
     let first_rep = usize::from(ll0);
     let last_rep = 3 + usize::from(ll0);
     for rep_code in first_rep..last_rep {
@@ -229,6 +247,55 @@ pub(super) fn collect_repcode_matches(
         else {
             continue;
         };
+        if rep_len > *best_length {
+            *best_length = rep_len;
+            matches.push(OptMatch {
+                off_base: repcode_to_off_base(rep_code - first_rep + 1),
+                len: rep_len as u32,
+            });
+            if rep_len > sufficient_len || ip + rep_len == block_end {
+                break;
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_repcode_matches_no_dict(
+    matches: &mut Vec<OptMatch>,
+    src: &[u8],
+    ip: usize,
+    block_end: usize,
+    offsets: [u32; 3],
+    ll0: bool,
+    min_match: u32,
+    window_low: usize,
+    sufficient_len: usize,
+    best_length: &mut usize,
+) {
+    let first_rep = usize::from(ll0);
+    let last_rep = 3 + usize::from(ll0);
+    for rep_code in first_rep..last_rep {
+        let rep_offset = if rep_code == 3 {
+            offsets[0].saturating_sub(1)
+        } else {
+            offsets[rep_code]
+        } as usize;
+        if rep_offset == 0 || rep_offset > ip {
+            continue;
+        }
+
+        let rep_index = ip - rep_offset;
+        if rep_index < window_low || !equal_min_match(src, ip, rep_index, min_match) {
+            continue;
+        }
+
+        let rep_len = count_match_no_dict(
+            src,
+            ip + min_match as usize,
+            rep_index + min_match as usize,
+            block_end,
+        ) + min_match as usize;
         if rep_len > *best_length {
             *best_length = rep_len;
             matches.push(OptMatch {
