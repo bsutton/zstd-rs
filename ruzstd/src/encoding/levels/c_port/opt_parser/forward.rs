@@ -172,7 +172,7 @@ fn update_literal_price(
         + price_i32(
             state
                 .price_state
-                .raw_literals_cost(&src[ip + cur - 1..ip + cur], opt_level),
+                .raw_literal_cost(src[ip + cur - 1], opt_level),
         )
         + ll_increment_price(litlen, opt_level, &state.price_state);
 
@@ -190,18 +190,10 @@ fn update_literal_price(
             && ip + cur < block_end
         {
             let with_one_literal = prev_match.price
-                + price_i32(
-                    state
-                        .price_state
-                        .raw_literals_cost(&src[ip + cur..ip + cur + 1], opt_level),
-                )
+                + price_i32(state.price_state.raw_literal_cost(src[ip + cur], opt_level))
                 + ll_increment_price(1, opt_level, &state.price_state);
             let with_more_literals = price
-                + price_i32(
-                    state
-                        .price_state
-                        .raw_literals_cost(&src[ip + cur..ip + cur + 1], opt_level),
-                )
+                + price_i32(state.price_state.raw_literal_cost(src[ip + cur], opt_level))
                 + ll_increment_price(litlen + 1, opt_level, &state.price_state);
             if with_one_literal < with_more_literals && with_one_literal < state.opt[cur + 1].price
             {

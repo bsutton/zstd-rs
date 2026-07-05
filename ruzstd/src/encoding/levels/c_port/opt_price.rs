@@ -223,6 +223,20 @@ impl OptPriceState {
         price
     }
 
+    pub(super) fn raw_literal_cost(&self, literal: u8, opt_level: OptLevel) -> u32 {
+        if !self.compressed_literals {
+            return 8 * BITCOST_MULTIPLIER;
+        }
+
+        if self.price_type == PriceType::Predefined {
+            return 6 * BITCOST_MULTIPLIER;
+        }
+
+        let lit_price_max = self.lit_sum_base_price - BITCOST_MULTIPLIER;
+        self.lit_sum_base_price
+            - weight(self.lit_freq[literal as usize], opt_level).min(lit_price_max)
+    }
+
     pub(super) fn lit_length_price(&self, lit_length: u32, opt_level: OptLevel) -> u32 {
         debug_assert!(lit_length <= ZSTD_BLOCKSIZE_MAX);
         if self.price_type == PriceType::Predefined {

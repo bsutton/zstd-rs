@@ -35,6 +35,19 @@ fn opt_price_uses_fractional_weights_for_ultra_levels() {
 }
 
 #[test]
+fn single_literal_cost_matches_slice_cost() {
+    let mut state = OptPriceState::new();
+    state.rescale_freqs(b"abcabcabcabc", OptLevel::BtOpt);
+
+    for literal in [b'a', b'b', b'z'] {
+        assert_eq!(
+            state.raw_literal_cost(literal, OptLevel::BtOpt),
+            state.raw_literals_cost(&[literal], OptLevel::BtOpt)
+        );
+    }
+}
+
+#[test]
 fn opt_price_updates_sequence_statistics() {
     let mut state = OptPriceState::new();
     state.rescale_freqs(b"abcabcabcabc", OptLevel::BtOpt);
