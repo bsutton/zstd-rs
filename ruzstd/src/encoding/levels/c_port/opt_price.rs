@@ -104,6 +104,9 @@ pub(super) struct OptPriceState {
     lit_length_sum_base_price: u32,
     match_length_sum_base_price: u32,
     off_code_sum_base_price: u32,
+    lit_length_weight: [u32; MAX_LL + 1],
+    match_length_weight: [u32; MAX_ML + 1],
+    off_code_weight: [u32; MAX_OFF + 1],
     match_price_by_code: [[u32; MAX_ML + 1]; MAX_OFF + 1],
     price_type: PriceType,
     compressed_literals: bool,
@@ -125,6 +128,9 @@ impl OptPriceState {
             lit_length_sum_base_price: 0,
             match_length_sum_base_price: 0,
             off_code_sum_base_price: 0,
+            lit_length_weight: [0; MAX_LL + 1],
+            match_length_weight: [0; MAX_ML + 1],
+            off_code_weight: [0; MAX_OFF + 1],
             match_price_by_code: [[0; MAX_ML + 1]; MAX_OFF + 1],
             price_type: PriceType::Dynamic,
             compressed_literals: true,
@@ -249,7 +255,7 @@ impl OptPriceState {
 
         let ll_code = literal_length_code(lit_length) as usize;
         u32::from(LL_BITS[ll_code]) * BITCOST_MULTIPLIER + self.lit_length_sum_base_price
-            - weight(self.lit_length_freq[ll_code], opt_level)
+            - self.lit_length_weight[ll_code]
     }
 
     pub(super) fn match_price(&self, off_base: u32, match_length: u32, opt_level: OptLevel) -> u32 {
@@ -267,14 +273,14 @@ impl OptPriceState {
         }
 
         let mut price = off_code * BITCOST_MULTIPLIER + self.off_code_sum_base_price
-            - weight(self.off_code_freq[off_code as usize], opt_level);
+            - self.off_code_weight[off_code as usize];
         if opt_level.favors_small_offsets() && off_code >= 20 {
             price += (off_code - 19) * 2 * BITCOST_MULTIPLIER;
         }
 
         price += u32::from(ML_BITS[ml_code]) * BITCOST_MULTIPLIER
             + self.match_length_sum_base_price
-            - weight(self.match_length_freq[ml_code], opt_level)
+            - self.match_length_weight[ml_code]
             + BITCOST_MULTIPLIER / 5;
         price
     }
@@ -333,8 +339,33 @@ impl OptPriceState {
         self.lit_length_sum_base_price = weight(self.lit_length_sum, opt_level);
         self.match_length_sum_base_price = weight(self.match_length_sum, opt_level);
         self.off_code_sum_base_price = weight(self.off_code_sum, opt_level);
+        self.refresh_symbol_weights(opt_level);
         if opt_level.uses_match_price_cache() {
             self.refresh_match_price_cache(opt_level);
+        }
+    }
+
+    fn refresh_symbol_weights(&mut self, opt_level: OptLevel) {
+        for (weight_slot, &freq) in self
+            .lit_length_weight
+            .iter_mut()
+            .zip(self.lit_length_freq.iter())
+        {
+            *weight_slot = weight(freq, opt_level);
+        }
+        for (weight_slot, &freq) in self
+            .match_length_weight
+            .iter_mut()
+            .zip(self.match_length_freq.iter())
+        {
+            *weight_slot = weight(freq, opt_level);
+        }
+        for (weight_slot, &freq) in self
+            .off_code_weight
+            .iter_mut()
+            .zip(self.off_code_freq.iter())
+        {
+            *weight_slot = weight(freq, opt_level);
         }
     }
 
