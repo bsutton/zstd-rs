@@ -23,9 +23,6 @@ use crate::{
 
 const MIN_SEQUENCES_BLOCK_SPLITTING: usize = 300;
 const MAX_NB_BLOCK_SPLITS: usize = 196;
-// BtUltra2 split estimates are close enough to C that a narrow tolerance keeps
-// marginal C-accepted split trees without changing lower-level strategies.
-const SPLIT_ESTIMATE_TOLERANCE: usize = 3;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn encode_split_block(
@@ -157,18 +154,11 @@ fn should_split(
     first_half_size: usize,
     second_half_size: usize,
     original_size: usize,
-    strategy: Strategy,
+    _strategy: Strategy,
 ) -> bool {
-    // Rust's entropy estimators can be a few bytes more conservative than C's
-    // `ZSTD_estimateBlockSize*()` helpers. Treating ties as splittable, plus a
-    // narrow BtUltra2 tolerance, keeps marginal C-accepted split trees from
-    // being skipped.
-    let tolerance = if strategy == Strategy::BtUltra2 {
-        SPLIT_ESTIMATE_TOLERANCE
-    } else {
-        0
-    };
-    first_half_size.saturating_add(second_half_size) <= original_size.saturating_add(tolerance)
+    // Match `ZSTD_deriveBlockSplitsHelper()`: C only accepts a split when the
+    // estimated halves are strictly smaller than the unsplit estimate.
+    first_half_size.saturating_add(second_half_size) < original_size
 }
 
 #[derive(Clone, Copy)]

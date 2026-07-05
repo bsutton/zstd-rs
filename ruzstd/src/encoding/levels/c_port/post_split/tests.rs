@@ -115,10 +115,11 @@ fn derive_block_splits_refuses_tiny_sequence_counts() {
 }
 
 #[test]
-fn derive_block_splits_accepts_estimate_ties() {
-    assert!(should_split(13_292, 12_781, 26_073, Strategy::BtOpt));
+fn derive_block_splits_requires_strictly_smaller_estimates_like_c() {
+    assert!(!should_split(13_292, 12_781, 26_073, Strategy::BtOpt));
     assert!(!should_split(13_294, 12_781, 26_073, Strategy::BtOpt));
-    assert!(should_split(13_294, 12_781, 26_073, Strategy::BtUltra2));
+    assert!(!should_split(13_294, 12_781, 26_073, Strategy::BtUltra2));
+    assert!(should_split(13_291, 12_781, 26_073, Strategy::BtOpt));
 }
 
 #[test]
