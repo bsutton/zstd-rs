@@ -364,9 +364,9 @@ impl OptLevel {
     }
 
     fn uses_match_price_cache(self) -> bool {
-        // BtUltra uses fractional weights, making match prices expensive enough
-        // to cache. BtOpt's integer weights are cheaper than refreshing the grid.
-        self.accurate_weights()
+        // C computes match prices on demand. Rebuilding a full price grid after
+        // every emitted sequence is more expensive than the saved lookups.
+        false
     }
 
     fn favors_small_offsets(self) -> bool {
