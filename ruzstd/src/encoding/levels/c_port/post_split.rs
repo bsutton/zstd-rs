@@ -297,7 +297,7 @@ fn encode_partition(
     let previous_offsets = *context.offset_history;
     let mut bytes = Vec::new();
 
-    if append_special_block(block, last_block, context.policy, &mut bytes) {
+    if append_special_block(block, last_block, &mut bytes) {
         return GreedyEncodedBlock {
             bytes,
             repeat_offsets,
@@ -309,6 +309,7 @@ fn encode_partition(
         block,
         last_block,
         context.strategy,
+        context.policy,
         context.config,
         prepared,
         previous_fse,
@@ -318,7 +319,7 @@ fn encode_partition(
         context.offset_history,
         &mut bytes,
     ) {
-        PreparedBlockEmission::Raw => GreedyEncodedBlock {
+        PreparedBlockEmission::Raw | PreparedBlockEmission::Rle => GreedyEncodedBlock {
             bytes,
             repeat_offsets,
             new_huffman_table: None,

@@ -196,7 +196,7 @@ pub(crate) fn append_block_fast_no_dict_with_policy(
     policy: BlockEncodingPolicy,
     output: &mut Vec<u8>,
 ) -> FastBlockEncoding {
-    if append_special_block(src, last_block, policy, output) {
+    if append_special_block(src, last_block, output) {
         return FastBlockEncoding {
             repeat_offsets,
             new_huffman_table: None,
@@ -213,6 +213,7 @@ pub(crate) fn append_block_fast_no_dict_with_policy(
         config,
         repeat_offsets,
         prepared,
+        policy,
         previous_fse,
         previous_offsets,
         context,
@@ -286,7 +287,7 @@ pub(crate) fn append_block_fast_no_dict_with_state_and_policy(
 ) -> FastBlockEncoding {
     let block = &source.src[source.block_range.clone()];
 
-    if append_special_block(block, last_block, policy, output) {
+    if append_special_block(block, last_block, output) {
         return FastBlockEncoding {
             repeat_offsets,
             new_huffman_table: None,
@@ -310,6 +311,7 @@ pub(crate) fn append_block_fast_no_dict_with_state_and_policy(
         config,
         repeat_offsets,
         prepared,
+        policy,
         previous_fse,
         previous_offsets,
         context,
@@ -362,7 +364,7 @@ pub(crate) fn append_block_fast_ext_dict_with_state_and_policy(
 ) -> FastBlockEncoding {
     let block = &source.src[source.block_range.clone()];
 
-    if append_special_block(block, last_block, policy, output) {
+    if append_special_block(block, last_block, output) {
         return FastBlockEncoding {
             repeat_offsets,
             new_huffman_table: None,
@@ -380,6 +382,7 @@ pub(crate) fn append_block_fast_ext_dict_with_state_and_policy(
         config,
         repeat_offsets,
         prepared,
+        policy,
         previous_fse,
         previous_offsets,
         context,
@@ -395,6 +398,7 @@ fn encode_prepared_block(
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
     prepared: FastPreparedBlock,
+    policy: BlockEncodingPolicy,
     previous_fse: FseTableSnapshot,
     previous_offsets: OffsetHistory,
     context: FastBlockEncodeContext<'_, '_>,
@@ -405,6 +409,7 @@ fn encode_prepared_block(
         block,
         last_block,
         params.strategy,
+        policy,
         config,
         prepared.prepared.as_ref(),
         previous_fse,
@@ -414,7 +419,7 @@ fn encode_prepared_block(
         context.offset_history,
         output,
     ) {
-        PreparedBlockEmission::Raw => FastBlockEncoding {
+        PreparedBlockEmission::Raw | PreparedBlockEmission::Rle => FastBlockEncoding {
             repeat_offsets,
             new_huffman_table: None,
         },

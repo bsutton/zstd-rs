@@ -210,8 +210,7 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_policy(
 ) -> GreedyEncodedBlock {
     let mut bytes = Vec::new();
 
-    if let Some(encoded) = encode_special_block(src, last_block, repeat_offsets, policy, &mut bytes)
-    {
+    if let Some(encoded) = encode_special_block(src, last_block, repeat_offsets, &mut bytes) {
         return encoded;
     }
 
@@ -225,6 +224,7 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_policy(
         config,
         repeat_offsets,
         prepared,
+        policy,
         previous_fse,
         previous_offsets,
         context,
@@ -293,9 +293,7 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy(
     let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
 
-    if let Some(encoded) =
-        encode_special_block(block, last_block, repeat_offsets, policy, &mut bytes)
-    {
+    if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, &mut bytes) {
         return encoded;
     }
 
@@ -317,6 +315,7 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy(
         config,
         repeat_offsets,
         prepared,
+        policy,
         previous_fse,
         previous_offsets,
         context,
@@ -332,6 +331,7 @@ pub(super) fn encode_prepared_block(
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
     prepared: GreedyPreparedBlock,
+    policy: BlockEncodingPolicy,
     previous_fse: FseTableSnapshot,
     previous_offsets: OffsetHistory,
     context: GreedyBlockEncodeContext<'_, '_>,
@@ -342,6 +342,7 @@ pub(super) fn encode_prepared_block(
         block,
         last_block,
         params.strategy,
+        policy,
         config,
         prepared.prepared.as_ref(),
         previous_fse,
@@ -351,7 +352,7 @@ pub(super) fn encode_prepared_block(
         context.offset_history,
         &mut bytes,
     ) {
-        PreparedBlockEmission::Raw => GreedyEncodedBlock {
+        PreparedBlockEmission::Raw | PreparedBlockEmission::Rle => GreedyEncodedBlock {
             bytes,
             repeat_offsets,
             new_huffman_table: None,
@@ -407,7 +408,6 @@ pub(super) fn encode_special_block(
     block: &[u8],
     last_block: bool,
     repeat_offsets: RepeatOffsets,
-    policy: BlockEncodingPolicy,
     bytes: &mut Vec<u8>,
 ) -> Option<GreedyEncodedBlock> {
     if block.is_empty() {
@@ -428,33 +428,7 @@ pub(super) fn encode_special_block(
         });
     }
 
-    if policy.allows_rle() {
-        if let Some(rle_byte) = rle_byte(block) {
-            write_rle_block(last_block, block.len() as u32, rle_byte, bytes);
-            return Some(GreedyEncodedBlock {
-                bytes: core::mem::take(bytes),
-                repeat_offsets,
-                new_huffman_table: None,
-            });
-        }
-    }
-
     None
-}
-
-fn rle_byte(data: &[u8]) -> Option<u8> {
-    let first = *data.first()?;
-    data.iter().all(|byte| *byte == first).then_some(first)
-}
-
-fn write_rle_block(last_block: bool, block_size: u32, rle_byte: u8, output: &mut Vec<u8>) {
-    let header = BlockHeader {
-        last_block,
-        block_type: crate::blocks::block::BlockType::RLE,
-        block_size,
-    };
-    header.serialize(output);
-    output.push(rle_byte);
 }
 
 fn write_raw_block(last_block: bool, block_size: u32, data: &[u8], output: &mut Vec<u8>) {

@@ -193,9 +193,7 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm(
     let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
 
-    if let Some(encoded) =
-        encode_special_block(block, last_block, repeat_offsets, policy, &mut bytes)
-    {
+    if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, &mut bytes) {
         return encoded;
     }
 
@@ -239,6 +237,7 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm(
         config,
         repeat_offsets,
         prepared,
+        policy,
         previous_fse,
         previous_offsets,
         context,
@@ -263,9 +262,7 @@ pub(crate) fn encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
     let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
 
-    if let Some(encoded) =
-        encode_special_block(block, last_block, repeat_offsets, policy, &mut bytes)
-    {
+    if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, &mut bytes) {
         return encoded;
     }
 
@@ -310,6 +307,7 @@ pub(crate) fn encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
         config,
         repeat_offsets,
         prepared,
+        policy,
         previous_fse,
         previous_offsets,
         context,
