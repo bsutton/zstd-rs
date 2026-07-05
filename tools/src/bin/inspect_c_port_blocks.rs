@@ -14,12 +14,14 @@ use zstd_rs_tools::{
     },
     has_flag, parse_value, require_value, run_command_silent, verify_decoded_matches,
 };
+use zstd_safe::{CCtx, CParameter};
 
 #[derive(Debug)]
 struct Args {
     input: PathBuf,
     level: i32,
     zstd_bin: PathBuf,
+    c_backend: CBackend,
     c_mode: CMode,
     output_dir: PathBuf,
     block_limit: usize,
@@ -29,6 +31,12 @@ struct Args {
 enum CMode {
     SingleThread,
     T1,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CBackend {
+    Cli,
+    Api,
 }
 
 #[derive(Clone, Debug)]
@@ -60,10 +68,12 @@ fn main() -> io::Result<()> {
     fs::write(&rust_output, compress_slice_c_level(&input, args.level))?;
     verify_decoded_matches(&args.zstd_bin, &rust_output, &args.input)?;
 
-    run_c_zstd(
+    write_c_reference(
+        args.c_backend,
         &args.zstd_bin,
         args.c_mode,
         args.level,
+        &input,
         &args.input,
         &c_output,
     )?;
@@ -73,10 +83,10 @@ fn main() -> io::Result<()> {
     let c = inspect_frame_with_decoded_sizes(&fs::read(&c_output)?)?;
 
     println!(
-        "input={} level={} c_mode={} rust_bytes={} c_bytes={}",
+        "input={} level={} c_backend={} rust_bytes={} c_bytes={}",
         args.input.display(),
         args.level,
-        args.c_mode.description(),
+        args.c_backend.description(args.c_mode),
         fs::metadata(&rust_output)?.len(),
         fs::metadata(&c_output)?.len()
     );
@@ -102,6 +112,7 @@ fn parse_args() -> io::Result<Args> {
         input,
         level,
         zstd_bin: PathBuf::from(parse_value(&raw, "--zstd-bin", "/usr/bin/zstd")),
+        c_backend: parse_c_backend(&parse_value(&raw, "--c-backend", "cli"))?,
         c_mode: parse_c_mode(&parse_value(&raw, "--c-mode", "single-thread"))?,
         output_dir: PathBuf::from(parse_value(
             &raw,
@@ -124,11 +135,24 @@ Options:
   --input FILE      Input fixture to compress and inspect.
   --level N         Compression level, default 5.
   --zstd-bin PATH   Path to the C zstd binary.
+  --c-backend MODE  C reference backend: cli or api. Default cli.
   --c-mode MODE     C zstd mode: single-thread or t1. Default single-thread.
+                    Only used when --c-backend cli.
   --output-dir DIR  Directory for generated .zst files.
   --block-limit N   Number of leading blocks to print for each output, default 24.
   -h, --help        Show this help message."
     );
+}
+
+fn parse_c_backend(raw: &str) -> io::Result<CBackend> {
+    match raw {
+        "cli" => Ok(CBackend::Cli),
+        "api" => Ok(CBackend::Api),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unsupported --c-backend {raw:?}; expected cli or api"),
+        )),
+    }
 }
 
 fn parse_c_mode(raw: &str) -> io::Result<CMode> {
@@ -147,6 +171,50 @@ fn parse_usize(raw: &str) -> io::Result<usize> {
         .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))
 }
 
+fn write_c_reference(
+    backend: CBackend,
+    zstd_bin: &Path,
+    mode: CMode,
+    level: i32,
+    input: &[u8],
+    input_path: &Path,
+    output: &Path,
+) -> io::Result<()> {
+    match backend {
+        CBackend::Cli => run_c_zstd(zstd_bin, mode, level, input_path, output),
+        CBackend::Api => {
+            let compressed = compress_c_api(input, level)?;
+            fs::write(output, compressed)
+        }
+    }
+}
+
+fn compress_c_api(input: &[u8], level: i32) -> io::Result<Vec<u8>> {
+    let mut context = CCtx::create();
+    set_c_api_parameter(&mut context, CParameter::CompressionLevel(level))?;
+    set_c_api_parameter(&mut context, CParameter::ChecksumFlag(false))?;
+    context
+        .set_pledged_src_size(Some(input.len() as u64))
+        .map_err(c_api_error)?;
+    let mut output = Vec::with_capacity(zstd_safe::compress_bound(input.len()));
+    context.compress2(&mut output, input).map_err(c_api_error)?;
+    Ok(output)
+}
+
+fn set_c_api_parameter(context: &mut CCtx<'_>, parameter: CParameter) -> io::Result<()> {
+    context
+        .set_parameter(parameter)
+        .map(|_| ())
+        .map_err(c_api_error)
+}
+
+fn c_api_error(code: usize) -> io::Error {
+    io::Error::other(format!(
+        "zstd C API error {code}: {}",
+        zstd_safe::get_error_name(code)
+    ))
+}
+
 fn run_c_zstd(
     zstd_bin: &Path,
     mode: CMode,
@@ -161,6 +229,15 @@ fn run_c_zstd(
     command.args(zstd_cli_level_args(level));
     command.arg(input).arg("-o").arg(output);
     run_command_silent(&mut command)
+}
+
+impl CBackend {
+    fn description(self, mode: CMode) -> String {
+        match self {
+            Self::Cli => format!("C zstd CLI {}", mode.description()),
+            Self::Api => "C ZSTD_compress2() API".to_string(),
+        }
+    }
 }
 
 impl CMode {

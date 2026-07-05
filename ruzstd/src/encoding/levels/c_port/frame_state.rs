@@ -65,19 +65,10 @@ impl FrameBlockState {
     pub(crate) fn next_frame_chunk_block_size(
         &mut self,
         remaining: &[u8],
-        source_offset: usize,
+        _source_offset: usize,
         strategy: Strategy,
     ) -> usize {
-        if strategy >= Strategy::BtOpt {
-            return self.next_block_size(remaining, strategy);
-        }
-
-        // C's streaming path feeds lower strategies in block-sized frame
-        // chunks. Keep that shape for non-optimal levels; the one-shot optimal
-        // parser benefits from seeing the full remaining frame for pre-splits.
-        let chunk_remaining = self.block_size_max - (source_offset % self.block_size_max);
-        let visible_remaining = remaining.len().min(chunk_remaining);
-        self.next_block_size(&remaining[..visible_remaining], strategy)
+        self.next_block_size(remaining, strategy)
     }
 
     pub(crate) fn block_policy(first_block: bool) -> BlockEncodingPolicy {
@@ -164,7 +155,7 @@ mod tests {
     }
 
     #[test]
-    fn frame_chunk_size_uses_resolved_c_block_size_max() {
+    fn frame_chunk_size_uses_one_shot_remaining_input_like_c_api() {
         let mut state = FrameBlockState::new(params(Strategy::Greedy, 0), 1024);
         let data = alloc::vec![0_u8; 4096];
 
@@ -174,7 +165,7 @@ mod tests {
         );
         assert_eq!(
             state.next_frame_chunk_block_size(&data[900..], 900, Strategy::Greedy),
-            124
+            1024
         );
     }
 

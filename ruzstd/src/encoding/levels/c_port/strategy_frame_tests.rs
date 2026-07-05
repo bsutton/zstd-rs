@@ -56,7 +56,7 @@ fn strategy_frame_routes_greedy_levels_to_greedy() {
 }
 
 #[test]
-fn strategy_frame_presplit_stays_within_streaming_chunk() {
+fn strategy_frame_presplit_uses_one_shot_remaining_input() {
     let mut data = Vec::new();
     while data.len() < MAX_BLOCK_SIZE as usize * 4 {
         data.extend_from_slice(b"the quick brown fox jumps over the lazy dog\n");
@@ -65,7 +65,7 @@ fn strategy_frame_presplit_stays_within_streaming_chunk() {
 
     let encoded = encode_frame_no_dict(&data, 5);
 
-    assert!(count_frame_blocks(&encoded) <= 8);
+    assert!(count_frame_blocks(&encoded) > 8);
     assert_round_trips(&encoded, &data);
 }
 
