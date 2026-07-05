@@ -23,13 +23,14 @@ fn prepared_chunk_splits_literals_and_source_span() {
         ],
     };
     let block = b"aa123bb45678tail";
+    let prefixes = sequence_prefixes(&prepared);
 
-    let first = prepared_chunk(block, &prepared, 0, 1);
+    let first = prepared_chunk(block, &prepared, &prefixes, 0, 1);
     assert_eq!(first.source, b"aa123");
     assert_eq!(first.prepared.literals, b"aa");
     assert_eq!(first.prepared.sequences.len(), 1);
 
-    let second = prepared_chunk(block, &prepared, 1, 2);
+    let second = prepared_chunk(block, &prepared, &prefixes, 1, 2);
     assert_eq!(second.source, b"bb45678tail");
     assert_eq!(second.prepared.literals, b"bbtail");
     assert_eq!(second.prepared.sequences.len(), 1);
@@ -95,9 +96,12 @@ fn derive_block_splits_refuses_tiny_sequence_counts() {
             4
         ],
     };
+    let block = [b'a'; 20];
+    let prefixes = sequence_prefixes(&prepared);
     let splits = derive_block_splits(
-        &[b'a'; 20],
+        &block,
         &prepared,
+        &prefixes,
         BlockCompressionConfig::for_c_strategy(7),
         &FseTables::new(),
         OffsetHistory::new(),
@@ -132,10 +136,12 @@ fn derive_block_splits_finds_cheaper_halves() {
         literals,
         sequences,
     };
+    let prefixes = sequence_prefixes(&prepared);
 
     let splits = derive_block_splits(
         &block,
         &prepared,
+        &prefixes,
         BlockCompressionConfig::for_c_strategy(7),
         &FseTables::new(),
         OffsetHistory::new(),
@@ -153,10 +159,12 @@ fn estimate_partition_size_does_not_use_rle_emission_cost_like_c() {
         literals: block.to_vec(),
         sequences: Vec::new(),
     };
+    let prefixes = sequence_prefixes(&prepared);
 
     let estimate = estimate_partition_size(
         &block,
         &prepared,
+        &prefixes,
         0,
         0,
         EstimateContext {
@@ -177,10 +185,12 @@ fn estimate_partition_size_keeps_tiny_literals_raw_like_c_entropy_stats() {
         literals: block.to_vec(),
         sequences: Vec::new(),
     };
+    let prefixes = sequence_prefixes(&prepared);
 
     let estimate = estimate_partition_size(
         &block,
         &prepared,
+        &prefixes,
         0,
         0,
         EstimateContext {
@@ -208,10 +218,12 @@ fn estimate_partition_size_does_not_cap_to_raw_block_size_like_c() {
         literals: block.clone(),
         sequences: Vec::new(),
     };
+    let prefixes = sequence_prefixes(&prepared);
 
     let estimate = estimate_partition_size(
         &block,
         &prepared,
+        &prefixes,
         0,
         0,
         EstimateContext {

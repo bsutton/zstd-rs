@@ -36,9 +36,11 @@ pub(super) fn encode_split_block(
     previous_offsets: OffsetHistory,
     context: &mut GreedyBlockEncodeContext<'_, '_>,
 ) -> Option<GreedyEncodedBlock> {
+    let prefixes = sequence_prefixes(&prepared.prepared);
     let partitions = derive_block_splits(
         block,
         &prepared.prepared,
+        &prefixes,
         config,
         context.fse_tables,
         previous_offsets,
@@ -56,7 +58,7 @@ pub(super) fn encode_split_block(
     let mut start_seq = 0usize;
     for (idx, &end_seq) in partitions.iter().enumerate() {
         let last_partition = idx + 1 == partitions.len();
-        let mut chunk = prepared_chunk(block, &prepared.prepared, start_seq, end_seq);
+        let mut chunk = prepared_chunk(block, &prepared.prepared, &prefixes, start_seq, end_seq);
         let decompression_repeat_offsets_before = decompression_repeat_offsets;
         resolve_partition_off_codes(
             &mut chunk.prepared,
@@ -95,6 +97,7 @@ pub(super) fn encode_split_block(
 fn derive_block_splits(
     block: &[u8],
     prepared: &PreparedBlock,
+    prefixes: &[SequencePrefix],
     config: BlockCompressionConfig,
     fse_tables: &FseTables,
     offset_history: OffsetHistory,
@@ -112,6 +115,7 @@ fn derive_block_splits(
         nb_seq,
         block,
         prepared,
+        prefixes,
         EstimateContext {
             config,
             fse_tables,
@@ -130,6 +134,7 @@ fn derive_block_splits_helper(
     end_idx: usize,
     block: &[u8],
     prepared: &PreparedBlock,
+    prefixes: &[SequencePrefix],
     context: EstimateContext<'_>,
 ) {
     if end_idx - start_idx < MIN_SEQUENCES_BLOCK_SPLITTING || splits.len() >= MAX_NB_BLOCK_SPLITS {
@@ -137,14 +142,19 @@ fn derive_block_splits_helper(
     }
 
     let mid_idx = (start_idx + end_idx) / 2;
-    let original_size = estimate_partition_size(block, prepared, start_idx, end_idx, context);
-    let first_half_size = estimate_partition_size(block, prepared, start_idx, mid_idx, context);
-    let second_half_size = estimate_partition_size(block, prepared, mid_idx, end_idx, context);
+    let original_size =
+        estimate_partition_size(block, prepared, prefixes, start_idx, end_idx, context);
+    let first_half_size =
+        estimate_partition_size(block, prepared, prefixes, start_idx, mid_idx, context);
+    let second_half_size =
+        estimate_partition_size(block, prepared, prefixes, mid_idx, end_idx, context);
 
     if should_split(first_half_size, second_half_size, original_size) {
-        derive_block_splits_helper(splits, start_idx, mid_idx, block, prepared, context);
+        derive_block_splits_helper(
+            splits, start_idx, mid_idx, block, prepared, prefixes, context,
+        );
         splits.push(mid_idx);
-        derive_block_splits_helper(splits, mid_idx, end_idx, block, prepared, context);
+        derive_block_splits_helper(splits, mid_idx, end_idx, block, prepared, prefixes, context);
     }
 }
 
@@ -166,11 +176,12 @@ struct EstimateContext<'a> {
 fn estimate_partition_size(
     block: &[u8],
     prepared: &PreparedBlock,
+    prefixes: &[SequencePrefix],
     start_seq: usize,
     end_seq: usize,
     context: EstimateContext<'_>,
 ) -> usize {
-    let chunk = prepared_chunk_ref(block, prepared, start_seq, end_seq);
+    let chunk = prepared_chunk_ref(block, prepared, prefixes, start_seq, end_seq);
     if chunk.source.is_empty() {
         return 3;
     }
@@ -193,10 +204,11 @@ struct PreparedChunk {
 fn prepared_chunk(
     block: &[u8],
     prepared: &PreparedBlock,
+    prefixes: &[SequencePrefix],
     start_seq: usize,
     end_seq: usize,
 ) -> PreparedChunk {
-    let chunk = prepared_chunk_ref(block, prepared, start_seq, end_seq);
+    let chunk = prepared_chunk_ref(block, prepared, prefixes, start_seq, end_seq);
     PreparedChunk {
         source: chunk.source.to_vec(),
         prepared: PreparedBlock {
@@ -214,14 +226,16 @@ struct PreparedChunkRef<'a> {
 fn prepared_chunk_ref<'a>(
     block: &'a [u8],
     prepared: &'a PreparedBlock,
+    prefixes: &[SequencePrefix],
     start_seq: usize,
     end_seq: usize,
 ) -> PreparedChunkRef<'a> {
     debug_assert!(start_seq <= end_seq);
     debug_assert!(end_seq <= prepared.sequences.len());
+    debug_assert_eq!(prefixes.len(), prepared.sequences.len() + 1);
 
-    let start = sequence_prefix(prepared, start_seq);
-    let mut end = sequence_prefix(prepared, end_seq);
+    let start = prefixes[start_seq];
+    let mut end = prefixes[end_seq];
     if end_seq == prepared.sequences.len() {
         end.literal_pos = prepared.literals.len();
         end.source_pos = block.len();
@@ -242,19 +256,23 @@ struct SequencePrefix {
     source_pos: usize,
 }
 
-fn sequence_prefix(prepared: &PreparedBlock, seq_count: usize) -> SequencePrefix {
-    let mut literal_pos = 0usize;
-    let mut source_pos = 0usize;
-    for sequence in prepared.sequences.iter().take(seq_count) {
+fn sequence_prefixes(prepared: &PreparedBlock) -> Vec<SequencePrefix> {
+    let mut prefixes = Vec::with_capacity(prepared.sequences.len() + 1);
+    let mut prefix = SequencePrefix {
+        literal_pos: 0,
+        source_pos: 0,
+    };
+    prefixes.push(prefix);
+
+    for sequence in &prepared.sequences {
         let lit_len = sequence.ll as usize;
         let match_len = sequence.ml as usize;
-        literal_pos += lit_len;
-        source_pos += lit_len + match_len;
+        prefix.literal_pos += lit_len;
+        prefix.source_pos += lit_len + match_len;
+        prefixes.push(prefix);
     }
-    SequencePrefix {
-        literal_pos,
-        source_pos,
-    }
+
+    prefixes
 }
 
 fn resolve_partition_off_codes(
