@@ -9,3 +9,4 @@ publish = false
 [dependencies]
 ruzstd = { path = "../ruzstd", features = ["std"] }
 serde_json = "1"
+zstd-safe = { version = "7.2.4", features = ["std"] }

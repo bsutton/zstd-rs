@@ -11,12 +11,14 @@ use zstd_rs_tools::{
     benchmark_tmp, csv_escape, has_flag, parse_value, repo_root, run_command_silent,
     verify_decoded_matches, write_all,
 };
+use zstd_safe::{CCtx, CParameter};
 
 #[derive(Clone)]
 struct Args {
     fixtures: PathBuf,
     output_dir: PathBuf,
     zstd_bin: PathBuf,
+    c_backend: CBackend,
     c_mode: CMode,
     levels: Vec<i32>,
     runs: usize,
@@ -51,6 +53,12 @@ enum CMode {
     T1,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CBackend {
+    Cli,
+    Api,
+}
+
 #[derive(Clone, Copy)]
 struct CpuSample {
     seconds: f64,
@@ -60,7 +68,13 @@ fn main() -> io::Result<()> {
     let args = parse_args()?;
     let rows = run_benchmarks(&args)?;
     write_csv(&args.csv_output, &rows)?;
-    write_markdown(&args.md_output, &rows, &args.csv_output, args.c_mode)?;
+    write_markdown(
+        &args.md_output,
+        &rows,
+        &args.csv_output,
+        args.c_backend,
+        args.c_mode,
+    )?;
     println!("{}", args.csv_output.display());
     println!("{}", args.md_output.display());
     Ok(())
@@ -93,6 +107,7 @@ fn parse_args() -> io::Result<Args> {
             tmp.join("c-port-benchmark-output").display().to_string(),
         )),
         zstd_bin: PathBuf::from(parse_value(&raw, "--zstd-bin", "/usr/bin/zstd")),
+        c_backend: parse_c_backend(&parse_value(&raw, "--c-backend", "cli"))?,
         c_mode: parse_c_mode(&parse_value(&raw, "--c-mode", "single-thread"))?,
         levels: parse_levels(&parse_value(&raw, "--levels", "1,3,5,8,13,16,19,22"))?,
         runs: parse_runs(&parse_value(&raw, "--runs", "3"))?,
@@ -116,8 +131,8 @@ fn print_help() {
     println!(
         "\
 Usage: benchmark_c_port [--fixtures DIR] [--levels CSV] [--runs N] \
-    [--limit N] [--zstd-bin PATH] [--c-mode MODE] [--output-dir DIR] [--csv-output PATH] \
-    [--md-output PATH] [--no-sync] [--keep-outputs]
+    [--limit N] [--zstd-bin PATH] [--c-backend BACKEND] [--c-mode MODE] [--output-dir DIR] \
+    [--csv-output PATH] [--md-output PATH] [--no-sync] [--keep-outputs]
 
 Options:
   --fixtures DIR    Fixture directory, walked recursively.
@@ -125,7 +140,9 @@ Options:
   --runs N          Timed runs per fixture and level.
   --limit N         Limit fixture count after sorting by path.
   --zstd-bin PATH   Path to the C zstd binary.
+  --c-backend MODE  C reference backend: cli or api. Default cli.
   --c-mode MODE     C zstd mode: single-thread or t1. Default single-thread.
+                    Only used when --c-backend cli.
   --output-dir DIR  Temporary directory for compressed outputs.
   --csv-output PATH CSV output path.
   --md-output PATH  Markdown output path.
@@ -133,6 +150,17 @@ Options:
   --keep-outputs    Keep compressed outputs for inspection.
   -h, --help        Show this help message."
     );
+}
+
+fn parse_c_backend(raw: &str) -> io::Result<CBackend> {
+    match raw {
+        "cli" => Ok(CBackend::Cli),
+        "api" => Ok(CBackend::Api),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unsupported --c-backend {raw:?}; expected cli or api"),
+        )),
+    }
 }
 
 fn parse_c_mode(raw: &str) -> io::Result<CMode> {
@@ -216,10 +244,12 @@ fn run_benchmarks(args: &Args) -> io::Result<Vec<Row>> {
             verify_decoded_matches(&args.zstd_bin, &rust_output, &fixture.path)?;
             remove_output_unless_kept(&rust_output, args.keep_outputs)?;
 
-            run_c_zstd(
+            write_c_reference(
+                args.c_backend,
                 &args.zstd_bin,
                 args.c_mode,
                 *level,
+                &input,
                 &fixture.path,
                 &c_output,
             )?;
@@ -246,10 +276,12 @@ fn run_benchmarks(args: &Args) -> io::Result<Vec<Row>> {
                 remove_output_unless_kept(&rust_output, args.keep_outputs)?;
 
                 sync_if_requested(args.no_sync)?;
-                let (c_wall, c_cpu) = run_c_zstd_timed(
+                let (c_wall, c_cpu) = write_c_reference_timed(
+                    args.c_backend,
                     &args.zstd_bin,
                     args.c_mode,
                     *level,
+                    &input,
                     &fixture.path,
                     &c_output,
                 )?;
@@ -295,11 +327,18 @@ fn collect_fixtures(root: &Path) -> io::Result<Vec<Fixture>> {
     let fixtures = paths
         .into_iter()
         .map(|path| {
-            let name = path
+            let mut name = path
                 .strip_prefix(root)
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .replace(['/', '\\'], "_");
+            if name.is_empty() {
+                name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("fixture")
+                    .to_string();
+            }
             let bytes = fs::metadata(&path)?.len();
             Ok(Fixture { name, path, bytes })
         })
@@ -326,6 +365,73 @@ fn collect_fixture_paths(path: &Path, paths: &mut Vec<PathBuf>) -> io::Result<()
         }
     }
     Ok(())
+}
+
+fn write_c_reference(
+    backend: CBackend,
+    zstd_bin: &Path,
+    mode: CMode,
+    level: i32,
+    input: &[u8],
+    input_path: &Path,
+    output: &Path,
+) -> io::Result<()> {
+    match backend {
+        CBackend::Cli => run_c_zstd(zstd_bin, mode, level, input_path, output),
+        CBackend::Api => {
+            let compressed = compress_c_api(input, level)?;
+            fs::write(output, compressed)
+        }
+    }
+}
+
+fn write_c_reference_timed(
+    backend: CBackend,
+    zstd_bin: &Path,
+    mode: CMode,
+    level: i32,
+    input: &[u8],
+    input_path: &Path,
+    output: &Path,
+) -> io::Result<(f64, f64)> {
+    match backend {
+        CBackend::Cli => run_c_zstd_timed(zstd_bin, mode, level, input_path, output),
+        CBackend::Api => {
+            let before_cpu = CpuSample::now();
+            let before = Instant::now();
+            let compressed = compress_c_api(input, level)?;
+            let wall = before.elapsed().as_secs_f64();
+            let cpu = before_cpu.elapsed().unwrap_or(wall);
+            fs::write(output, compressed)?;
+            Ok((wall, cpu))
+        }
+    }
+}
+
+fn compress_c_api(input: &[u8], level: i32) -> io::Result<Vec<u8>> {
+    let mut context = CCtx::create();
+    set_c_api_parameter(&mut context, CParameter::CompressionLevel(level))?;
+    set_c_api_parameter(&mut context, CParameter::ChecksumFlag(false))?;
+    context
+        .set_pledged_src_size(Some(input.len() as u64))
+        .map_err(c_api_error)?;
+    let mut output = Vec::with_capacity(zstd_safe::compress_bound(input.len()));
+    context.compress2(&mut output, input).map_err(c_api_error)?;
+    Ok(output)
+}
+
+fn set_c_api_parameter(context: &mut CCtx<'_>, parameter: CParameter) -> io::Result<()> {
+    context
+        .set_parameter(parameter)
+        .map(|_| ())
+        .map_err(c_api_error)
+}
+
+fn c_api_error(code: usize) -> io::Error {
+    io::Error::other(format!(
+        "zstd C API error {code}: {}",
+        zstd_safe::get_error_name(code)
+    ))
 }
 
 fn run_c_zstd(
@@ -387,6 +493,15 @@ impl CMode {
         match self {
             Self::SingleThread => "--single-thread",
             Self::T1 => "-T1",
+        }
+    }
+}
+
+impl CBackend {
+    fn description(self, mode: CMode) -> String {
+        match self {
+            Self::Cli => format!("C zstd CLI {}", mode.description()),
+            Self::Api => "C ZSTD_compress2() API".to_string(),
         }
     }
 }
@@ -472,7 +587,13 @@ fn write_csv(path: &Path, rows: &[Row]) -> io::Result<()> {
     write_all(path, &csv)
 }
 
-fn write_markdown(path: &Path, rows: &[Row], csv_path: &Path, c_mode: CMode) -> io::Result<()> {
+fn write_markdown(
+    path: &Path,
+    rows: &[Row],
+    csv_path: &Path,
+    c_backend: CBackend,
+    c_mode: CMode,
+) -> io::Result<()> {
     let headers = [
         "Fixture",
         "Lvl",
@@ -521,8 +642,8 @@ fn write_markdown(path: &Path, rows: &[Row], csv_path: &Path, c_mode: CMode) -> 
         format!("Source CSV: `{}`", csv_path.display()),
         String::new(),
         format!(
-            "Gap is Rust compressed size versus C zstd ({}) with frame checksums disabled; positive means Rust is larger. CPU Improvement is positive when Rust uses less CPU than C zstd. Every output is decoded with C zstd and byte-compared against the original fixture.",
-            c_mode.description()
+            "Gap is Rust compressed size versus {} with frame checksums disabled; positive means Rust is larger. CPU Improvement is positive when Rust uses less CPU than the C reference. Every output is decoded with C zstd and byte-compared against the original fixture.",
+            c_backend.description(c_mode)
         ),
         String::new(),
         "```text".to_string(),
@@ -581,7 +702,7 @@ fn format_number(value: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_c_mode, zstd_cli_level_args, CMode};
+    use super::{parse_c_backend, parse_c_mode, zstd_cli_level_args, CBackend, CMode};
 
     #[test]
     fn c_level_zero_uses_cli_default() {
@@ -611,5 +732,12 @@ mod tests {
         assert_eq!(parse_c_mode("single-thread").unwrap(), CMode::SingleThread);
         assert_eq!(parse_c_mode("t1").unwrap(), CMode::T1);
         assert!(parse_c_mode("threads").is_err());
+    }
+
+    #[test]
+    fn parses_c_backends() {
+        assert_eq!(parse_c_backend("cli").unwrap(), CBackend::Cli);
+        assert_eq!(parse_c_backend("api").unwrap(), CBackend::Api);
+        assert!(parse_c_backend("library").is_err());
     }
 }
