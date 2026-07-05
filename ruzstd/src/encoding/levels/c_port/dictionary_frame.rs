@@ -38,7 +38,8 @@ impl DictionaryFrameContext {
         let opt_price_seeds = dictionary.initial_opt_price_seeds();
         let mut output = Vec::with_capacity(compress_bound(src.len()));
         write_frame_header(&mut output, src.len(), params, dictionary_id);
-        let frame_state = FrameBlockState::with_dictionary(params, &dictionary);
+        let frame_state =
+            FrameBlockState::with_dictionary(params, cctx.max_block_size, &dictionary);
 
         Self {
             combined,

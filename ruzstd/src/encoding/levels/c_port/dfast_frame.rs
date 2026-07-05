@@ -31,7 +31,7 @@ pub(crate) fn encode_frame_double_fast_no_dict(src: &[u8], level: i32) -> Vec<u8
     cctx.assert_resolved();
     let params = cctx.compression;
     write_frame_header_no_dict(&mut output, src.len(), params);
-    let mut frame_state = FrameBlockState::new(params);
+    let mut frame_state = FrameBlockState::new(params, cctx.max_block_size);
     let mut match_state = DFastMatchState::new();
 
     if src.is_empty() {

@@ -95,7 +95,7 @@ fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrat
     cctx.assert_resolved();
     let params = cctx.compression;
     write_frame_header_no_dict(&mut output, src.len(), params);
-    let mut frame_state = FrameBlockState::new(params);
+    let mut frame_state = FrameBlockState::new(params, cctx.max_block_size);
     let mut match_state = GreedyMatchState::new();
     match_state.reset_for_frame(params);
 

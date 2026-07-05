@@ -124,7 +124,7 @@ fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) 
         .as_ref()
         .map(|result| LdmRawSeqStore::new(&result.sequences));
     write_frame_header_no_dict(&mut output, src.len(), params);
-    let mut frame_state = FrameBlockState::new(params);
+    let mut frame_state = FrameBlockState::new(params, cctx.max_block_size);
     let mut opt_state = OptBlockState::new();
     opt_state.reset_for_frame(params);
 

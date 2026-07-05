@@ -55,7 +55,7 @@ pub(crate) struct CctxParameters {
 impl CctxParameters {
     pub(crate) fn for_level(level: i32, src_size_hint: u64, dict_size: usize) -> Self {
         let compression = CompressionParameters::for_level(level, src_size_hint, dict_size);
-        Self::from_compression_parameters(level, compression)
+        Self::from_compression_parameters(level, compression, src_size_hint)
     }
 
     pub(crate) fn for_level_with_mode(
@@ -66,12 +66,13 @@ impl CctxParameters {
     ) -> Self {
         let compression =
             CompressionParameters::for_level_with_mode(level, src_size_hint, dict_size, mode);
-        Self::from_compression_parameters(level, compression)
+        Self::from_compression_parameters(level, compression, src_size_hint)
     }
 
     pub(crate) fn from_compression_parameters(
         level: i32,
         compression: CompressionParameters,
+        pledged_src_size: u64,
     ) -> Self {
         let mut ldm = LdmParameters {
             enable_ldm: resolve_enable_ldm(ParamSwitch::Auto, compression),
@@ -86,7 +87,7 @@ impl CctxParameters {
             use_row_match_finder: resolve_row_match_finder(ParamSwitch::Auto, compression),
             post_block_splitter: resolve_block_splitter(ParamSwitch::Auto, compression),
             ldm,
-            max_block_size: ZSTD_BLOCKSIZE_MAX,
+            max_block_size: resolve_max_block_size(compression, pledged_src_size),
             search_for_external_repcodes: resolve_external_repcode_search(ParamSwitch::Auto, level),
         }
     }
@@ -96,7 +97,7 @@ impl CctxParameters {
         debug_assert_ne!(self.post_block_splitter, ParamSwitch::Auto);
         debug_assert_ne!(self.ldm.enable_ldm, ParamSwitch::Auto);
         debug_assert_ne!(self.search_for_external_repcodes, ParamSwitch::Auto);
-        debug_assert_eq!(self.max_block_size, ZSTD_BLOCKSIZE_MAX);
+        debug_assert!((1..=ZSTD_BLOCKSIZE_MAX).contains(&self.max_block_size));
         if self.ldm.enable_ldm == ParamSwitch::Enable {
             debug_assert!(self.ldm.window_log > 0);
             debug_assert!(self.ldm.hash_log > 0);
@@ -107,6 +108,11 @@ impl CctxParameters {
             debug_assert!(gear.stop_mask() > 0 || self.ldm.hash_rate_log == 0);
         }
     }
+}
+
+fn resolve_max_block_size(params: CompressionParameters, pledged_src_size: u64) -> usize {
+    let window_size = (1_u64 << params.window_log).min(pledged_src_size).max(1);
+    window_size.min(ZSTD_BLOCKSIZE_MAX as u64) as usize
 }
 
 fn resolve_row_match_finder(mode: ParamSwitch, params: CompressionParameters) -> ParamSwitch {

@@ -74,8 +74,23 @@ fn cctx_params_can_resolve_from_explicit_compression_params() {
         target_length: 999,
         strategy: Strategy::BtUltra2,
     };
-    let resolved = CctxParameters::from_compression_parameters(22, compression);
+    let resolved = CctxParameters::from_compression_parameters(22, compression, 256 * 1024 * 1024);
 
     assert_eq!(resolved.ldm.enable_ldm, ParamSwitch::Enable);
     assert_eq!(resolved.post_block_splitter, ParamSwitch::Enable);
+}
+
+#[test]
+fn cctx_params_resolve_block_size_from_window_and_pledged_size_like_c() {
+    let mut compression = CompressionParameters::for_level(1, 4096, 0);
+    compression.window_log = 10;
+
+    let window_limited = CctxParameters::from_compression_parameters(1, compression, 4096);
+    assert_eq!(window_limited.max_block_size, 1024);
+
+    let pledged_limited = CctxParameters::from_compression_parameters(1, compression, 512);
+    assert_eq!(pledged_limited.max_block_size, 512);
+
+    let empty = CctxParameters::from_compression_parameters(1, compression, 0);
+    assert_eq!(empty.max_block_size, 1);
 }

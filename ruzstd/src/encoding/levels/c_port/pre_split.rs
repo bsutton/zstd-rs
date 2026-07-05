@@ -30,10 +30,15 @@ impl FrameProgress {
         }
     }
 
-    pub(super) fn next_block_size(&self, remaining: &[u8], strategy: Strategy) -> usize {
+    pub(super) fn next_block_size(
+        &self,
+        remaining: &[u8],
+        strategy: Strategy,
+        block_size_max: usize,
+    ) -> usize {
         optimal_block_size(
             remaining,
-            BLOCK_SIZE_MAX,
+            block_size_max,
             0,
             strategy,
             self.consumed_src_size as i64 - self.produced_size as i64,

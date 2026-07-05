@@ -8,7 +8,6 @@ use super::{
     sequence_store::RepeatOffsets,
 };
 use crate::{
-    common::MAX_BLOCK_SIZE,
     encoding::{
         blocks::BlockCompressionConfig,
         frame_compressor::{FseTables, OffsetHistory},
@@ -22,11 +21,12 @@ pub(crate) struct FrameBlockState {
     pub(crate) last_huff_table: Option<HuffmanTable>,
     pub(crate) repeat_offsets: RepeatOffsets,
     pub(crate) block_config: BlockCompressionConfig,
+    block_size_max: usize,
     progress: FrameProgress,
 }
 
 impl FrameBlockState {
-    pub(crate) fn new(params: CompressionParameters) -> Self {
+    pub(crate) fn new(params: CompressionParameters, block_size_max: usize) -> Self {
         let block_config = block_config(params);
         Self {
             fse_tables: FseTables::new(),
@@ -34,12 +34,14 @@ impl FrameBlockState {
             last_huff_table: None,
             repeat_offsets: RepeatOffsets::new(),
             block_config,
+            block_size_max,
             progress: FrameProgress::new(),
         }
     }
 
     pub(crate) fn with_dictionary(
         params: CompressionParameters,
+        block_size_max: usize,
         dictionary: &ParsedDictionary<'_>,
     ) -> Self {
         let offsets = dictionary.repeat_offsets.as_offsets();
@@ -50,12 +52,14 @@ impl FrameBlockState {
             last_huff_table: dictionary.initial_huffman_table(),
             repeat_offsets: dictionary.repeat_offsets,
             block_config,
+            block_size_max,
             progress: FrameProgress::new(),
         }
     }
 
     pub(crate) fn next_block_size(&mut self, remaining: &[u8], strategy: Strategy) -> usize {
-        self.progress.next_block_size(remaining, strategy)
+        self.progress
+            .next_block_size(remaining, strategy, self.block_size_max)
     }
 
     pub(crate) fn next_frame_chunk_block_size(
@@ -65,8 +69,8 @@ impl FrameBlockState {
         strategy: Strategy,
     ) -> usize {
         // C's streaming path feeds compression in block-sized frame chunks, so
-        // pre-splitting can only subdivide the current 128 KiB chunk once.
-        let chunk_remaining = MAX_BLOCK_SIZE as usize - (source_offset % MAX_BLOCK_SIZE as usize);
+        // pre-splitting can only subdivide the current frame chunk once.
+        let chunk_remaining = self.block_size_max - (source_offset % self.block_size_max);
         let visible_remaining = remaining.len().min(chunk_remaining);
         self.next_block_size(&remaining[..visible_remaining], strategy)
     }
@@ -137,5 +141,20 @@ mod tests {
         let config = block_config(params(Strategy::DFast, 4));
 
         assert!(!config.literal_compression_disabled());
+    }
+
+    #[test]
+    fn frame_chunk_size_uses_resolved_c_block_size_max() {
+        let mut state = FrameBlockState::new(params(Strategy::Greedy, 0), 1024);
+        let data = alloc::vec![0_u8; 4096];
+
+        assert_eq!(
+            state.next_frame_chunk_block_size(&data, 0, Strategy::Greedy),
+            1024
+        );
+        assert_eq!(
+            state.next_frame_chunk_block_size(&data[900..], 900, Strategy::Greedy),
+            124
+        );
     }
 }
