@@ -240,6 +240,9 @@ fn encode_frame_opt_with_dictionary(
 
     let mut opt_state = OptBlockState::new();
     opt_state.reset_for_frame(params);
+    if let Some(seeds) = context.opt_price_seeds.take() {
+        opt_state.price_state.set_dictionary_seeds(seeds);
+    }
     load_prefix(&mut opt_state, &context.combined, context.dict_len, params);
 
     if src.is_empty() {

@@ -8,7 +8,9 @@ use crate::encoding::frame_compressor::FseTables;
 use crate::fse::fse_encoder;
 use crate::huff0::huff0_encoder;
 
-use super::sequence_store::RepeatOffsets;
+use super::{
+    hash_chain_match::highbit32, opt_price::DictionaryPriceSeeds, sequence_store::RepeatOffsets,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DictionaryContentType {
@@ -45,6 +47,12 @@ impl ParsedDictionary<'_> {
             .as_ref()
             .map(|entropy| entropy.huffman_table.clone())
     }
+
+    pub(crate) fn initial_opt_price_seeds(&self) -> Option<DictionaryPriceSeeds> {
+        self.entropy
+            .as_ref()
+            .map(|entropy| entropy.opt_price_seeds.clone())
+    }
 }
 
 impl fmt::Debug for ParsedDictionary<'_> {
@@ -75,6 +83,7 @@ impl Eq for ParsedDictionary<'_> {}
 struct DictionaryEntropy {
     huffman_table: huff0_encoder::HuffmanTable,
     fse_tables: FseTables,
+    opt_price_seeds: DictionaryPriceSeeds,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -163,11 +172,93 @@ fn dictionary_entropy(decoded: &Dictionary) -> DictionaryEntropy {
         decoded.fse.offsets.accuracy_log,
     )));
 
+    let opt_price_seeds = dictionary_price_seeds(decoded);
+
     DictionaryEntropy {
         huffman_table: huff0_encoder::HuffmanTable::build_from_weights(
             &decoded.huf.table.encoder_weights(),
         ),
         fse_tables,
+        opt_price_seeds,
+    }
+}
+
+fn dictionary_price_seeds(decoded: &Dictionary) -> DictionaryPriceSeeds {
+    let mut seeds = DictionaryPriceSeeds::new();
+    let weights = decoded.huf.table.encoder_weights();
+    let max_bits = usize::from(decoded.huf.table.max_num_bits);
+    for symbol in 0..DictionaryPriceSeeds::LITERAL_COUNT {
+        let weight = weights.get(symbol).copied().unwrap_or(0);
+        let bit_cost = if weight == 0 {
+            0
+        } else {
+            max_bits + 1 - weight
+        };
+        seeds.set_literal_freq(symbol, price_seed_frequency(bit_cost, 11));
+    }
+
+    for symbol in 0..DictionaryPriceSeeds::LIT_LENGTH_COUNT {
+        seeds.set_lit_length_freq(
+            symbol,
+            fse_price_seed_frequency(
+                decoded.fse.literal_lengths.symbol_probabilities(),
+                decoded.fse.literal_lengths.accuracy_log,
+                symbol,
+            ),
+        );
+    }
+    for symbol in 0..DictionaryPriceSeeds::MATCH_LENGTH_COUNT {
+        seeds.set_match_length_freq(
+            symbol,
+            fse_price_seed_frequency(
+                decoded.fse.match_lengths.symbol_probabilities(),
+                decoded.fse.match_lengths.accuracy_log,
+                symbol,
+            ),
+        );
+    }
+    for symbol in 0..DictionaryPriceSeeds::OFF_CODE_COUNT {
+        seeds.set_off_code_freq(
+            symbol,
+            fse_price_seed_frequency(
+                decoded.fse.offsets.symbol_probabilities(),
+                decoded.fse.offsets.accuracy_log,
+                symbol,
+            ),
+        );
+    }
+
+    seeds
+}
+
+fn fse_price_seed_frequency(probabilities: &[i32], table_log: u8, symbol: usize) -> u32 {
+    let probability = probabilities.get(symbol).copied().unwrap_or(0);
+    price_seed_frequency(fse_max_nb_bits(probability, table_log), 10)
+}
+
+fn fse_max_nb_bits(probability: i32, table_log: u8) -> usize {
+    let table_log = u32::from(table_log);
+    let table_size = 1_u32 << table_log;
+    let delta_nb_bits = match probability {
+        0 => ((table_log + 1) << 16) - table_size,
+        -1 | 1 => (table_log << 16) - table_size,
+        probability => {
+            debug_assert!(probability > 1);
+            let probability = probability as u32;
+            let max_bits_out = table_log - highbit32(probability - 1);
+            let min_state_plus = probability << max_bits_out;
+            (max_bits_out << 16) - min_state_plus
+        }
+    };
+    ((delta_nb_bits + ((1 << 16) - 1)) >> 16) as usize
+}
+
+fn price_seed_frequency(bit_cost: usize, scale_log: usize) -> u32 {
+    if bit_cost == 0 {
+        1
+    } else {
+        debug_assert!(bit_cost <= scale_log);
+        1_u32 << (scale_log - bit_cost)
     }
 }
 
@@ -264,6 +355,7 @@ mod tests {
         let fse_tables = parsed.initial_fse_tables();
 
         assert!(parsed.initial_huffman_table().is_some());
+        assert!(parsed.initial_opt_price_seeds().is_some());
         assert!(fse_tables.ll_previous.is_some());
         assert!(fse_tables.ml_previous.is_some());
         assert!(fse_tables.of_previous.is_some());
@@ -277,6 +369,7 @@ mod tests {
         let fse_tables = parsed.initial_fse_tables();
 
         assert!(parsed.initial_huffman_table().is_none());
+        assert!(parsed.initial_opt_price_seeds().is_none());
         assert!(fse_tables.ll_previous.is_none());
         assert!(fse_tables.ml_previous.is_none());
         assert!(fse_tables.of_previous.is_none());

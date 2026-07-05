@@ -46,5 +46,5 @@ Current parity notes:
   current C comparison gap.
 - `zstd_opt.c` seeds optimal-parser literal/LL/ML/offset frequencies from
   full-dictionary entropy tables when dictionary repeat tables are valid. The
-  Rust dictionary path already seeds block entropy tables, but the optimal
-  parser still needs a careful parity port of those price-model seeds.
+  Rust full-dictionary path now derives and consumes the same shape of
+  price-model seeds alongside the block entropy tables.

@@ -1,6 +1,8 @@
 //! Optimal-parser price model ported from the no-dictionary path in
 //! `zstd_opt.c`.
 
+use alloc::boxed::Box;
+
 use super::hash_chain_match::highbit32;
 use crate::encoding::blocks::{literal_length_code, match_length_code};
 
@@ -49,6 +51,46 @@ enum PriceType {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct DictionaryPriceSeeds {
+    lit_freq: [u32; MAX_LIT + 1],
+    lit_length_freq: [u32; MAX_LL + 1],
+    match_length_freq: [u32; MAX_ML + 1],
+    off_code_freq: [u32; MAX_OFF + 1],
+}
+
+impl DictionaryPriceSeeds {
+    pub(crate) const LITERAL_COUNT: usize = MAX_LIT + 1;
+    pub(crate) const LIT_LENGTH_COUNT: usize = MAX_LL + 1;
+    pub(crate) const MATCH_LENGTH_COUNT: usize = MAX_ML + 1;
+    pub(crate) const OFF_CODE_COUNT: usize = MAX_OFF + 1;
+
+    pub(crate) fn new() -> Self {
+        Self {
+            lit_freq: [0; MAX_LIT + 1],
+            lit_length_freq: [0; MAX_LL + 1],
+            match_length_freq: [0; MAX_ML + 1],
+            off_code_freq: [0; MAX_OFF + 1],
+        }
+    }
+
+    pub(crate) fn set_literal_freq(&mut self, symbol: usize, freq: u32) {
+        self.lit_freq[symbol] = freq;
+    }
+
+    pub(crate) fn set_lit_length_freq(&mut self, symbol: usize, freq: u32) {
+        self.lit_length_freq[symbol] = freq;
+    }
+
+    pub(crate) fn set_match_length_freq(&mut self, symbol: usize, freq: u32) {
+        self.match_length_freq[symbol] = freq;
+    }
+
+    pub(crate) fn set_off_code_freq(&mut self, symbol: usize, freq: u32) {
+        self.off_code_freq[symbol] = freq;
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(super) struct OptPriceState {
     lit_freq: [u32; MAX_LIT + 1],
     lit_length_freq: [u32; MAX_LL + 1],
@@ -65,6 +107,7 @@ pub(super) struct OptPriceState {
     match_price_by_code: [[u32; MAX_ML + 1]; MAX_OFF + 1],
     price_type: PriceType,
     compressed_literals: bool,
+    dictionary_seeds: Option<Box<DictionaryPriceSeeds>>,
 }
 
 impl OptPriceState {
@@ -85,7 +128,12 @@ impl OptPriceState {
             match_price_by_code: [[0; MAX_ML + 1]; MAX_OFF + 1],
             price_type: PriceType::Dynamic,
             compressed_literals: true,
+            dictionary_seeds: None,
         }
+    }
+
+    pub(super) fn set_dictionary_seeds(&mut self, seeds: DictionaryPriceSeeds) {
+        self.dictionary_seeds = Some(Box::new(seeds));
     }
 
     pub(super) fn rescale_freqs(&mut self, src: &[u8], opt_level: OptLevel) {
@@ -96,20 +144,25 @@ impl OptPriceState {
                 self.price_type = PriceType::Predefined;
             }
 
-            if self.compressed_literals {
-                self.lit_freq = [0; MAX_LIT + 1];
-                for &literal in src {
-                    self.lit_freq[literal as usize] += 1;
+            if let Some(seeds) = self.dictionary_seeds.take() {
+                self.price_type = PriceType::Dynamic;
+                self.apply_dictionary_seeds(&seeds);
+            } else {
+                if self.compressed_literals {
+                    self.lit_freq = [0; MAX_LIT + 1];
+                    for &literal in src {
+                        self.lit_freq[literal as usize] += 1;
+                    }
+                    self.lit_sum = downscale_stats(&mut self.lit_freq, 8, false);
                 }
-                self.lit_sum = downscale_stats(&mut self.lit_freq, 8, false);
-            }
 
-            self.lit_length_freq = BASE_LL_FREQS;
-            self.lit_length_sum = sum(&self.lit_length_freq);
-            self.match_length_freq = [1; MAX_ML + 1];
-            self.match_length_sum = (MAX_ML + 1) as u32;
-            self.off_code_freq = BASE_OFF_FREQS;
-            self.off_code_sum = sum(&self.off_code_freq);
+                self.lit_length_freq = BASE_LL_FREQS;
+                self.lit_length_sum = sum(&self.lit_length_freq);
+                self.match_length_freq = [1; MAX_ML + 1];
+                self.match_length_sum = (MAX_ML + 1) as u32;
+                self.off_code_freq = BASE_OFF_FREQS;
+                self.off_code_sum = sum(&self.off_code_freq);
+            }
         } else {
             if self.compressed_literals {
                 self.lit_sum = scale_stats(&mut self.lit_freq, 12);
@@ -120,6 +173,19 @@ impl OptPriceState {
         }
 
         self.set_base_prices(opt_level);
+    }
+
+    fn apply_dictionary_seeds(&mut self, seeds: &DictionaryPriceSeeds) {
+        if self.compressed_literals {
+            self.lit_freq = seeds.lit_freq;
+            self.lit_sum = sum(&self.lit_freq);
+        }
+        self.lit_length_freq = seeds.lit_length_freq;
+        self.lit_length_sum = sum(&self.lit_length_freq);
+        self.match_length_freq = seeds.match_length_freq;
+        self.match_length_sum = sum(&self.match_length_freq);
+        self.off_code_freq = seeds.off_code_freq;
+        self.off_code_sum = sum(&self.off_code_freq);
     }
 
     pub(super) fn raw_literals_cost(&self, literals: &[u8], opt_level: OptLevel) -> u32 {

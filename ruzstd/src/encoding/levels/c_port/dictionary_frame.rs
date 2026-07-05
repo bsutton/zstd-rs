@@ -14,6 +14,7 @@ pub(crate) struct DictionaryFrameContext {
     pub(crate) cctx: CctxParameters,
     pub(crate) output: Vec<u8>,
     pub(crate) frame_state: FrameBlockState,
+    pub(crate) opt_price_seeds: Option<super::opt_price::DictionaryPriceSeeds>,
 }
 
 impl DictionaryFrameContext {
@@ -34,6 +35,7 @@ impl DictionaryFrameContext {
         combined.extend_from_slice(src);
 
         let dictionary_id = (dictionary.dict_id != 0).then_some(dictionary.dict_id);
+        let opt_price_seeds = dictionary.initial_opt_price_seeds();
         let mut output = Vec::with_capacity(compress_bound(src.len()));
         write_frame_header(&mut output, src.len(), params, dictionary_id);
         let frame_state = FrameBlockState::with_dictionary(params, output.len(), &dictionary);
@@ -44,6 +46,7 @@ impl DictionaryFrameContext {
             cctx,
             output,
             frame_state,
+            opt_price_seeds,
         }
     }
 
