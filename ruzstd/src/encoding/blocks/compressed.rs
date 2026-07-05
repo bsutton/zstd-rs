@@ -176,11 +176,13 @@ pub(crate) fn compress_prepared_block_with_stats(
     // literals section
 
     let mut writer = BitWriter::from(output);
-    if should_compress_literals(
-        prepared.literals.len(),
-        previous_huff_table.is_some(),
-        config.literal_compression_min_size,
-    ) {
+    if !config.literal_compression_disabled
+        && should_compress_literals(
+            prepared.literals.len(),
+            previous_huff_table.is_some(),
+            config.literal_compression_min_size,
+        )
+    {
         let search_smallest_huffman_table = match config.huffman_table_search {
             HuffmanTableSearch::Heuristic => {
                 sequences.is_empty()

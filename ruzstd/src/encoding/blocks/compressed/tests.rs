@@ -881,6 +881,34 @@ fn literal_estimate_without_gain_uses_raw_literals_and_round_trips() {
 }
 
 #[test]
+fn disabled_literal_compression_forces_raw_even_with_previous_table() {
+    let mut literals = Vec::with_capacity(96);
+    for idx in 0..96 {
+        literals.push((idx % 3) as u8);
+    }
+    let literal_stats = LiteralStats::from_literals(&literals);
+    let previous_table = huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts());
+    let mut config = BlockCompressionConfig::for_level(CompressionLevel::Fastest);
+    config.disable_literal_compression();
+
+    let (block_payload, frame, expected) =
+        compressed_frame_with_literal_payload_and_config(literals, Some(previous_table), config);
+
+    assert_eq!(
+        block_payload[0] & 0b11,
+        0,
+        "C disabled literal compression maps directly to raw literals"
+    );
+
+    let mut rust_decoded = Vec::with_capacity(expected.len());
+    let mut decoder = crate::decoding::FrameDecoder::new();
+    decoder
+        .decode_all_to_vec(&frame, &mut rust_decoded)
+        .unwrap();
+    assert_eq!(rust_decoded, expected);
+}
+
+#[test]
 fn literal_min_gain_boundary_uses_exact_table_search_and_round_trips() {
     let len = 129usize;
     let period = 88u32;
@@ -1085,6 +1113,11 @@ fn c_strategy_literal_thresholds_match_zstd_min_literals_to_compress() {
         BlockCompressionConfig::for_c_strategy(9).literal_compression_min_size,
         8
     );
+}
+
+#[test]
+fn c_strategy_literal_compression_stays_enabled_by_default() {
+    assert!(!BlockCompressionConfig::for_c_strategy(1).literal_compression_disabled);
 }
 
 #[test]

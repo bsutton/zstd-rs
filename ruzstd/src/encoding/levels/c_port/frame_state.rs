@@ -27,12 +27,13 @@ pub(crate) struct FrameBlockState {
 
 impl FrameBlockState {
     pub(crate) fn new(params: CompressionParameters, frame_header_len: usize) -> Self {
+        let block_config = block_config(params);
         Self {
             fse_tables: FseTables::new(),
             offset_history: OffsetHistory::new(),
             last_huff_table: None,
             repeat_offsets: RepeatOffsets::new(),
-            block_config: BlockCompressionConfig::for_c_strategy(params.strategy as u8),
+            block_config,
             progress: FrameProgress::new(frame_header_len),
         }
     }
@@ -43,12 +44,13 @@ impl FrameBlockState {
         dictionary: &ParsedDictionary<'_>,
     ) -> Self {
         let offsets = dictionary.repeat_offsets.as_offsets();
+        let block_config = block_config(params);
         Self {
             fse_tables: dictionary.initial_fse_tables(),
             offset_history: OffsetHistory::from_offsets(offsets[0], offsets[1], offsets[2]),
             last_huff_table: dictionary.initial_huffman_table(),
             repeat_offsets: dictionary.repeat_offsets,
-            block_config: BlockCompressionConfig::for_c_strategy(params.strategy as u8),
+            block_config,
             progress: FrameProgress::new(frame_header_len),
         }
     }
@@ -90,5 +92,51 @@ impl FrameBlockState {
             self.last_huff_table = Some(table);
         }
         self.progress.record_block(block_size, encoded_size);
+    }
+}
+
+fn block_config(params: CompressionParameters) -> BlockCompressionConfig {
+    let mut config = BlockCompressionConfig::for_c_strategy(params.strategy as u8);
+    if params.strategy == Strategy::Fast && params.target_length > 0 {
+        config.disable_literal_compression();
+    }
+    config
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn params(strategy: Strategy, target_length: u32) -> CompressionParameters {
+        CompressionParameters {
+            window_log: 19,
+            chain_log: 12,
+            hash_log: 13,
+            search_log: 1,
+            min_match: 6,
+            target_length,
+            strategy,
+        }
+    }
+
+    #[test]
+    fn c_fast_target_length_disables_literal_compression_like_auto_mode() {
+        let config = block_config(params(Strategy::Fast, 4));
+
+        assert!(config.literal_compression_disabled());
+    }
+
+    #[test]
+    fn c_fast_zero_target_length_keeps_literal_compression_enabled() {
+        let config = block_config(params(Strategy::Fast, 0));
+
+        assert!(!config.literal_compression_disabled());
+    }
+
+    #[test]
+    fn c_non_fast_target_length_keeps_literal_compression_enabled() {
+        let config = block_config(params(Strategy::DFast, 4));
+
+        assert!(!config.literal_compression_disabled());
     }
 }

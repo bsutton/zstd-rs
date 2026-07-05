@@ -11,6 +11,7 @@ pub(super) const FILE_TYPE_SINGLE_STREAM_HUFFMAN_MAX_LITERALS: usize = 1024;
 #[derive(Clone, Copy)]
 pub(crate) struct BlockCompressionConfig {
     pub(super) huffman_table_search: HuffmanTableSearch,
+    pub(super) literal_compression_disabled: bool,
     pub(super) literal_compression_min_size: usize,
     pub(super) repeat_table_max_sequences: usize,
     pub(super) offset_table_max_log: u8,
@@ -114,6 +115,7 @@ impl BlockCompressionConfig {
         if !fastish {
             return Self {
                 huffman_table_search: HuffmanTableSearch::FileTypeSmall,
+                literal_compression_disabled: false,
                 literal_compression_min_size,
                 repeat_table_max_sequences: 64,
                 offset_table_max_log: 8,
@@ -132,6 +134,7 @@ impl BlockCompressionConfig {
 
         Self {
             huffman_table_search: HuffmanTableSearch::FileTypeSmall,
+            literal_compression_disabled: false,
             literal_compression_min_size,
             repeat_table_max_sequences: 1000,
             offset_table_max_log: 8,
@@ -191,6 +194,7 @@ impl BlockCompressionConfig {
         };
         let mut config = Self {
             huffman_table_search,
+            literal_compression_disabled: false,
             literal_compression_min_size: super::literals::COMPRESS_LITERALS_SIZE_MIN,
             repeat_table_max_sequences,
             offset_table_max_log: if matches!(file_type, CompressionFileType::DictionaryText)
@@ -270,6 +274,15 @@ impl BlockCompressionConfig {
         self.repeat_table_max_sequences = 256;
         self.offset_table_max_log = 8;
         self.exact_sequence_mode_search = true;
+    }
+
+    pub(crate) fn disable_literal_compression(&mut self) {
+        self.literal_compression_disabled = true;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn literal_compression_disabled(&self) -> bool {
+        self.literal_compression_disabled
     }
 
     fn apply_small_text_lockfile_tuning(&mut self) {
