@@ -12,9 +12,11 @@ use super::{
 #[cfg(test)]
 use crate::encoding::blocks::PreparedSequence;
 use crate::{
+    blocks::sequence_section::Sequence as EncodedSequence,
     encoding::{
         blocks::{
-            estimate_prepared_block_size, BlockCompressionConfig, PreparedBlock, PreparedBlockRef,
+            estimate_prepared_block_size_with_sequences, BlockCompressionConfig, PreparedBlock,
+            PreparedBlockRef,
         },
         frame_compressor::{FseTables, OffsetHistory},
     },
@@ -109,7 +111,17 @@ fn derive_block_splits(
     }
 
     let mut splits = Vec::new();
-    derive_block_splits_helper(&mut splits, 0, nb_seq, block, prepared, prefixes, context);
+    let mut sequence_scratch = Vec::new();
+    derive_block_splits_helper(
+        &mut splits,
+        0,
+        nb_seq,
+        block,
+        prepared,
+        prefixes,
+        context,
+        &mut sequence_scratch,
+    );
     splits.push(nb_seq);
     splits
 }
@@ -123,18 +135,40 @@ fn derive_block_splits_helper(
     prepared: &PreparedBlock,
     prefixes: &[SequencePrefix],
     context: EstimateContext<'_>,
+    sequence_scratch: &mut Vec<EncodedSequence>,
 ) {
     if end_idx - start_idx < MIN_SEQUENCES_BLOCK_SPLITTING || splits.len() >= MAX_NB_BLOCK_SPLITS {
         return;
     }
 
     let mid_idx = (start_idx + end_idx) / 2;
-    let original_size =
-        estimate_partition_size(block, prepared, prefixes, start_idx, end_idx, context);
-    let first_half_size =
-        estimate_partition_size(block, prepared, prefixes, start_idx, mid_idx, context);
-    let second_half_size =
-        estimate_partition_size(block, prepared, prefixes, mid_idx, end_idx, context);
+    let original_size = estimate_partition_size_with_sequences(
+        block,
+        prepared,
+        prefixes,
+        start_idx,
+        end_idx,
+        context,
+        sequence_scratch,
+    );
+    let first_half_size = estimate_partition_size_with_sequences(
+        block,
+        prepared,
+        prefixes,
+        start_idx,
+        mid_idx,
+        context,
+        sequence_scratch,
+    );
+    let second_half_size = estimate_partition_size_with_sequences(
+        block,
+        prepared,
+        prefixes,
+        mid_idx,
+        end_idx,
+        context,
+        sequence_scratch,
+    );
 
     if should_split(
         first_half_size,
@@ -143,10 +177,26 @@ fn derive_block_splits_helper(
         context.strategy,
     ) {
         derive_block_splits_helper(
-            splits, start_idx, mid_idx, block, prepared, prefixes, context,
+            splits,
+            start_idx,
+            mid_idx,
+            block,
+            prepared,
+            prefixes,
+            context,
+            sequence_scratch,
         );
         splits.push(mid_idx);
-        derive_block_splits_helper(splits, mid_idx, end_idx, block, prepared, prefixes, context);
+        derive_block_splits_helper(
+            splits,
+            mid_idx,
+            end_idx,
+            block,
+            prepared,
+            prefixes,
+            context,
+            sequence_scratch,
+        );
     }
 }
 
@@ -178,18 +228,40 @@ fn estimate_partition_size(
     end_seq: usize,
     context: EstimateContext<'_>,
 ) -> usize {
+    let mut sequences = Vec::new();
+    estimate_partition_size_with_sequences(
+        block,
+        prepared,
+        prefixes,
+        start_seq,
+        end_seq,
+        context,
+        &mut sequences,
+    )
+}
+
+fn estimate_partition_size_with_sequences(
+    block: &[u8],
+    prepared: &PreparedBlock,
+    prefixes: &[SequencePrefix],
+    start_seq: usize,
+    end_seq: usize,
+    context: EstimateContext<'_>,
+    sequences: &mut Vec<EncodedSequence>,
+) -> usize {
     let chunk = prepared_chunk_ref(block, prepared, prefixes, start_seq, end_seq);
     if chunk.source.is_empty() {
         return 3;
     }
 
-    estimate_prepared_block_size(
+    estimate_prepared_block_size_with_sequences(
         context.config,
         chunk.prepared,
         context.fse_tables,
         context.offset_history,
         context.previous_huff_table,
         context.previous_huff_table.is_some(),
+        sequences,
     )
 }
 

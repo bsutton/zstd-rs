@@ -66,6 +66,16 @@ pub(super) fn encode_sequences_for_history(
     offset_history: &mut OffsetHistory,
 ) -> Vec<crate::blocks::sequence_section::Sequence> {
     let mut encoded = Vec::with_capacity(sequences.len());
+    encode_sequences_for_history_into(sequences, offset_history, &mut encoded);
+    encoded
+}
+
+pub(super) fn encode_sequences_for_history_into(
+    sequences: &[PreparedSequence],
+    offset_history: &mut OffsetHistory,
+    encoded: &mut Vec<crate::blocks::sequence_section::Sequence>,
+) {
+    encoded.clear();
     for sequence in sequences {
         let of = if let Some(offset_value) = sequence.encoded_offset_value {
             offset_history.update_from_offset_value(offset_value, sequence.ll, sequence.raw_offset);
@@ -79,7 +89,6 @@ pub(super) fn encode_sequences_for_history(
             of,
         });
     }
-    encoded
 }
 
 #[inline(always)]

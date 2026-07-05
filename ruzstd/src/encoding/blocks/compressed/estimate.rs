@@ -20,7 +20,7 @@ use super::{
         compressed_literals_header_len, compressed_literals_size_format,
         suspect_uncompressible_literals, LiteralStats,
     },
-    sequence_bitstream::{encode_seqnum, encode_sequences_for_history},
+    sequence_bitstream::encode_sequences_for_history_into,
     sequence_codes::{encode_literal_length, encode_match_len, encode_offset},
     sequence_cost::{cross_entropy_cost, repeat_table_cost, CodeCounts},
     sequence_tables::{
@@ -31,16 +31,17 @@ use super::{
 
 const ZSTD_BLOCK_HEADER_SIZE: usize = 3;
 
-pub(crate) fn estimate_prepared_block_size(
+pub(crate) fn estimate_prepared_block_size_with_sequences(
     config: BlockCompressionConfig,
     prepared: PreparedBlockRef<'_>,
     fse_tables: &FseTables,
     offset_history: OffsetHistory,
     previous_huff_table: Option<&huff0_encoder::HuffmanTable>,
     previous_huff_table_is_valid: bool,
+    sequences: &mut Vec<Sequence>,
 ) -> usize {
     let mut next_offset_history = offset_history;
-    let sequences = encode_sequences_for_history(prepared.sequences, &mut next_offset_history);
+    encode_sequences_for_history_into(prepared.sequences, &mut next_offset_history, sequences);
     let literal_size = estimate_literal_section_size(
         prepared.literals,
         previous_huff_table,
@@ -48,8 +49,12 @@ pub(crate) fn estimate_prepared_block_size(
         config,
         sequences.len(),
     );
-    let sequence_size =
-        estimate_sequence_section_size(&sequences, prepared.literals.len(), config, fse_tables);
+    let sequence_size = estimate_sequence_section_size(
+        sequences.as_slice(),
+        prepared.literals.len(),
+        config,
+        fse_tables,
+    );
     ZSTD_BLOCK_HEADER_SIZE + literal_size + sequence_size
 }
 
@@ -242,11 +247,12 @@ fn estimate_sequence_section_size(
 }
 
 fn sequence_header_size(seqnum: usize) -> usize {
-    let mut bytes = Vec::new();
-    let mut writer = BitWriter::from(&mut bytes);
-    encode_seqnum(seqnum, &mut writer);
-    writer.flush();
-    bytes.len()
+    match seqnum {
+        1..=127 => 1,
+        128..=0x7fff => 2,
+        0x8000..=0x17eff => 3,
+        _ => unreachable!("sequence count must fit zstd block limits"),
+    }
 }
 
 fn table_definition_size(mode: &FseTableMode<'_>) -> usize {
