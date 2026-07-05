@@ -130,6 +130,9 @@ fn test_frame_decoder() {
     frame_dec
         .decode_blocks(&mut content, BlockDecodingStrategy::All)
         .unwrap();
+    let decoded_size = frame_dec.decoded_size();
+    let decoded = frame_dec.collect().expect("decoded bytes");
+    assert_eq!(decoded_size as usize, decoded.len());
 }
 
 #[test]

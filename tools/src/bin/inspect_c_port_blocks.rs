@@ -9,8 +9,8 @@ use ruzstd::encoding::compress_slice_c_level;
 use zstd_rs_tools::{
     benchmark_tmp,
     block_inspect::{
-        inspect_frame, BlockInfo, BlockType, CompressedSectionInfo, LiteralSectionType,
-        SequenceMode,
+        inspect_frame_with_decoded_sizes, BlockInfo, BlockType, CompressedSectionInfo,
+        LiteralSectionType, SequenceMode,
     },
     has_flag, parse_value, require_value, run_command_silent, verify_decoded_matches,
 };
@@ -68,8 +68,8 @@ fn main() -> io::Result<()> {
     )?;
     verify_decoded_matches(&args.zstd_bin, &c_output, &args.input)?;
 
-    let rust = inspect_frame(&fs::read(&rust_output)?)?;
-    let c = inspect_frame(&fs::read(&c_output)?)?;
+    let rust = inspect_frame_with_decoded_sizes(&fs::read(&rust_output)?)?;
+    let c = inspect_frame_with_decoded_sizes(&fs::read(&c_output)?)?;
 
     println!(
         "input={} level={} c_mode={} rust_bytes={} c_bytes={}",
@@ -193,12 +193,14 @@ fn print_blocks(label: &str, blocks: &[BlockInfo]) {
     print_section_summary(label, blocks);
     for block in blocks.iter().take(24) {
         println!(
-            "{label},{},{},{:?},{},{}{}",
+            "{label},{},{},{:?},{},{},{},{}{}",
             block.index,
             block.offset,
             block.block_type,
             block.last,
             block.content_size,
+            source_offset_label(block),
+            decompressed_size_label(block),
             section_suffix(block.section_info.as_ref())
         );
     }
@@ -309,25 +311,70 @@ fn print_comparison(rust: &[BlockInfo], c: &[BlockInfo]) {
     let common_abs_content_delta = (0..common)
         .map(|idx| rust[idx].content_size.abs_diff(c[idx].content_size))
         .sum::<usize>();
+    let common_source_delta = (0..common)
+        .filter_map(|idx| {
+            Some(rust[idx].decompressed_size? as i64 - c[idx].decompressed_size? as i64)
+        })
+        .sum::<i64>();
+    let common_abs_source_delta = (0..common)
+        .filter_map(|idx| {
+            Some(
+                rust[idx]
+                    .decompressed_size?
+                    .abs_diff(c[idx].decompressed_size?),
+            )
+        })
+        .sum::<usize>();
     let type_diffs = (0..common)
         .filter(|&idx| rust[idx].block_type != c[idx].block_type)
         .count();
     let first_diff = (0..common).find(|&idx| {
-        rust[idx].block_type != c[idx].block_type || rust[idx].content_size != c[idx].content_size
+        rust[idx].block_type != c[idx].block_type
+            || rust[idx].content_size != c[idx].content_size
+            || rust[idx].source_offset != c[idx].source_offset
+            || rust[idx].decompressed_size != c[idx].decompressed_size
+    });
+    let first_source_diff = (0..common).find(|&idx| {
+        rust[idx].source_offset != c[idx].source_offset
+            || rust[idx].decompressed_size != c[idx].decompressed_size
     });
     println!(
-        "summary: common_blocks={common} block_count_delta={} content_delta={} abs_content_delta={} type_diffs={type_diffs}",
+        "summary: common_blocks={common} block_count_delta={} content_delta={} abs_content_delta={} source_delta={} abs_source_delta={} type_diffs={type_diffs}",
         rust.len() as isize - c.len() as isize,
         common_content_delta,
         common_abs_content_delta,
+        common_source_delta,
+        common_abs_source_delta,
     );
     match first_diff {
         Some(idx) => println!(
-            "first_diff={idx} rust={:?}/{} c={:?}/{}",
-            rust[idx].block_type, rust[idx].content_size, c[idx].block_type, c[idx].content_size
+            "first_diff={idx} rust={:?}/{}/{}/{} c={:?}/{}/{}/{}",
+            rust[idx].block_type,
+            rust[idx].content_size,
+            source_offset_label(&rust[idx]),
+            decompressed_size_label(&rust[idx]),
+            c[idx].block_type,
+            c[idx].content_size,
+            source_offset_label(&c[idx]),
+            decompressed_size_label(&c[idx])
         ),
         None if rust.len() == c.len() => println!("first_diff=none"),
         None => println!("first_diff=block_count rust={} c={}", rust.len(), c.len()),
+    }
+    match first_source_diff {
+        Some(idx) => println!(
+            "first_source_diff={idx} rust={}/{} c={}/{}",
+            source_offset_label(&rust[idx]),
+            decompressed_size_label(&rust[idx]),
+            source_offset_label(&c[idx]),
+            decompressed_size_label(&c[idx])
+        ),
+        None if rust.len() == c.len() => println!("first_source_diff=none"),
+        None => println!(
+            "first_source_diff=block_count rust={} c={}",
+            rust.len(),
+            c.len()
+        ),
     }
     print_largest_block_deltas(rust, c);
 }
@@ -339,8 +386,12 @@ fn print_largest_block_deltas(rust: &[BlockInfo], c: &[BlockInfo]) {
             let rust_block = rust[index].clone();
             let c_block = c[index].clone();
             let delta = rust_block.content_size as i64 - c_block.content_size as i64;
+            let source_delta = match (rust_block.decompressed_size, c_block.decompressed_size) {
+                (Some(rust_size), Some(c_size)) => rust_size as i64 - c_size as i64,
+                _ => 0,
+            };
             let type_changed = rust_block.block_type != c_block.block_type;
-            (delta != 0 || type_changed).then(|| BlockDelta {
+            (delta != 0 || source_delta != 0 || type_changed).then(|| BlockDelta {
                 index,
                 delta,
                 abs_delta: rust_block.content_size.abs_diff(c_block.content_size),
@@ -363,14 +414,19 @@ fn print_largest_block_deltas(rust: &[BlockInfo], c: &[BlockInfo]) {
     }
     for delta in deltas.into_iter().take(12) {
         println!(
-            "delta,{},{},{:?},{},{},{:?},{},{}{}",
+            "delta,{},{},{},{:?},{},{},{},{},{:?},{},{},{},{}{}",
             delta.index,
             delta.delta,
+            source_delta(&delta.rust, &delta.c),
             delta.rust.block_type,
             delta.rust.content_size,
+            source_offset_label(&delta.rust),
+            decompressed_size_label(&delta.rust),
             describe_section(delta.rust.section_info.as_ref()),
             delta.c.block_type,
             delta.c.content_size,
+            source_offset_label(&delta.c),
+            decompressed_size_label(&delta.c),
             describe_section(delta.c.section_info.as_ref()),
             if delta.rust.block_type == delta.c.block_type {
                 ""
@@ -378,6 +434,27 @@ fn print_largest_block_deltas(rust: &[BlockInfo], c: &[BlockInfo]) {
                 ",type_changed"
             }
         );
+    }
+}
+
+fn source_offset_label(block: &BlockInfo) -> String {
+    block
+        .source_offset
+        .map(|offset| offset.to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn decompressed_size_label(block: &BlockInfo) -> String {
+    block
+        .decompressed_size
+        .map(|size| size.to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn source_delta(rust: &BlockInfo, c: &BlockInfo) -> i64 {
+    match (rust.decompressed_size, c.decompressed_size) {
+        (Some(rust_size), Some(c_size)) => rust_size as i64 - c_size as i64,
+        _ => 0,
     }
 }
 

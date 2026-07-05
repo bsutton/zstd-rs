@@ -82,6 +82,7 @@ struct FrameDecoderState {
     frame_finished: bool,
     block_counter: usize,
     bytes_read_counter: u64,
+    decoded_size_counter: u64,
     check_sum: Option<u32>,
     using_dict: Option<u32>,
 }
@@ -102,6 +103,7 @@ impl FrameDecoderState {
             block_counter: 0,
             decoder_scratch: DecoderScratch::new(window_size as usize),
             bytes_read_counter: u64::from(header_size),
+            decoded_size_counter: 0,
             check_sum: None,
             using_dict: None,
         })
@@ -122,6 +124,7 @@ impl FrameDecoderState {
         self.block_counter = 0;
         self.decoder_scratch.reset(window_size as usize);
         self.bytes_read_counter = u64::from(header_size);
+        self.decoded_size_counter = 0;
         self.check_sum = None;
         self.using_dict = None;
         Ok(())
@@ -242,6 +245,15 @@ impl FrameDecoder {
         state.bytes_read_counter
     }
 
+    /// Counter for how many bytes have been produced while decoding the frame.
+    pub fn decoded_size(&self) -> u64 {
+        let state = match &self.state {
+            None => return 0,
+            Some(s) => s,
+        };
+        state.decoded_size_counter
+    }
+
     /// Whether the current frames last block has been decoded yet
     /// If this returns true you can call the drain* functions to get all content
     /// (the read() function will drain automatically if this returns true)
@@ -299,10 +311,13 @@ impl FrameDecoder {
                 block_header.decompressed_size
             );
 
+            let decoded_size_before_block = state.decoder_scratch.buffer.len();
             let bytes_read_in_block_body = block_dec
                 .decode_block_content(&block_header, &mut state.decoder_scratch, &mut source)
                 .map_err(err::FailedToReadBlockBody)?;
             state.bytes_read_counter += bytes_read_in_block_body;
+            state.decoded_size_counter +=
+                (state.decoder_scratch.buffer.len() - decoded_size_before_block) as u64;
 
             state.block_counter += 1;
 

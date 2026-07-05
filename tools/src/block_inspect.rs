@@ -1,5 +1,7 @@
 use std::io;
 
+use ruzstd::decoding::{BlockDecodingStrategy, FrameDecoder};
+
 const ZSTD_MAGIC: u32 = 0xfd2f_b528;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,6 +19,8 @@ pub struct BlockInfo {
     pub block_type: BlockType,
     pub last: bool,
     pub content_size: usize,
+    pub decompressed_size: Option<usize>,
+    pub source_offset: Option<usize>,
     pub section_info: Option<CompressedSectionInfo>,
 }
 
@@ -94,6 +98,8 @@ pub fn inspect_frame(encoded: &[u8]) -> io::Result<Vec<BlockInfo>> {
             block_type,
             last,
             content_size,
+            decompressed_size: None,
+            source_offset: None,
             section_info: if block_type == BlockType::Compressed {
                 Some(inspect_compressed_sections(
                     &encoded[offset..offset + content_size],
@@ -107,6 +113,29 @@ pub fn inspect_frame(encoded: &[u8]) -> io::Result<Vec<BlockInfo>> {
             break;
         }
     }
+    Ok(blocks)
+}
+
+pub fn inspect_frame_with_decoded_sizes(encoded: &[u8]) -> io::Result<Vec<BlockInfo>> {
+    let mut blocks = inspect_frame(encoded)?;
+    let mut decoder = FrameDecoder::new();
+    let mut source = encoded;
+    decoder
+        .reset(&mut source)
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+
+    let mut source_offset = 0usize;
+    for block in &mut blocks {
+        let decoded_before = decoder.decoded_size();
+        decoder
+            .decode_blocks(&mut source, BlockDecodingStrategy::UptoBlocks(1))
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+        let decompressed_size = (decoder.decoded_size() - decoded_before) as usize;
+        block.source_offset = Some(source_offset);
+        block.decompressed_size = Some(decompressed_size);
+        source_offset += decompressed_size;
+    }
+
     Ok(blocks)
 }
 
