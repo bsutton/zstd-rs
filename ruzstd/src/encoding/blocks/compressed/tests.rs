@@ -12,6 +12,18 @@ fn offset_history(newest: u32, second: u32, third: u32) -> OffsetHistory {
     }
 }
 
+fn literal_options(
+    search_smallest_table: bool,
+    suspect_uncompressible: bool,
+) -> LiteralCompressionOptions {
+    LiteralCompressionOptions {
+        search_smallest_table,
+        force_single_stream_max_literals: None,
+        suspect_uncompressible,
+        c_literal_cost_model: false,
+    }
+}
+
 #[test]
 fn legacy_decoder_guard_rejects_tiny_encoded_sequence_section() {
     assert!(should_emit_raw_for_legacy_decoder(2, 1));
@@ -360,9 +372,7 @@ fn suspect_literal_sampling_uses_raw_literals_before_full_histogram() {
             &literals,
             None,
             false,
-            true,
-            None,
-            true,
+            literal_options(true, true),
             &mut sampled_writer,
         )
     };
@@ -377,7 +387,13 @@ fn suspect_literal_sampling_uses_raw_literals_before_full_histogram() {
     let mut full_output = Vec::new();
     let full_table = {
         let mut full_writer = BitWriter::from(&mut full_output);
-        compress_literals(&literals, None, false, true, None, false, &mut full_writer)
+        compress_literals(
+            &literals,
+            None,
+            false,
+            literal_options(true, false),
+            &mut full_writer,
+        )
     };
 
     assert!(full_table.is_some());
@@ -1131,6 +1147,12 @@ fn c_strategy_literal_thresholds_match_zstd_min_literals_to_compress() {
 #[test]
 fn c_strategy_literal_compression_stays_enabled_by_default() {
     assert!(!BlockCompressionConfig::for_c_strategy(1).literal_compression_disabled);
+}
+
+#[test]
+fn c_strategy_uses_c_literal_cost_model() {
+    assert!(BlockCompressionConfig::for_c_strategy(9).c_literal_cost_model);
+    assert!(!BlockCompressionConfig::for_level(CompressionLevel::Best).c_literal_cost_model);
 }
 
 #[test]

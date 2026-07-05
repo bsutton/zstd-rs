@@ -13,7 +13,7 @@ use config::HuffmanTableSearch;
 pub(crate) use estimate::estimate_prepared_block_size;
 use literals::{
     compress_literals, raw_literals, should_compress_literals, suspect_uncompressible_literals,
-    COMPRESS_LITERALS_SIZE_MIN,
+    LiteralCompressionOptions, COMPRESS_LITERALS_SIZE_MIN,
 };
 #[cfg(test)]
 use literals::{
@@ -225,9 +225,16 @@ pub(crate) fn compress_prepared_block_with_stats(
             prepared.literals,
             previous_huff_table,
             previous_huff_table_is_valid,
-            search_smallest_huffman_table,
-            config.file_type_single_stream_huffman_max_literals,
-            suspect_uncompressible_literals(prepared.literals.len(), sequences.len()),
+            LiteralCompressionOptions {
+                search_smallest_table: search_smallest_huffman_table,
+                force_single_stream_max_literals: config
+                    .file_type_single_stream_huffman_max_literals,
+                suspect_uncompressible: suspect_uncompressible_literals(
+                    prepared.literals.len(),
+                    sequences.len(),
+                ),
+                c_literal_cost_model: config.c_literal_cost_model,
+            },
             &mut writer,
         ) {
             result.new_huffman_table = Some(table);

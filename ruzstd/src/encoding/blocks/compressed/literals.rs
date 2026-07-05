@@ -69,20 +69,19 @@ pub(super) fn compress_literals(
     literals: &[u8],
     last_table: Option<&huff0_encoder::HuffmanTable>,
     previous_table_is_valid: bool,
-    search_smallest_table: bool,
-    force_single_stream_max_literals: Option<usize>,
-    suspect_uncompressible: bool,
+    options: LiteralCompressionOptions,
     writer: &mut BitWriter<&mut Vec<u8>>,
 ) -> Option<huff0_encoder::HuffmanTable> {
     let reset_idx = writer.index();
 
-    if suspect_uncompressible && sampled_literals_likely_incompressible(literals) {
+    if options.suspect_uncompressible && sampled_literals_likely_incompressible(literals) {
         raw_literals(literals, writer);
         return None;
     }
 
-    let force_single_stream =
-        force_single_stream_max_literals.is_some_and(|max_literals| literals.len() <= max_literals);
+    let force_single_stream = options
+        .force_single_stream_max_literals
+        .is_some_and(|max_literals| literals.len() <= max_literals);
     let (size_format, size_bits) =
         compressed_literals_size_format(literals.len(), force_single_stream);
     let four_streams = size_format != 0;
@@ -100,7 +99,7 @@ pub(super) fn compress_literals(
     }
 
     let header_len = compressed_literals_header_len(size_format);
-    let new_encoder_table = if search_smallest_table {
+    let new_encoder_table = if options.search_smallest_table {
         huff0_encoder::HuffmanTable::build_smallest_from_counts(
             literal_stats.counts(),
             literals,
@@ -109,7 +108,10 @@ pub(super) fn compress_literals(
     } else {
         huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts())
     };
-    let new_len = if let Some(four_stream_counts) = &four_stream_counts {
+    let new_len = if options.c_literal_cost_model {
+        c_estimated_huffman_len(&new_encoder_table, literal_stats.counts(), four_streams)
+            + table_description_len(&new_encoder_table, literal_stats.counts())
+    } else if let Some(four_stream_counts) = &four_stream_counts {
         new_encoder_table.encoded_len_from_stream_counts(four_stream_counts, true)
     } else {
         new_encoder_table.encoded_len_from_counts(literal_stats.counts(), true)
@@ -130,13 +132,17 @@ pub(super) fn compress_literals(
                 literals,
                 four_stream_counts.as_ref(),
                 new_choice,
-                force_single_stream,
                 previous_table_is_valid,
+                options,
             )
         })
         .unwrap_or(new_choice);
 
-    if !literal_estimate_has_enough_gain(choice.estimated_len, choice.header_len, literals.len()) {
+    if if options.c_literal_cost_model {
+        choice.estimated_len >= literals.len()
+    } else {
+        !literal_estimate_has_enough_gain(choice.estimated_len, choice.header_len, literals.len())
+    } {
         raw_literals(literals, writer);
         return None;
     }
@@ -161,6 +167,26 @@ pub(super) fn compress_literals(
     } else {
         None
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct LiteralCompressionOptions {
+    pub(super) search_smallest_table: bool,
+    pub(super) force_single_stream_max_literals: Option<usize>,
+    pub(super) suspect_uncompressible: bool,
+    pub(super) c_literal_cost_model: bool,
+}
+
+fn c_estimated_huffman_len(
+    table: &huff0_encoder::HuffmanTable,
+    counts: &[usize],
+    four_streams: bool,
+) -> usize {
+    table.estimated_compressed_size_from_counts(counts) + if four_streams { 6 } else { 0 }
+}
+
+fn table_description_len(table: &huff0_encoder::HuffmanTable, counts: &[usize]) -> usize {
+    table.encoded_len_from_counts(counts, true) - table.encoded_len_from_counts(counts, false)
 }
 
 pub(super) fn suspect_uncompressible_literals(literal_len: usize, sequence_count: usize) -> bool {
@@ -211,13 +237,16 @@ fn repeat_huffman_choice<'table>(
     literals: &[u8],
     four_stream_counts: Option<&[[usize; 256]; 4]>,
     new_choice: LiteralEncodingChoice<'_>,
-    force_single_stream: bool,
     previous_table_is_valid: bool,
+    options: LiteralCompressionOptions,
 ) -> Option<LiteralEncodingChoice<'table>> {
     if !previous_table.can_encode_counts(literal_stats.counts()) {
         return None;
     }
 
+    let force_single_stream = options
+        .force_single_stream_max_literals
+        .is_some_and(|max_literals| literals.len() <= max_literals);
     let (size_format, size_bits) = compressed_literals_repeat_size_format(
         literals.len(),
         force_single_stream,
@@ -225,7 +254,9 @@ fn repeat_huffman_choice<'table>(
     );
     let header_len = compressed_literals_header_len(size_format);
     let four_streams = size_format != 0;
-    let estimated_len = if four_streams {
+    let estimated_len = if options.c_literal_cost_model {
+        c_estimated_huffman_len(previous_table, literal_stats.counts(), four_streams)
+    } else if four_streams {
         if let Some(four_stream_counts) = four_stream_counts {
             previous_table.encoded_len_from_stream_counts(four_stream_counts, false)
         } else {
@@ -234,9 +265,16 @@ fn repeat_huffman_choice<'table>(
     } else {
         previous_table.encoded_len_from_counts(literal_stats.counts(), false)
     };
-    if estimated_len < literals.len()
-        && estimated_len + header_len <= new_choice.total_estimated_len()
-    {
+    let use_previous = if options.c_literal_cost_model {
+        estimated_len < literals.len()
+            && (estimated_len <= new_choice.estimated_len
+                || table_description_len(new_choice.encoder_table, literal_stats.counts()) + 12
+                    >= literals.len())
+    } else {
+        estimated_len < literals.len()
+            && estimated_len + header_len <= new_choice.total_estimated_len()
+    };
+    if use_previous {
         Some(LiteralEncodingChoice {
             encoder_table: previous_table,
             new_table: false,
