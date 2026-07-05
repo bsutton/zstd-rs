@@ -3,9 +3,8 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use super::block_policy::{
-    compressed_block_is_worthwhile, should_skip_sequence_build, BlockEncodingPolicy,
-};
+use super::block_emit::{append_prepared_block_or_raw, PreparedBlockEmission};
+use super::block_policy::{should_skip_sequence_build, BlockEncodingPolicy};
 use super::greedy::{
     compress_block_btlazy2_no_dict_with_state_and_loaded_dict,
     compress_block_greedy_no_dict_with_state_and_loaded_dict,
@@ -15,13 +14,9 @@ use super::greedy::{
 use super::params::CompressionParameters;
 use super::sequence_store::RepeatOffsets;
 use crate::{
-    common::MAX_BLOCK_SIZE,
     encoding::{
         block_header::BlockHeader,
-        blocks::{
-            compress_prepared_block_with_stats, BlockCompressionConfig, PreparedBlock,
-            PreparedSequence,
-        },
+        blocks::{BlockCompressionConfig, PreparedBlock, PreparedSequence},
         frame_compressor::{FseTableSnapshot, FseTables, OffsetHistory},
     },
     huff0::huff0_encoder::HuffmanTable,
@@ -342,44 +337,30 @@ pub(super) fn encode_prepared_block(
     context: GreedyBlockEncodeContext<'_, '_>,
     mut bytes: Vec<u8>,
 ) -> GreedyEncodedBlock {
-    let block_start = bytes.len();
-    bytes.extend_from_slice(&[0; 3]);
-    let compressed_start = bytes.len();
-    let compression_result = compress_prepared_block_with_stats(
-        &mut bytes,
+    let compressed_repeat_offsets = prepared.repeat_offsets;
+    match append_prepared_block_or_raw(
+        block,
+        last_block,
+        params.strategy,
         config,
         prepared.prepared.as_ref(),
+        previous_fse,
+        previous_offsets,
+        context.previous_huff_table,
         context.fse_tables,
         context.offset_history,
-        context.previous_huff_table,
-    );
-    let compressed_size = bytes.len() - compressed_start;
-
-    if compression_result.should_emit_raw_block
-        || !compressed_block_is_worthwhile(block.len(), compressed_size, params.strategy)
-        || compressed_size > MAX_BLOCK_SIZE as usize
-    {
-        bytes.truncate(block_start);
-        context.fse_tables.restore_previous(previous_fse);
-        *context.offset_history = previous_offsets;
-        write_raw_block(last_block, block.len() as u32, block, &mut bytes);
-        GreedyEncodedBlock {
+        &mut bytes,
+    ) {
+        PreparedBlockEmission::Raw => GreedyEncodedBlock {
             bytes,
             repeat_offsets,
             new_huffman_table: None,
-        }
-    } else {
-        let header = BlockHeader {
-            last_block,
-            block_type: crate::blocks::block::BlockType::Compressed,
-            block_size: compressed_size as u32,
-        };
-        bytes[block_start..compressed_start].copy_from_slice(&header.serialize_to_bytes());
-        GreedyEncodedBlock {
+        },
+        PreparedBlockEmission::Compressed { new_huffman_table } => GreedyEncodedBlock {
             bytes,
-            repeat_offsets: prepared.repeat_offsets,
-            new_huffman_table: compression_result.new_huffman_table,
-        }
+            repeat_offsets: compressed_repeat_offsets,
+            new_huffman_table,
+        },
     }
 }
 
