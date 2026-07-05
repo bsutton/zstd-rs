@@ -232,9 +232,7 @@ fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
                     best_length = len;
                     matches.clear();
                     matches.push(OptMatch {
-                        off_base: OffBase::from_offset((ip - match_index3) as u32)
-                            .expect("hash3 match has non-zero offset")
-                            .to_c_value(),
+                        off_base: OffBase::offset_to_c_value((ip - match_index3) as u32),
                         len: len as u32,
                     });
                     if len > sufficient_len || ip + len == block_end {
@@ -265,9 +263,7 @@ fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
             }
             best_length = match_length;
             matches.push(OptMatch {
-                off_base: OffBase::from_offset((ip - match_index) as u32)
-                    .expect("binary-tree match has non-zero offset")
-                    .to_c_value(),
+                off_base: OffBase::offset_to_c_value((ip - match_index) as u32),
                 len: match_length as u32,
             });
             if match_length > ZSTD_OPT_NUM || ip + match_length == block_end {
