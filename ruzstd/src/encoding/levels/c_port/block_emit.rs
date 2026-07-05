@@ -54,7 +54,7 @@ pub(super) fn append_prepared_block_or_raw(
         fse_tables,
         offset_history,
         previous_huff_table,
-        false,
+        previous_huff_table.is_some(),
     );
     let compressed_size = output.len() - compressed_start;
 
@@ -135,6 +135,7 @@ mod tests {
             blocks::PreparedBlock,
             frame_compressor::{FseTables, OffsetHistory},
         },
+        huff0::huff0_encoder::HuffmanTable,
     };
 
     #[test]
@@ -180,5 +181,53 @@ mod tests {
         assert_eq!(header.decompressed_size, block.len() as u32);
         assert_eq!(header.content_size, 1);
         assert_eq!(output[3], b'a');
+    }
+
+    #[test]
+    fn prepared_block_reuses_previous_huffman_table() {
+        let mut block = alloc::vec![0; 512];
+        for idx in (15..block.len()).step_by(16) {
+            block[idx] = 1;
+        }
+        let previous_huff_table = HuffmanTable::build_from_counts(&literal_counts(&block));
+        let prepared = PreparedBlock {
+            literals: block.clone(),
+            sequences: Vec::new(),
+        };
+        let mut fse_tables = FseTables::new();
+        let previous_fse = fse_tables.snapshot_previous();
+        let mut offset_history = OffsetHistory::new();
+        let previous_offsets = offset_history;
+        let mut output = Vec::new();
+
+        let emission = append_prepared_block_or_raw(
+            &block,
+            true,
+            Strategy::BtUltra,
+            BlockEncodingPolicy::normal(),
+            BlockCompressionConfig::for_c_strategy(Strategy::BtUltra as u8),
+            prepared.as_ref(),
+            previous_fse,
+            previous_offsets,
+            Some(&previous_huff_table),
+            &mut fse_tables,
+            &mut offset_history,
+            &mut output,
+        );
+
+        assert!(matches!(emission, PreparedBlockEmission::Compressed { .. }));
+        assert_eq!(
+            output[3] & 0b11,
+            3,
+            "valid previous Huffman table should use treeless literals"
+        );
+    }
+
+    fn literal_counts(literals: &[u8]) -> [usize; 256] {
+        let mut counts = [0; 256];
+        for &literal in literals {
+            counts[usize::from(literal)] += 1;
+        }
+        counts
     }
 }
