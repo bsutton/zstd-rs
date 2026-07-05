@@ -85,14 +85,13 @@ impl OptMatchBounds {
         ip: usize,
         rep_offset: usize,
         min_match: u32,
-        params: CompressionParameters,
         block_end: usize,
+        window_low: usize,
     ) -> Option<usize> {
         if rep_offset == 0 || rep_offset > ip {
             return None;
         }
         let rep_index = ip - rep_offset;
-        let window_low = self.lowest_match_index(ip, params);
         if self.ext_dict {
             if rep_index >= self.dict_limit {
                 if rep_index < window_low {
@@ -216,6 +215,7 @@ pub(super) fn collect_repcode_matches(
     best_length: &mut usize,
 ) {
     let offsets = rep.as_offsets();
+    let window_low = bounds.lowest_match_index(ip, params);
     let first_rep = usize::from(ll0);
     let last_rep = 3 + usize::from(ll0);
     for rep_code in first_rep..last_rep {
@@ -225,7 +225,7 @@ pub(super) fn collect_repcode_matches(
             offsets[rep_code]
         } as usize;
         let Some(rep_len) =
-            bounds.rep_match_length(src, ip, rep_offset, min_match, params, block_end)
+            bounds.rep_match_length(src, ip, rep_offset, min_match, block_end, window_low)
         else {
             continue;
         };
