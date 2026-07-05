@@ -17,6 +17,7 @@ struct Args {
     fixtures: PathBuf,
     output_dir: PathBuf,
     zstd_bin: PathBuf,
+    c_mode: CMode,
     levels: Vec<i32>,
     runs: usize,
     limit: Option<usize>,
@@ -44,6 +45,12 @@ struct Row {
     c_cpu: f64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CMode {
+    SingleThread,
+    T1,
+}
+
 #[derive(Clone, Copy)]
 struct CpuSample {
     seconds: f64,
@@ -53,7 +60,7 @@ fn main() -> io::Result<()> {
     let args = parse_args()?;
     let rows = run_benchmarks(&args)?;
     write_csv(&args.csv_output, &rows)?;
-    write_markdown(&args.md_output, &rows, &args.csv_output)?;
+    write_markdown(&args.md_output, &rows, &args.csv_output, args.c_mode)?;
     println!("{}", args.csv_output.display());
     println!("{}", args.md_output.display());
     Ok(())
@@ -86,6 +93,7 @@ fn parse_args() -> io::Result<Args> {
             tmp.join("c-port-benchmark-output").display().to_string(),
         )),
         zstd_bin: PathBuf::from(parse_value(&raw, "--zstd-bin", "/usr/bin/zstd")),
+        c_mode: parse_c_mode(&parse_value(&raw, "--c-mode", "single-thread"))?,
         levels: parse_levels(&parse_value(&raw, "--levels", "1,3,5,8,13,16,19,22"))?,
         runs: parse_runs(&parse_value(&raw, "--runs", "3"))?,
         limit: optional_usize(&raw, "--limit")?,
@@ -108,7 +116,7 @@ fn print_help() {
     println!(
         "\
 Usage: benchmark_c_port [--fixtures DIR] [--levels CSV] [--runs N] \
-    [--limit N] [--zstd-bin PATH] [--output-dir DIR] [--csv-output PATH] \
+    [--limit N] [--zstd-bin PATH] [--c-mode MODE] [--output-dir DIR] [--csv-output PATH] \
     [--md-output PATH] [--no-sync] [--keep-outputs]
 
 Options:
@@ -117,6 +125,7 @@ Options:
   --runs N          Timed runs per fixture and level.
   --limit N         Limit fixture count after sorting by path.
   --zstd-bin PATH   Path to the C zstd binary.
+  --c-mode MODE     C zstd mode: single-thread or t1. Default single-thread.
   --output-dir DIR  Temporary directory for compressed outputs.
   --csv-output PATH CSV output path.
   --md-output PATH  Markdown output path.
@@ -124,6 +133,17 @@ Options:
   --keep-outputs    Keep compressed outputs for inspection.
   -h, --help        Show this help message."
     );
+}
+
+fn parse_c_mode(raw: &str) -> io::Result<CMode> {
+    match raw {
+        "single-thread" => Ok(CMode::SingleThread),
+        "t1" | "T1" => Ok(CMode::T1),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unsupported --c-mode {raw:?}; expected single-thread or t1"),
+        )),
+    }
 }
 
 fn parse_runs(raw: &str) -> io::Result<usize> {
@@ -196,7 +216,13 @@ fn run_benchmarks(args: &Args) -> io::Result<Vec<Row>> {
             verify_decoded_matches(&args.zstd_bin, &rust_output, &fixture.path)?;
             remove_output_unless_kept(&rust_output, args.keep_outputs)?;
 
-            run_c_zstd(&args.zstd_bin, *level, &fixture.path, &c_output)?;
+            run_c_zstd(
+                &args.zstd_bin,
+                args.c_mode,
+                *level,
+                &fixture.path,
+                &c_output,
+            )?;
             verify_decoded_matches(&args.zstd_bin, &c_output, &fixture.path)?;
             remove_output_unless_kept(&c_output, args.keep_outputs)?;
 
@@ -220,8 +246,13 @@ fn run_benchmarks(args: &Args) -> io::Result<Vec<Row>> {
                 remove_output_unless_kept(&rust_output, args.keep_outputs)?;
 
                 sync_if_requested(args.no_sync)?;
-                let (c_wall, c_cpu) =
-                    run_c_zstd_timed(&args.zstd_bin, *level, &fixture.path, &c_output)?;
+                let (c_wall, c_cpu) = run_c_zstd_timed(
+                    &args.zstd_bin,
+                    args.c_mode,
+                    *level,
+                    &fixture.path,
+                    &c_output,
+                )?;
                 verify_decoded_matches(&args.zstd_bin, &c_output, &fixture.path)?;
                 c_bytes = fs::metadata(&c_output)?.len();
                 remove_output_unless_kept(&c_output, args.keep_outputs)?;
@@ -297,9 +328,17 @@ fn collect_fixture_paths(path: &Path, paths: &mut Vec<PathBuf>) -> io::Result<()
     Ok(())
 }
 
-fn run_c_zstd(zstd_bin: &Path, level: i32, input: &Path, output: &Path) -> io::Result<()> {
+fn run_c_zstd(
+    zstd_bin: &Path,
+    mode: CMode,
+    level: i32,
+    input: &Path,
+    output: &Path,
+) -> io::Result<()> {
     let mut command = Command::new(zstd_bin);
-    command.args(["-q", "-f", "--single-thread", "--no-check"]);
+    command.args(["-q", "-f"]);
+    command.args(mode.zstd_args());
+    command.arg("--no-check");
     command.args(zstd_cli_level_args(level));
     command.arg(input).arg("-o").arg(output);
     run_command_silent(&mut command)
@@ -307,6 +346,7 @@ fn run_c_zstd(zstd_bin: &Path, level: i32, input: &Path, output: &Path) -> io::R
 
 fn run_c_zstd_timed(
     zstd_bin: &Path,
+    mode: CMode,
     level: i32,
     input: &Path,
     output: &Path,
@@ -317,7 +357,9 @@ fn run_c_zstd_timed(
         .args(["-f", "%e\t%U\t%S", "-o"])
         .arg(&time_file)
         .arg(zstd_bin)
-        .args(["-q", "-f", "--single-thread", "--no-check"]);
+        .args(["-q", "-f"]);
+    timed.args(mode.zstd_args());
+    timed.arg("--no-check");
     timed.args(zstd_cli_level_args(level));
     timed.arg(input).arg("-o").arg(output);
     run_command_silent(&mut timed)?;
@@ -331,6 +373,22 @@ fn run_c_zstd_timed(
     let user = fields[1].parse::<f64>().unwrap_or(0.0);
     let system = fields[2].parse::<f64>().unwrap_or(0.0);
     Ok((wall, user + system))
+}
+
+impl CMode {
+    fn zstd_args(self) -> &'static [&'static str] {
+        match self {
+            Self::SingleThread => &["--single-thread"],
+            Self::T1 => &["-T1"],
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::SingleThread => "--single-thread",
+            Self::T1 => "-T1",
+        }
+    }
 }
 
 fn zstd_cli_level_args(level: i32) -> Vec<String> {
@@ -414,7 +472,7 @@ fn write_csv(path: &Path, rows: &[Row]) -> io::Result<()> {
     write_all(path, &csv)
 }
 
-fn write_markdown(path: &Path, rows: &[Row], csv_path: &Path) -> io::Result<()> {
+fn write_markdown(path: &Path, rows: &[Row], csv_path: &Path, c_mode: CMode) -> io::Result<()> {
     let headers = [
         "Fixture",
         "Lvl",
@@ -462,7 +520,10 @@ fn write_markdown(path: &Path, rows: &[Row], csv_path: &Path) -> io::Result<()> 
         String::new(),
         format!("Source CSV: `{}`", csv_path.display()),
         String::new(),
-        "Gap is Rust compressed size versus single-threaded C zstd with frame checksums disabled; positive means Rust is larger. CPU Improvement is positive when Rust uses less CPU than C zstd. Every output is decoded with C zstd and byte-compared against the original fixture.".to_string(),
+        format!(
+            "Gap is Rust compressed size versus C zstd ({}) with frame checksums disabled; positive means Rust is larger. CPU Improvement is positive when Rust uses less CPU than C zstd. Every output is decoded with C zstd and byte-compared against the original fixture.",
+            c_mode.description()
+        ),
         String::new(),
         "```text".to_string(),
         format_row(&headers, &widths),
@@ -520,7 +581,7 @@ fn format_number(value: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::zstd_cli_level_args;
+    use super::{parse_c_mode, zstd_cli_level_args, CMode};
 
     #[test]
     fn c_level_zero_uses_cli_default() {
@@ -543,5 +604,12 @@ mod tests {
     #[test]
     fn negative_c_levels_use_fast_mode() {
         assert_eq!(zstd_cli_level_args(-5), vec!["--fast=5".to_string()]);
+    }
+
+    #[test]
+    fn parses_c_modes() {
+        assert_eq!(parse_c_mode("single-thread").unwrap(), CMode::SingleThread);
+        assert_eq!(parse_c_mode("t1").unwrap(), CMode::T1);
+        assert!(parse_c_mode("threads").is_err());
     }
 }
