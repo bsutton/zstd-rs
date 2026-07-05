@@ -7,10 +7,13 @@ use std::{
 
 use ruzstd::encoding::compress_slice_c_level;
 use zstd_rs_tools::{
-    benchmark_tmp, has_flag, parse_value, require_value, run_command_silent, verify_decoded_matches,
+    benchmark_tmp,
+    block_inspect::{
+        inspect_frame, BlockInfo, BlockType, CompressedSectionInfo, LiteralSectionType,
+        SequenceMode,
+    },
+    has_flag, parse_value, require_value, run_command_silent, verify_decoded_matches,
 };
-
-const ZSTD_MAGIC: u32 = 0xfd2f_b528;
 
 #[derive(Debug)]
 struct Args {
@@ -18,23 +21,6 @@ struct Args {
     level: i32,
     zstd_bin: PathBuf,
     output_dir: PathBuf,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum BlockType {
-    Raw,
-    Rle,
-    Compressed,
-    Reserved,
-}
-
-#[derive(Clone, Debug)]
-struct BlockInfo {
-    index: usize,
-    offset: usize,
-    block_type: BlockType,
-    last: bool,
-    content_size: usize,
 }
 
 fn main() -> io::Result<()> {
@@ -135,101 +121,6 @@ fn zstd_cli_level_arg(level: i32) -> Option<String> {
     }
 }
 
-fn inspect_frame(encoded: &[u8]) -> io::Result<Vec<BlockInfo>> {
-    let mut offset = frame_header_size(encoded)?;
-    let mut blocks = Vec::new();
-    loop {
-        if offset + 3 > encoded.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "missing block header",
-            ));
-        }
-        let header_offset = offset;
-        let raw = u32::from(encoded[offset])
-            | (u32::from(encoded[offset + 1]) << 8)
-            | (u32::from(encoded[offset + 2]) << 16);
-        offset += 3;
-
-        let last = (raw & 1) != 0;
-        let block_type = match (raw >> 1) & 0b11 {
-            0 => BlockType::Raw,
-            1 => BlockType::Rle,
-            2 => BlockType::Compressed,
-            _ => BlockType::Reserved,
-        };
-        let block_size = (raw >> 3) as usize;
-        let content_size = match block_type {
-            BlockType::Raw | BlockType::Compressed => block_size,
-            BlockType::Rle => 1,
-            BlockType::Reserved => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "reserved block type",
-                ))
-            }
-        };
-        if offset + content_size > encoded.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "truncated block payload",
-            ));
-        }
-        blocks.push(BlockInfo {
-            index: blocks.len(),
-            offset: header_offset,
-            block_type,
-            last,
-            content_size,
-        });
-        offset += content_size;
-        if last {
-            break;
-        }
-    }
-    Ok(blocks)
-}
-
-fn frame_header_size(encoded: &[u8]) -> io::Result<usize> {
-    if encoded.len() < 5 {
-        return Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "missing frame header",
-        ));
-    }
-    let magic = u32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]);
-    if magic != ZSTD_MAGIC {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("unexpected zstd magic: {magic:#x}"),
-        ));
-    }
-
-    let descriptor = encoded[4];
-    let single_segment = (descriptor & 0b0010_0000) != 0;
-    let dict_id_len = match descriptor & 0b0000_0011 {
-        0 => 0,
-        1 => 1,
-        2 => 2,
-        _ => 4,
-    };
-    let fcs_len = match descriptor >> 6 {
-        0 if single_segment => 1,
-        0 => 0,
-        1 => 2,
-        2 => 4,
-        _ => 8,
-    };
-    let header_size = 5 + usize::from(!single_segment) + dict_id_len + fcs_len;
-    if header_size > encoded.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "truncated frame header",
-        ));
-    }
-    Ok(header_size)
-}
-
 fn print_blocks(label: &str, blocks: &[BlockInfo]) {
     let compressed_bytes = blocks
         .iter()
@@ -240,14 +131,114 @@ fn print_blocks(label: &str, blocks: &[BlockInfo]) {
         "{label}: blocks={} block_bytes={compressed_bytes} raw={raw} rle={rle} compressed={compressed}",
         blocks.len(),
     );
+    print_section_summary(label, blocks);
     for block in blocks.iter().take(24) {
         println!(
-            "{label},{},{},{:?},{},{}",
-            block.index, block.offset, block.block_type, block.last, block.content_size
+            "{label},{},{},{:?},{},{}{}",
+            block.index,
+            block.offset,
+            block.block_type,
+            block.last,
+            block.content_size,
+            section_suffix(block.section_info.as_ref())
         );
     }
     if blocks.len() > 24 {
         println!("{label}: ... {} more blocks", blocks.len() - 24);
+    }
+}
+
+fn print_section_summary(label: &str, blocks: &[BlockInfo]) {
+    let mut compressed_blocks = 0usize;
+    let mut total_sequences = 0usize;
+    let mut regenerated_literals = 0usize;
+    let mut literal_payload = 0usize;
+    let mut literal_raw = 0usize;
+    let mut literal_rle = 0usize;
+    let mut literal_compressed = 0usize;
+    let mut literal_treeless = 0usize;
+    let mut ll_modes = [0usize; 4];
+    let mut of_modes = [0usize; 4];
+    let mut ml_modes = [0usize; 4];
+
+    for info in blocks
+        .iter()
+        .filter_map(|block| block.section_info.as_ref())
+    {
+        compressed_blocks += 1;
+        total_sequences += info.sequences;
+        regenerated_literals += info.literal_regenerated_size;
+        literal_payload += info.literal_payload_size;
+        match info.literal_type {
+            LiteralSectionType::Raw => literal_raw += 1,
+            LiteralSectionType::Rle => literal_rle += 1,
+            LiteralSectionType::Compressed => literal_compressed += 1,
+            LiteralSectionType::Treeless => literal_treeless += 1,
+        }
+        if let Some(mode) = info.ll_mode {
+            ll_modes[mode_index(mode)] += 1;
+        }
+        if let Some(mode) = info.of_mode {
+            of_modes[mode_index(mode)] += 1;
+        }
+        if let Some(mode) = info.ml_mode {
+            ml_modes[mode_index(mode)] += 1;
+        }
+    }
+
+    if compressed_blocks == 0 {
+        return;
+    }
+    println!(
+        "{label}: compressed_sections={compressed_blocks} total_sequences={total_sequences} regenerated_literals={regenerated_literals} literal_payload={literal_payload} literal_types=raw:{literal_raw}/rle:{literal_rle}/compressed:{literal_compressed}/treeless:{literal_treeless} ll_modes={} of_modes={} ml_modes={}",
+        mode_counts(ll_modes),
+        mode_counts(of_modes),
+        mode_counts(ml_modes),
+    );
+}
+
+fn mode_index(mode: SequenceMode) -> usize {
+    match mode {
+        SequenceMode::Predefined => 0,
+        SequenceMode::Rle => 1,
+        SequenceMode::FseCompressed => 2,
+        SequenceMode::Repeat => 3,
+    }
+}
+
+fn mode_counts(counts: [usize; 4]) -> String {
+    format!(
+        "pre:{}/rle:{}/fse:{}/rep:{}",
+        counts[0], counts[1], counts[2], counts[3]
+    )
+}
+
+fn section_suffix(info: Option<&CompressedSectionInfo>) -> String {
+    let Some(info) = info else {
+        return String::new();
+    };
+    format!(
+        ",lit={:?}/regen:{}/payload:{}/streams:{},seqs={},modes={}/{}/{}",
+        info.literal_type,
+        info.literal_regenerated_size,
+        info.literal_payload_size,
+        info.literal_streams
+            .map(|streams| streams.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        info.sequences,
+        mode_label(info.ll_mode),
+        mode_label(info.of_mode),
+        mode_label(info.ml_mode),
+    )
+}
+
+fn mode_label(mode: Option<SequenceMode>) -> &'static str {
+    match mode {
+        Some(SequenceMode::Predefined) => "pre",
+        Some(SequenceMode::Rle) => "rle",
+        Some(SequenceMode::FseCompressed) => "fse",
+        Some(SequenceMode::Repeat) => "rep",
+        None => "-",
     }
 }
 

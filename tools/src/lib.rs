@@ -6,6 +6,8 @@ use std::{
     process::{Command, Stdio},
 };
 
+pub mod block_inspect;
+
 pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
