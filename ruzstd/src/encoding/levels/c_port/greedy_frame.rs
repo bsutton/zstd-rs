@@ -98,6 +98,7 @@ fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrat
     let mut frame_state = FrameBlockState::new(params, cctx.max_block_size);
     let mut match_state = GreedyMatchState::new();
     match_state.reset_for_frame(params);
+    let mut dict_limit = 0_usize;
 
     if src.is_empty() {
         let encoded_block = encode_block_hash_chain_no_dict(
@@ -125,26 +126,47 @@ fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrat
             params.strategy,
         );
         let block_end = block_start + block_size;
+        dict_limit = streaming_dict_limit(dict_limit, block_start, params.window_log);
         let policy = FrameBlockState::block_policy(block_start == 0);
-        let encoded_block = encode_block_hash_chain_no_dict_with_state_and_policy(
-            GreedyBlockSource {
-                src,
-                block_range: block_start..block_end,
-                loaded_dict_end: 0,
-            },
-            block_end == src.len(),
-            params,
-            frame_state.block_config,
-            frame_state.repeat_offsets,
-            &mut match_state,
-            GreedyBlockEncodeContext {
-                previous_huff_table: frame_state.last_huff_table.as_ref(),
-                fse_tables: &mut frame_state.fse_tables,
-                offset_history: &mut frame_state.offset_history,
-            },
-            depth,
-            policy,
-        );
+        let block_context = GreedyBlockEncodeContext {
+            previous_huff_table: frame_state.last_huff_table.as_ref(),
+            fse_tables: &mut frame_state.fse_tables,
+            offset_history: &mut frame_state.offset_history,
+        };
+        let encoded_block = if dict_limit == 0 {
+            encode_block_hash_chain_no_dict_with_state_and_policy(
+                GreedyBlockSource {
+                    src,
+                    block_range: block_start..block_end,
+                    loaded_dict_end: 0,
+                },
+                block_end == src.len(),
+                params,
+                frame_state.block_config,
+                frame_state.repeat_offsets,
+                &mut match_state,
+                block_context,
+                depth,
+                policy,
+            )
+        } else {
+            encode_block_hash_chain_ext_dict_with_state_and_policy(
+                GreedyExtDictBlockSource {
+                    src,
+                    block_range: block_start..block_end,
+                    dict_limit,
+                    loaded_dict_end: 0,
+                },
+                block_end == src.len(),
+                params,
+                frame_state.block_config,
+                frame_state.repeat_offsets,
+                &mut match_state,
+                block_context,
+                depth,
+                policy,
+            )
+        };
         frame_state.record_encoded_block(
             block_size,
             encoded_block.bytes.len(),
@@ -264,4 +286,44 @@ fn encode_frame_hash_chain_with_dictionary(
     }
 
     context.output
+}
+
+fn streaming_dict_limit(dict_limit: usize, block_start: usize, window_log: u32) -> usize {
+    let max_distance = 1_usize << window_log;
+    // C's streaming no-dictionary path moves the previous prefix behind
+    // `dictLimit` once the active block starts beyond the match window.
+    if block_start.saturating_sub(dict_limit) > max_distance {
+        block_start
+    } else {
+        dict_limit
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::streaming_dict_limit;
+
+    #[test]
+    fn streaming_dict_limit_stays_put_within_window() {
+        assert_eq!(streaming_dict_limit(0, 1 << 21, 21), 0);
+    }
+
+    #[test]
+    fn streaming_dict_limit_advances_after_window_is_exceeded() {
+        assert_eq!(streaming_dict_limit(0, (1 << 21) + 1, 21), (1 << 21) + 1);
+    }
+
+    #[test]
+    fn streaming_dict_limit_uses_previous_limit_as_base() {
+        let previous = (1 << 21) + 1;
+
+        assert_eq!(
+            streaming_dict_limit(previous, previous + (1 << 21), 21),
+            previous
+        );
+        assert_eq!(
+            streaming_dict_limit(previous, previous + (1 << 21) + 1, 21),
+            previous + (1 << 21) + 1
+        );
+    }
 }

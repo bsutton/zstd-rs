@@ -155,9 +155,9 @@ pub(in crate::encoding::levels::c_port) fn compress_block_lazy_generic_with_stat
         }
 
         if match_length < 4 {
-            let step = ((ip - anchor) >> SEARCH_STRENGTH) + 1;
+            let (step, lazy_skipping) = lazy_miss_step(ip - anchor, bounds.ext_dict);
             ip += step;
-            state.lazy_skipping = step > LAZY_SKIPPING_STEP;
+            state.lazy_skipping = lazy_skipping;
             continue;
         }
 
@@ -380,4 +380,34 @@ fn store_sequence(
     ));
     *ip = start + match_length;
     *anchor = *ip;
+}
+
+fn lazy_miss_step(distance_from_anchor: usize, ext_dict: bool) -> (usize, bool) {
+    let raw_step = distance_from_anchor >> SEARCH_STRENGTH;
+    let step = raw_step + 1;
+    // `zstd_lazy.c` uses the incremented step for no-dict lazy skipping, but
+    // the raw pre-increment step for ext-dict lazy skipping.
+    let lazy_skipping = if ext_dict {
+        raw_step > LAZY_SKIPPING_STEP
+    } else {
+        step > LAZY_SKIPPING_STEP
+    };
+    (step, lazy_skipping)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_dict_lazy_skipping_uses_incremented_step_like_c() {
+        assert_eq!(lazy_miss_step(7 << SEARCH_STRENGTH, false), (8, false));
+        assert_eq!(lazy_miss_step(8 << SEARCH_STRENGTH, false), (9, true));
+    }
+
+    #[test]
+    fn ext_dict_lazy_skipping_uses_raw_step_like_c() {
+        assert_eq!(lazy_miss_step(8 << SEARCH_STRENGTH, true), (9, false));
+        assert_eq!(lazy_miss_step(9 << SEARCH_STRENGTH, true), (10, true));
+    }
 }
