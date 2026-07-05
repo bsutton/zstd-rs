@@ -23,6 +23,9 @@ use crate::{
 
 const MIN_SEQUENCES_BLOCK_SPLITTING: usize = 300;
 const MAX_NB_BLOCK_SPLITS: usize = 196;
+// BtUltra2 split estimates are close enough to C that a narrow tolerance keeps
+// marginal C-accepted split trees without changing lower-level strategies.
+const SPLIT_ESTIMATE_TOLERANCE: usize = 3;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn encode_split_block(
@@ -41,10 +44,13 @@ pub(super) fn encode_split_block(
         block,
         &prepared.prepared,
         &prefixes,
-        config,
-        context.fse_tables,
-        previous_offsets,
-        context.previous_huff_table,
+        EstimateContext {
+            strategy,
+            config,
+            fse_tables: context.fse_tables,
+            offset_history: previous_offsets,
+            previous_huff_table: context.previous_huff_table,
+        },
     );
     if partitions.len() <= 1 {
         return None;
@@ -98,10 +104,7 @@ fn derive_block_splits(
     block: &[u8],
     prepared: &PreparedBlock,
     prefixes: &[SequencePrefix],
-    config: BlockCompressionConfig,
-    fse_tables: &FseTables,
-    offset_history: OffsetHistory,
-    previous_huff_table: Option<&HuffmanTable>,
+    context: EstimateContext<'_>,
 ) -> Vec<usize> {
     let nb_seq = prepared.sequences.len();
     if nb_seq <= 4 {
@@ -109,20 +112,7 @@ fn derive_block_splits(
     }
 
     let mut splits = Vec::new();
-    derive_block_splits_helper(
-        &mut splits,
-        0,
-        nb_seq,
-        block,
-        prepared,
-        prefixes,
-        EstimateContext {
-            config,
-            fse_tables,
-            offset_history,
-            previous_huff_table,
-        },
-    );
+    derive_block_splits_helper(&mut splits, 0, nb_seq, block, prepared, prefixes, context);
     splits.push(nb_seq);
     splits
 }
@@ -149,7 +139,12 @@ fn derive_block_splits_helper(
     let second_half_size =
         estimate_partition_size(block, prepared, prefixes, mid_idx, end_idx, context);
 
-    if should_split(first_half_size, second_half_size, original_size) {
+    if should_split(
+        first_half_size,
+        second_half_size,
+        original_size,
+        context.strategy,
+    ) {
         derive_block_splits_helper(
             splits, start_idx, mid_idx, block, prepared, prefixes, context,
         );
@@ -158,15 +153,27 @@ fn derive_block_splits_helper(
     }
 }
 
-fn should_split(first_half_size: usize, second_half_size: usize, original_size: usize) -> bool {
-    // Rust's Huffman estimator can be a few bytes more conservative than C's
-    // `ZSTD_estimateBlockSize_literal()`. Treating ties as splittable keeps
-    // marginal C-accepted split trees from being skipped.
-    first_half_size.saturating_add(second_half_size) <= original_size
+fn should_split(
+    first_half_size: usize,
+    second_half_size: usize,
+    original_size: usize,
+    strategy: Strategy,
+) -> bool {
+    // Rust's entropy estimators can be a few bytes more conservative than C's
+    // `ZSTD_estimateBlockSize*()` helpers. Treating ties as splittable, plus a
+    // narrow BtUltra2 tolerance, keeps marginal C-accepted split trees from
+    // being skipped.
+    let tolerance = if strategy == Strategy::BtUltra2 {
+        SPLIT_ESTIMATE_TOLERANCE
+    } else {
+        0
+    };
+    first_half_size.saturating_add(second_half_size) <= original_size.saturating_add(tolerance)
 }
 
 #[derive(Clone, Copy)]
 struct EstimateContext<'a> {
+    strategy: Strategy,
     config: BlockCompressionConfig,
     fse_tables: &'a FseTables,
     offset_history: OffsetHistory,

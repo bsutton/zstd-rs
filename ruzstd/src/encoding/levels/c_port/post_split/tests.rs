@@ -102,10 +102,13 @@ fn derive_block_splits_refuses_tiny_sequence_counts() {
         &block,
         &prepared,
         &prefixes,
-        BlockCompressionConfig::for_c_strategy(7),
-        &FseTables::new(),
-        OffsetHistory::new(),
-        None,
+        EstimateContext {
+            strategy: Strategy::BtOpt,
+            config: BlockCompressionConfig::for_c_strategy(7),
+            fse_tables: &FseTables::new(),
+            offset_history: OffsetHistory::new(),
+            previous_huff_table: None,
+        },
     );
 
     assert!(splits.is_empty());
@@ -113,7 +116,9 @@ fn derive_block_splits_refuses_tiny_sequence_counts() {
 
 #[test]
 fn derive_block_splits_accepts_estimate_ties() {
-    assert!(should_split(13_292, 12_781, 26_073));
+    assert!(should_split(13_292, 12_781, 26_073, Strategy::BtOpt));
+    assert!(!should_split(13_294, 12_781, 26_073, Strategy::BtOpt));
+    assert!(should_split(13_294, 12_781, 26_073, Strategy::BtUltra2));
 }
 
 #[test]
@@ -142,10 +147,13 @@ fn derive_block_splits_finds_cheaper_halves() {
         &block,
         &prepared,
         &prefixes,
-        BlockCompressionConfig::for_c_strategy(7),
-        &FseTables::new(),
-        OffsetHistory::new(),
-        None,
+        EstimateContext {
+            strategy: Strategy::BtOpt,
+            config: BlockCompressionConfig::for_c_strategy(7),
+            fse_tables: &FseTables::new(),
+            offset_history: OffsetHistory::new(),
+            previous_huff_table: None,
+        },
     );
 
     assert!(splits.contains(&300));
@@ -168,6 +176,7 @@ fn estimate_partition_size_does_not_use_rle_emission_cost_like_c() {
         0,
         0,
         EstimateContext {
+            strategy: Strategy::BtOpt,
             config: BlockCompressionConfig::for_c_strategy(7),
             fse_tables: &FseTables::new(),
             offset_history: OffsetHistory::new(),
@@ -194,6 +203,7 @@ fn estimate_partition_size_keeps_tiny_literals_raw_like_c_entropy_stats() {
         0,
         0,
         EstimateContext {
+            strategy: Strategy::BtUltra2,
             config: BlockCompressionConfig::for_c_strategy(9),
             fse_tables: &FseTables::new(),
             offset_history: OffsetHistory::new(),
@@ -227,6 +237,7 @@ fn estimate_partition_size_does_not_cap_to_raw_block_size_like_c() {
         0,
         0,
         EstimateContext {
+            strategy: Strategy::BtOpt,
             config: BlockCompressionConfig::for_c_strategy(7),
             fse_tables: &FseTables::new(),
             offset_history: OffsetHistory::new(),
