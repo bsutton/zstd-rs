@@ -68,8 +68,13 @@ impl FrameBlockState {
         source_offset: usize,
         strategy: Strategy,
     ) -> usize {
-        // C's streaming path feeds compression in block-sized frame chunks, so
-        // pre-splitting can only subdivide the current frame chunk once.
+        if strategy >= Strategy::BtOpt {
+            return self.next_block_size(remaining, strategy);
+        }
+
+        // C's streaming path feeds lower strategies in block-sized frame
+        // chunks. Keep that shape for non-optimal levels; the one-shot optimal
+        // parser benefits from seeing the full remaining frame for pre-splits.
         let chunk_remaining = self.block_size_max - (source_offset % self.block_size_max);
         let visible_remaining = remaining.len().min(chunk_remaining);
         self.next_block_size(&remaining[..visible_remaining], strategy)
@@ -170,6 +175,17 @@ mod tests {
         assert_eq!(
             state.next_frame_chunk_block_size(&data[900..], 900, Strategy::Greedy),
             124
+        );
+    }
+
+    #[test]
+    fn optimal_frame_chunk_can_see_full_one_shot_remaining_input() {
+        let mut state = FrameBlockState::new(params(Strategy::BtOpt, 0), 1024);
+        let data = alloc::vec![0_u8; 4096];
+
+        assert_eq!(
+            state.next_frame_chunk_block_size(&data[900..], 900, Strategy::BtOpt),
+            1024
         );
     }
 
