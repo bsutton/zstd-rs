@@ -66,6 +66,7 @@ impl OptBlockState {
 
     pub(crate) fn reset_for_frame(&mut self, params: CompressionParameters) {
         self.match_state.reset_for_frame(params);
+        self.price_state.reset_for_frame();
     }
 }
 

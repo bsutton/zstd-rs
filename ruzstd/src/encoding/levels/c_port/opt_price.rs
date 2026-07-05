@@ -136,6 +136,19 @@ impl OptPriceState {
         self.dictionary_seeds = Some(Box::new(seeds));
     }
 
+    pub(super) fn reset_for_frame(&mut self) {
+        self.lit_sum = 0;
+        self.lit_length_sum = 0;
+        self.match_length_sum = 0;
+        self.off_code_sum = 0;
+        self.lit_sum_base_price = 0;
+        self.lit_length_sum_base_price = 0;
+        self.match_length_sum_base_price = 0;
+        self.off_code_sum_base_price = 0;
+        self.price_type = PriceType::Dynamic;
+        self.compressed_literals = true;
+    }
+
     pub(super) fn rescale_freqs(&mut self, src: &[u8], opt_level: OptLevel) {
         self.price_type = PriceType::Dynamic;
 

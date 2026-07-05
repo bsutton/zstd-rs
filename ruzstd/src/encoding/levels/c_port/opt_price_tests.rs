@@ -53,20 +53,7 @@ fn opt_price_updates_sequence_statistics() {
 
 #[test]
 fn opt_price_uses_dictionary_seeds_on_first_block() {
-    let mut seeds = DictionaryPriceSeeds::new();
-    for symbol in 0..DictionaryPriceSeeds::LITERAL_COUNT {
-        seeds.set_literal_freq(symbol, 1);
-    }
-    for symbol in 0..DictionaryPriceSeeds::LIT_LENGTH_COUNT {
-        seeds.set_lit_length_freq(symbol, 1);
-    }
-    for symbol in 0..DictionaryPriceSeeds::MATCH_LENGTH_COUNT {
-        seeds.set_match_length_freq(symbol, 1);
-    }
-    for symbol in 0..DictionaryPriceSeeds::OFF_CODE_COUNT {
-        seeds.set_off_code_freq(symbol, 1);
-    }
-
+    let mut seeds = uniform_dictionary_seeds();
     let ll_code = 7;
     let ml_code = 11;
     let off_code = 13;
@@ -82,4 +69,57 @@ fn opt_price_uses_dictionary_seeds_on_first_block() {
         state.frequency_snapshot(ll_code, ml_code, off_code),
         (64, 32, 16)
     );
+}
+
+#[test]
+fn opt_price_reset_for_frame_restarts_first_block_statistics_like_c() {
+    let mut state = OptPriceState::new();
+    state.rescale_freqs(b"abcabcabcabc", OptLevel::BtOpt);
+    state.update_stats(3, b"abc", OffBase::Offset(10).to_c_value(), 10);
+
+    state.reset_for_frame();
+    state.rescale_freqs(b"abcdefgh", OptLevel::BtOpt);
+
+    assert_eq!(
+        state.raw_literals_cost(b"abc", OptLevel::BtOpt),
+        3 * 6 * BITCOST_MULTIPLIER
+    );
+}
+
+#[test]
+fn opt_price_reset_for_frame_preserves_staged_dictionary_seeds() {
+    let mut seeds = uniform_dictionary_seeds();
+    let ll_code = 9;
+    let ml_code = 12;
+    let off_code = 15;
+    seeds.set_lit_length_freq(ll_code, 77);
+    seeds.set_match_length_freq(ml_code, 55);
+    seeds.set_off_code_freq(off_code, 33);
+
+    let mut state = OptPriceState::new();
+    state.set_dictionary_seeds(seeds);
+    state.reset_for_frame();
+    state.rescale_freqs(b"abcdefgh", OptLevel::BtOpt);
+
+    assert_eq!(
+        state.frequency_snapshot(ll_code, ml_code, off_code),
+        (77, 55, 33)
+    );
+}
+
+fn uniform_dictionary_seeds() -> DictionaryPriceSeeds {
+    let mut seeds = DictionaryPriceSeeds::new();
+    for symbol in 0..DictionaryPriceSeeds::LITERAL_COUNT {
+        seeds.set_literal_freq(symbol, 1);
+    }
+    for symbol in 0..DictionaryPriceSeeds::LIT_LENGTH_COUNT {
+        seeds.set_lit_length_freq(symbol, 1);
+    }
+    for symbol in 0..DictionaryPriceSeeds::MATCH_LENGTH_COUNT {
+        seeds.set_match_length_freq(symbol, 1);
+    }
+    for symbol in 0..DictionaryPriceSeeds::OFF_CODE_COUNT {
+        seeds.set_off_code_freq(symbol, 1);
+    }
+    seeds
 }
