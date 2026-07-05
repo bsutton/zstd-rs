@@ -36,3 +36,15 @@ Primary C references:
 
 Porting rule: add parity tests at the module boundary before wiring the module
 into the active encoder path.
+
+Current parity notes:
+
+- `targetCBlockSize` / superblock compression is selected by C only when
+  `ZSTD_c_targetCBlockSize` is explicitly non-zero. Normal level-based
+  compression, including the local level-16 benchmarks, uses the regular
+  block path. Treat this as a full-port gap, not as an explanation for the
+  current C comparison gap.
+- `zstd_opt.c` seeds optimal-parser literal/LL/ML/offset frequencies from
+  full-dictionary entropy tables when dictionary repeat tables are valid. The
+  Rust dictionary path already seeds block entropy tables, but the optimal
+  parser still needs a careful parity port of those price-model seeds.
