@@ -141,11 +141,18 @@ fn derive_block_splits_helper(
     let first_half_size = estimate_partition_size(block, prepared, start_idx, mid_idx, context);
     let second_half_size = estimate_partition_size(block, prepared, mid_idx, end_idx, context);
 
-    if first_half_size + second_half_size < original_size {
+    if should_split(first_half_size, second_half_size, original_size) {
         derive_block_splits_helper(splits, start_idx, mid_idx, block, prepared, context);
         splits.push(mid_idx);
         derive_block_splits_helper(splits, mid_idx, end_idx, block, prepared, context);
     }
+}
+
+fn should_split(first_half_size: usize, second_half_size: usize, original_size: usize) -> bool {
+    // Rust's Huffman estimator can be a few bytes more conservative than C's
+    // `ZSTD_estimateBlockSize_literal()`. Treating ties as splittable keeps
+    // marginal C-accepted split trees from being skipped.
+    first_half_size.saturating_add(second_half_size) <= original_size
 }
 
 #[derive(Clone, Copy)]

@@ -108,6 +108,11 @@ fn derive_block_splits_refuses_tiny_sequence_counts() {
 }
 
 #[test]
+fn derive_block_splits_accepts_estimate_ties() {
+    assert!(should_split(13_292, 12_781, 26_073));
+}
+
+#[test]
 fn derive_block_splits_finds_cheaper_halves() {
     let mut block = Vec::new();
     let mut literals = Vec::new();
