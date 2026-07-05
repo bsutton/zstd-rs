@@ -17,7 +17,7 @@ use crate::{
 use super::{
     config::HuffmanTableSearch,
     literals::{
-        compressed_literals_header_len, compressed_literals_size_format, should_compress_literals,
+        compressed_literals_header_len, compressed_literals_size_format,
         suspect_uncompressible_literals, LiteralStats,
     },
     sequence_bitstream::{encode_seqnum, encode_sequences_for_history},
@@ -58,11 +58,7 @@ fn estimate_literal_section_size(
     sequence_count: usize,
 ) -> usize {
     if config.literal_compression_disabled
-        || !should_compress_literals(
-            literals.len(),
-            previous_table.is_some(),
-            config.literal_compression_min_size,
-        )
+        || literals.len() <= estimate_min_literals_to_compress(previous_table.is_some())
     {
         return literals.len();
     }
@@ -133,6 +129,14 @@ fn estimate_literal_section_size(
         return literals.len();
     }
     new_content_size + new_table_size + compressed_literals_header_len(size_format)
+}
+
+fn estimate_min_literals_to_compress(has_previous_table: bool) -> usize {
+    if has_previous_table {
+        6
+    } else {
+        63
+    }
 }
 
 fn estimate_huffman_content_size(

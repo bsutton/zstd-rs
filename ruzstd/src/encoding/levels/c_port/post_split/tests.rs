@@ -166,6 +166,30 @@ fn estimate_partition_size_does_not_use_rle_emission_cost_like_c() {
 }
 
 #[test]
+fn estimate_partition_size_keeps_tiny_literals_raw_like_c_entropy_stats() {
+    let block = [0x44; 63];
+    let prepared = PreparedBlock {
+        literals: block.to_vec(),
+        sequences: Vec::new(),
+    };
+
+    let estimate = estimate_partition_size(
+        &block,
+        &prepared,
+        0,
+        0,
+        EstimateContext {
+            config: BlockCompressionConfig::for_c_strategy(9),
+            fse_tables: &FseTables::new(),
+            offset_history: OffsetHistory::new(),
+            previous_huff_table: None,
+        },
+    );
+
+    assert_eq!(estimate, block.len() + 5);
+}
+
+#[test]
 fn estimate_partition_size_does_not_cap_to_raw_block_size_like_c() {
     let mut block = Vec::with_capacity(1024);
     let mut state = 0x1234_5678_u32;
