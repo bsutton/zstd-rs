@@ -192,7 +192,7 @@ fn estimate_partition_size(
         context.fse_tables,
         context.offset_history,
         context.previous_huff_table,
-        false,
+        context.previous_huff_table.is_some(),
     )
 }
 
