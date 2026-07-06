@@ -1,6 +1,6 @@
 //! No-dictionary optimal parser ported from `zstd_opt.c`.
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 
 use super::{
     greedy::GreedyBlockOutput,
@@ -103,6 +103,7 @@ fn compress_block_opt_with_state_and_ldm(
     let block_end = block_range.end;
     let block_len = block_end - block_start;
     let mut sequences = Vec::new();
+    let mut path = Vec::new();
 
     if block_len <= HASH_READ_SIZE {
         return GreedyBlockOutput {
@@ -151,16 +152,17 @@ fn compress_block_opt_with_state_and_ldm(
 
         let longest = state.matches[match_count - 1];
         seed_parser_root(ip, anchor, rep, opt_level, state);
-        let path = if longest.len > sufficient_len {
+        path.clear();
+        if longest.len > sufficient_len {
             let litlen = (ip - anchor) as u32;
             rep = update_reps(rep, longest.off_base, litlen == 0);
-            vec![Optimal {
+            path.push(Optimal {
                 price: 0,
                 off: longest.off_base,
                 mlen: longest.len,
                 litlen,
                 rep,
-            }]
+            });
         } else {
             let seeded_last_pos = seed_match_prices(min_match, match_count, opt_level, state);
             let result = forward_pass(
@@ -188,10 +190,16 @@ fn compress_block_opt_with_state_and_ldm(
                 continue;
             }
 
-            select_path(result.last_pos, result.last_stretch, &mut rep, state)
-        };
+            select_path(
+                result.last_pos,
+                result.last_stretch,
+                &mut rep,
+                state,
+                &mut path,
+            );
+        }
 
-        for step in path {
+        for &step in &path {
             if step.mlen == 0 {
                 ip = anchor + step.litlen as usize;
                 continue;

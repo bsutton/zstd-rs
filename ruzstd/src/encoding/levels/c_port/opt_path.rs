@@ -11,9 +11,10 @@ pub(super) fn select_path(
     last_pos: usize,
     last_stretch: Option<Optimal>,
     rep: &mut [u32; 3],
-    state: &mut OptBlockState,
-) -> Vec<Optimal> {
-    let mut path = Vec::new();
+    state: &OptBlockState,
+    path: &mut Vec<Optimal>,
+) {
+    path.clear();
     let stretch = last_stretch.unwrap_or_else(|| state.opt[last_pos]);
     let mut cur = last_pos - stretch.mlen as usize;
 
@@ -39,7 +40,6 @@ pub(super) fn select_path(
     }
 
     path.reverse();
-    path
 }
 
 pub(super) fn update_reps(rep: [u32; 3], off_base: u32, previous_litlen_zero: bool) -> [u32; 3] {
