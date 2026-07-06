@@ -276,6 +276,12 @@ fn sequence_header_size(seqnum: usize) -> usize {
 }
 
 fn table_definition_size(mode: &FseTableMode<'_>, bytes: &mut Vec<u8>) -> usize {
+    match mode {
+        FseTableMode::Predefined(_) | FseTableMode::RepeatLast(_) => return 0,
+        FseTableMode::Rle(_) => return 1,
+        FseTableMode::Encoded(_) => {}
+    }
+
     bytes.clear();
     let mut writer = BitWriter::from(&mut *bytes);
     encode_table(mode, &mut writer);
