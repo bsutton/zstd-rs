@@ -86,50 +86,11 @@ fn insert_bt1_no_dict<const MLS: u32>(
     let mut match_end_idx = ip + 9;
     let mut best_length = 8_usize;
     let mut nb_compares = 1_usize << params.search_log;
-    // The C sources used for parity do not define `ZSTD_C_PREDICT`. Enabling
-    // it changes the binary-tree shape and can alter optimal-parser choices.
-    let prediction_enabled = false;
-    let previous_slot = tree_slot(ip.wrapping_sub(1), mask);
-    let mut predicted_smaller = if prediction_enabled {
-        nonzero_successor(state.chain_table[previous_slot])
-    } else {
-        0
-    };
-    let mut predicted_larger = if prediction_enabled {
-        nonzero_successor(state.chain_table[previous_slot + 1])
-    } else {
-        0
-    };
-
     state.hash_table[hash] = ip as u32;
 
     while nb_compares > 0 && match_index >= window_low {
         nb_compares -= 1;
         let next_slot = tree_slot(match_index, mask);
-        let predict_slot = tree_slot(match_index.wrapping_sub(1), mask);
-
-        if prediction_enabled && match_index == predicted_smaller {
-            write_tree_slot(state, smaller_slot, match_index as u32);
-            if match_index <= bt_low {
-                smaller_slot = TREE_SLOT_NONE;
-                break;
-            }
-            smaller_slot = next_slot + 1;
-            match_index = state.chain_table[next_slot + 1] as usize;
-            predicted_smaller = nonzero_successor(state.chain_table[predict_slot + 1]);
-            continue;
-        }
-        if prediction_enabled && match_index == predicted_larger {
-            write_tree_slot(state, larger_slot, match_index as u32);
-            if match_index <= bt_low {
-                larger_slot = TREE_SLOT_NONE;
-                break;
-            }
-            larger_slot = next_slot;
-            match_index = state.chain_table[next_slot] as usize;
-            predicted_larger = nonzero_successor(state.chain_table[predict_slot]);
-            continue;
-        }
 
         let mut match_length = common_smaller.min(common_larger);
         match_length += count_match_no_dict(
@@ -325,10 +286,6 @@ fn bt_mask(params: CompressionParameters) -> usize {
 #[inline(always)]
 fn tree_slot(index: usize, mask: usize) -> usize {
     2 * (index & mask)
-}
-
-fn nonzero_successor(index: u32) -> usize {
-    index as usize + usize::from(index > 0)
 }
 
 #[inline(always)]
