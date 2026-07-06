@@ -359,6 +359,7 @@ pub(super) fn collect_matches(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[inline(always)]
 pub(super) fn collect_matches_mls<const MLS: u32>(
     src: &[u8],
     ip: usize,
