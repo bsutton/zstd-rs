@@ -10,7 +10,7 @@ mod sequence_tables;
 
 pub(crate) use config::BlockCompressionConfig;
 use config::HuffmanTableSearch;
-pub(crate) use estimate::estimate_prepared_block_size_with_sequences;
+pub(crate) use estimate::{estimate_prepared_block_size_with_sequences, EstimateScratch};
 use literals::{
     compress_literals, raw_literals, should_compress_literals, suspect_uncompressible_literals,
     LiteralCompressionOptions, COMPRESS_LITERALS_SIZE_MIN,

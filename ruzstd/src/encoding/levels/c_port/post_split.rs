@@ -12,11 +12,10 @@ use super::{
 #[cfg(test)]
 use crate::encoding::blocks::PreparedSequence;
 use crate::{
-    blocks::sequence_section::Sequence as EncodedSequence,
     encoding::{
         blocks::{
-            estimate_prepared_block_size_with_sequences, BlockCompressionConfig, PreparedBlock,
-            PreparedBlockRef,
+            estimate_prepared_block_size_with_sequences, BlockCompressionConfig, EstimateScratch,
+            PreparedBlock, PreparedBlockRef,
         },
         frame_compressor::{FseTables, OffsetHistory},
     },
@@ -111,7 +110,7 @@ fn derive_block_splits(
     }
 
     let mut splits = Vec::new();
-    let mut sequence_scratch = Vec::new();
+    let mut estimate_scratch = EstimateScratch::new();
     derive_block_splits_helper(
         &mut splits,
         0,
@@ -120,7 +119,7 @@ fn derive_block_splits(
         prepared,
         prefixes,
         context,
-        &mut sequence_scratch,
+        &mut estimate_scratch,
     );
     splits.push(nb_seq);
     splits
@@ -135,7 +134,7 @@ fn derive_block_splits_helper(
     prepared: &PreparedBlock,
     prefixes: &[SequencePrefix],
     context: EstimateContext<'_>,
-    sequence_scratch: &mut Vec<EncodedSequence>,
+    estimate_scratch: &mut EstimateScratch,
 ) {
     if end_idx - start_idx < MIN_SEQUENCES_BLOCK_SPLITTING || splits.len() >= MAX_NB_BLOCK_SPLITS {
         return;
@@ -149,7 +148,7 @@ fn derive_block_splits_helper(
         start_idx,
         end_idx,
         context,
-        sequence_scratch,
+        estimate_scratch,
     );
     let first_half_size = estimate_partition_size_with_sequences(
         block,
@@ -158,7 +157,7 @@ fn derive_block_splits_helper(
         start_idx,
         mid_idx,
         context,
-        sequence_scratch,
+        estimate_scratch,
     );
     let second_half_size = estimate_partition_size_with_sequences(
         block,
@@ -167,7 +166,7 @@ fn derive_block_splits_helper(
         mid_idx,
         end_idx,
         context,
-        sequence_scratch,
+        estimate_scratch,
     );
 
     if should_split(
@@ -184,7 +183,7 @@ fn derive_block_splits_helper(
             prepared,
             prefixes,
             context,
-            sequence_scratch,
+            estimate_scratch,
         );
         splits.push(mid_idx);
         derive_block_splits_helper(
@@ -195,7 +194,7 @@ fn derive_block_splits_helper(
             prepared,
             prefixes,
             context,
-            sequence_scratch,
+            estimate_scratch,
         );
     }
 }
@@ -228,7 +227,7 @@ fn estimate_partition_size(
     end_seq: usize,
     context: EstimateContext<'_>,
 ) -> usize {
-    let mut sequences = Vec::new();
+    let mut scratch = EstimateScratch::new();
     estimate_partition_size_with_sequences(
         block,
         prepared,
@@ -236,7 +235,7 @@ fn estimate_partition_size(
         start_seq,
         end_seq,
         context,
-        &mut sequences,
+        &mut scratch,
     )
 }
 
@@ -247,7 +246,7 @@ fn estimate_partition_size_with_sequences(
     start_seq: usize,
     end_seq: usize,
     context: EstimateContext<'_>,
-    sequences: &mut Vec<EncodedSequence>,
+    scratch: &mut EstimateScratch,
 ) -> usize {
     let chunk = prepared_chunk_ref(block, prepared, prefixes, start_seq, end_seq);
     if chunk.source.is_empty() {
@@ -261,7 +260,7 @@ fn estimate_partition_size_with_sequences(
         context.offset_history,
         context.previous_huff_table,
         context.previous_huff_table.is_some(),
-        sequences,
+        scratch,
     )
 }
 

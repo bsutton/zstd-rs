@@ -31,6 +31,20 @@ use super::{
 
 const ZSTD_BLOCK_HEADER_SIZE: usize = 3;
 
+pub(crate) struct EstimateScratch {
+    sequences: Vec<Sequence>,
+    table_bytes: Vec<u8>,
+}
+
+impl EstimateScratch {
+    pub(crate) fn new() -> Self {
+        Self {
+            sequences: Vec::new(),
+            table_bytes: Vec::new(),
+        }
+    }
+}
+
 pub(crate) fn estimate_prepared_block_size_with_sequences(
     config: BlockCompressionConfig,
     prepared: PreparedBlockRef<'_>,
@@ -38,22 +52,27 @@ pub(crate) fn estimate_prepared_block_size_with_sequences(
     offset_history: OffsetHistory,
     previous_huff_table: Option<&huff0_encoder::HuffmanTable>,
     previous_huff_table_is_valid: bool,
-    sequences: &mut Vec<Sequence>,
+    scratch: &mut EstimateScratch,
 ) -> usize {
     let mut next_offset_history = offset_history;
-    encode_sequences_for_history_into(prepared.sequences, &mut next_offset_history, sequences);
+    encode_sequences_for_history_into(
+        prepared.sequences,
+        &mut next_offset_history,
+        &mut scratch.sequences,
+    );
     let literal_size = estimate_literal_section_size(
         prepared.literals,
         previous_huff_table,
         previous_huff_table_is_valid,
         config,
-        sequences.len(),
+        scratch.sequences.len(),
     );
     let sequence_size = estimate_sequence_section_size(
-        sequences.as_slice(),
+        scratch.sequences.as_slice(),
         prepared.literals.len(),
         config,
         fse_tables,
+        &mut scratch.table_bytes,
     );
     ZSTD_BLOCK_HEADER_SIZE + literal_size + sequence_size
 }
@@ -187,6 +206,7 @@ fn estimate_sequence_section_size(
     literal_len: usize,
     config: BlockCompressionConfig,
     fse_tables: &FseTables,
+    table_bytes: &mut Vec<u8>,
 ) -> usize {
     if sequences.is_empty() {
         return 2;
@@ -220,9 +240,9 @@ fn estimate_sequence_section_size(
 
     sequence_header_size(sequences.len())
         + 1
-        + table_definition_size(&ll_mode)
-        + table_definition_size(&of_mode)
-        + table_definition_size(&ml_mode)
+        + table_definition_size(&ll_mode, table_bytes)
+        + table_definition_size(&of_mode, table_bytes)
+        + table_definition_size(&ml_mode, table_bytes)
         + estimate_symbol_stream_size(
             sequences,
             &of_mode,
@@ -255,9 +275,9 @@ fn sequence_header_size(seqnum: usize) -> usize {
     }
 }
 
-fn table_definition_size(mode: &FseTableMode<'_>) -> usize {
-    let mut bytes = Vec::new();
-    let mut writer = BitWriter::from(&mut bytes);
+fn table_definition_size(mode: &FseTableMode<'_>, bytes: &mut Vec<u8>) -> usize {
+    bytes.clear();
+    let mut writer = BitWriter::from(&mut *bytes);
     encode_table(mode, &mut writer);
     writer.flush();
     bytes.len()
