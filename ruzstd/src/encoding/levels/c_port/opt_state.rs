@@ -5,7 +5,7 @@ use alloc::{vec, vec::Vec};
 use super::{
     greedy::GreedyMatchState,
     opt_match::OptMatch,
-    opt_price::{OptLevel, OptPriceState, ZSTD_MAX_PRICE},
+    opt_price::{OptPriceState, ZSTD_MAX_PRICE},
     params::CompressionParameters,
     sequence_store::RepeatOffsets,
 };
@@ -67,14 +67,5 @@ impl OptBlockState {
     pub(crate) fn reset_for_frame(&mut self, params: CompressionParameters) {
         self.match_state.reset_for_frame(params);
         self.price_state.reset_for_frame();
-    }
-}
-
-impl OptParserStrategy {
-    pub(super) fn opt_level(self) -> OptLevel {
-        match self {
-            Self::BtOpt => OptLevel::BtOpt,
-            Self::BtUltra => OptLevel::BtUltra,
-        }
     }
 }

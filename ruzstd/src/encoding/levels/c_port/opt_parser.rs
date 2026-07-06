@@ -149,6 +149,38 @@ fn compress_block_opt_with_state_and_ldm_mls<const MLS: u32>(
     repeat_offsets: RepeatOffsets,
     state: &mut OptBlockState,
     strategy: OptParserStrategy,
+    ldm_cursor: Option<&mut LdmOptCursor<'_>>,
+    bounds: OptMatchBounds,
+) -> GreedyBlockOutput {
+    match strategy {
+        OptParserStrategy::BtOpt => compress_block_opt_with_state_and_ldm_mls_level::<MLS, false>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+            ldm_cursor,
+            bounds,
+        ),
+        OptParserStrategy::BtUltra => compress_block_opt_with_state_and_ldm_mls_level::<MLS, true>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+            ldm_cursor,
+            bounds,
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compress_block_opt_with_state_and_ldm_mls_level<const MLS: u32, const ULTRA: bool>(
+    src: &[u8],
+    block_range: core::ops::Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut OptBlockState,
     mut ldm_cursor: Option<&mut LdmOptCursor<'_>>,
     bounds: OptMatchBounds,
 ) -> GreedyBlockOutput {
@@ -173,7 +205,11 @@ fn compress_block_opt_with_state_and_ldm_mls<const MLS: u32>(
     state.match_state.correct_after_long_match_gap(block_start);
     state.match_state.reset_hash3_cursor_to_primary();
     state.match_state.lazy_skipping = false;
-    let opt_level = strategy.opt_level();
+    let opt_level = if ULTRA {
+        super::opt_price::OptLevel::BtUltra
+    } else {
+        super::opt_price::OptLevel::BtOpt
+    };
     state
         .price_state
         .rescale_freqs(&src[block_range], opt_level);
@@ -207,7 +243,7 @@ fn compress_block_opt_with_state_and_ldm_mls<const MLS: u32>(
         }
 
         let longest = state.matches[match_count - 1];
-        seed_parser_root(ip, anchor, rep, opt_level, state);
+        seed_parser_root::<ULTRA>(ip, anchor, rep, state);
         path.clear();
         if longest.len > sufficient_len {
             let litlen = (ip - anchor) as u32;
@@ -220,8 +256,8 @@ fn compress_block_opt_with_state_and_ldm_mls<const MLS: u32>(
                 rep,
             });
         } else {
-            let seeded_last_pos = seed_match_prices(min_match, match_count, opt_level, state);
-            let result = forward_pass::<MLS>(
+            let seeded_last_pos = seed_match_prices::<ULTRA>(min_match, match_count, state);
+            let result = forward_pass::<MLS, ULTRA>(
                 src,
                 ip,
                 block_end,
@@ -230,7 +266,6 @@ fn compress_block_opt_with_state_and_ldm_mls<const MLS: u32>(
                 min_match,
                 sufficient_len,
                 params,
-                opt_level,
                 state,
                 block_start,
                 ldm_cursor.as_deref_mut(),

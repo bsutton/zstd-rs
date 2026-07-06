@@ -9,13 +9,13 @@ use crate::encoding::levels::c_port::{
     params::CompressionParameters,
 };
 
-pub(super) fn seed_parser_root(
+pub(super) fn seed_parser_root<const ULTRA: bool>(
     ip: usize,
     anchor: usize,
     rep: [u32; 3],
-    opt_level: OptLevel,
     state: &mut OptBlockState,
 ) {
+    let opt_level = opt_level::<ULTRA>();
     let litlen = (ip - anchor) as u32;
     state.opt[0] = Optimal {
         price: price_i32(state.price_state.lit_length_price(litlen, opt_level)),
@@ -26,12 +26,12 @@ pub(super) fn seed_parser_root(
     };
 }
 
-pub(super) fn seed_match_prices(
+pub(super) fn seed_match_prices<const ULTRA: bool>(
     min_match: u32,
     match_count: usize,
-    opt_level: OptLevel,
     state: &mut OptBlockState,
 ) -> usize {
+    let opt_level = opt_level::<ULTRA>();
     let litlen = state.opt[0].litlen;
     let rep = state.opt[0].rep;
     for pos in 1..min_match as usize {
@@ -68,7 +68,7 @@ pub(super) fn seed_match_prices(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn forward_pass<const MLS: u32>(
+pub(super) fn forward_pass<const MLS: u32, const ULTRA: bool>(
     src: &[u8],
     ip: usize,
     block_end: usize,
@@ -77,7 +77,6 @@ pub(super) fn forward_pass<const MLS: u32>(
     min_match: u32,
     sufficient_len: u32,
     params: CompressionParameters,
-    opt_level: OptLevel,
     state: &mut OptBlockState,
     block_start: usize,
     mut ldm_cursor: Option<&mut LdmOptCursor<'_>>,
@@ -90,7 +89,7 @@ pub(super) fn forward_pass<const MLS: u32>(
         if cur > ZSTD_OPT_NUM {
             break;
         }
-        update_literal_price(src, ip, block_end, cur, &mut last_pos, opt_level, state);
+        update_literal_price::<ULTRA>(src, ip, block_end, cur, &mut last_pos, state);
         refresh_node_reps(cur, state);
 
         let inr = ip + cur;
@@ -102,7 +101,7 @@ pub(super) fn forward_pass<const MLS: u32>(
         if cur == last_pos {
             break;
         }
-        if opt_level == OptLevel::BtOpt
+        if !ULTRA
             && state.opt[cur + 1].price <= state.opt[cur].price + price_i32(BITCOST_MULTIPLIER / 2)
         {
             cur += 1;
@@ -145,7 +144,7 @@ pub(super) fn forward_pass<const MLS: u32>(
             break;
         }
 
-        update_match_prices(cur, min_match, match_count, &mut last_pos, opt_level, state);
+        update_match_prices::<ULTRA>(cur, min_match, match_count, &mut last_pos, state);
         // C refreshes the sentinel after each match-price update so stale
         // prices beyond the current frontier cannot influence later literals.
         state.opt[last_pos + 1].price = ZSTD_MAX_PRICE;
@@ -158,15 +157,15 @@ pub(super) fn forward_pass<const MLS: u32>(
     }
 }
 
-fn update_literal_price(
+fn update_literal_price<const ULTRA: bool>(
     src: &[u8],
     ip: usize,
     block_end: usize,
     cur: usize,
     last_pos: &mut usize,
-    opt_level: OptLevel,
     state: &mut OptBlockState,
 ) {
+    let opt_level = opt_level::<ULTRA>();
     let previous = state.opt[cur - 1];
     let litlen = previous.litlen + 1;
     let litlen_increment = ll_increment_price(litlen, opt_level, &state.price_state);
@@ -186,16 +185,12 @@ fn update_literal_price(
             ..previous
         };
 
-        let one_literal_increment = if opt_level == OptLevel::BtUltra {
+        let one_literal_increment = if ULTRA {
             ll_increment_price(1, opt_level, &state.price_state)
         } else {
             0
         };
-        if opt_level == OptLevel::BtUltra
-            && prev_match.litlen == 0
-            && one_literal_increment < 0
-            && ip + cur < block_end
-        {
+        if ULTRA && prev_match.litlen == 0 && one_literal_increment < 0 && ip + cur < block_end {
             let next_literal_cost =
                 price_i32(state.price_state.raw_literal_cost(src[ip + cur], opt_level));
             let with_one_literal = prev_match.price + next_literal_cost + one_literal_increment;
@@ -234,14 +229,14 @@ fn refresh_node_reps(cur: usize, state: &mut OptBlockState) {
     );
 }
 
-fn update_match_prices(
+fn update_match_prices<const ULTRA: bool>(
     cur: usize,
     min_match: u32,
     match_count: usize,
     last_pos: &mut usize,
-    opt_level: OptLevel,
     state: &mut OptBlockState,
 ) {
+    let opt_level = opt_level::<ULTRA>();
     let base_price =
         state.opt[cur].price + price_i32(state.price_state.lit_length_price(0, opt_level));
     let mut previous_len = min_match;
@@ -275,7 +270,7 @@ fn update_match_prices(
                     litlen: 0,
                     rep: state.opt[cur].rep,
                 };
-            } else if opt_level == OptLevel::BtOpt {
+            } else if !ULTRA {
                 break;
             }
 
@@ -295,4 +290,13 @@ fn ll_increment_price(litlen: u32, opt_level: OptLevel, price_state: &OptPriceSt
 
 fn price_i32(price: u32) -> i32 {
     i32::try_from(price).unwrap_or(ZSTD_MAX_PRICE)
+}
+
+#[inline(always)]
+fn opt_level<const ULTRA: bool>() -> OptLevel {
+    if ULTRA {
+        OptLevel::BtUltra
+    } else {
+        OptLevel::BtOpt
+    }
 }
