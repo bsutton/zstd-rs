@@ -15,6 +15,7 @@ use crate::encoding::levels::c_port::{
 const ZSTD_OPT_NUM: usize = 1 << 12;
 const TREE_SLOT_NONE: usize = usize::MAX;
 
+#[inline(always)]
 pub(super) fn bt_get_all_matches_no_dict_mls<const MLS: u32>(
     matches: &mut Vec<OptMatch>,
     request: super::BtMatchRequest<'_>,
@@ -46,6 +47,7 @@ pub(super) fn bt_get_all_matches_no_dict_mls<const MLS: u32>(
     );
 }
 
+#[inline(always)]
 pub(super) fn update_tree_no_dict_mls<const MLS: u32>(
     src: &[u8],
     target: usize,
@@ -64,6 +66,7 @@ pub(super) fn update_tree_no_dict_mls<const MLS: u32>(
     state.next_to_update = target;
 }
 
+#[inline(always)]
 fn insert_bt1_no_dict<const MLS: u32>(
     src: &[u8],
     ip: usize,
@@ -140,6 +143,7 @@ fn insert_bt1_no_dict<const MLS: u32>(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[inline(always)]
 fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
     matches: &mut Vec<OptMatch>,
     src: &[u8],

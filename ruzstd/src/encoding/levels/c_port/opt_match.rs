@@ -142,6 +142,7 @@ pub(super) fn bt_get_all_matches_no_dict(
     }
 }
 
+#[inline(always)]
 pub(super) fn bt_get_all_matches_no_dict_mls<const MLS: u32>(
     matches: &mut Vec<OptMatch>,
     request: BtMatchRequest<'_>,
