@@ -67,7 +67,7 @@ pub(super) fn seed_match_prices(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn forward_pass(
+pub(super) fn forward_pass<const MLS: u32>(
     src: &[u8],
     ip: usize,
     block_end: usize,
@@ -110,7 +110,7 @@ pub(super) fn forward_pass(
 
         let rep = state.opt[cur].rep;
         let ll0 = state.opt[cur].litlen == 0;
-        let match_count = super::collect_matches(
+        let match_count = super::collect_matches_mls::<MLS>(
             src,
             inr,
             block_end,

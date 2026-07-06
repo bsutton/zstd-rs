@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use super::{
     greedy::GreedyBlockOutput,
     ldm::opt::LdmOptCursor,
-    opt_match::{bt_get_all_matches_no_dict, BtMatchRequest, OptMatchBounds},
+    opt_match::{bt_get_all_matches_no_dict_mls, BtMatchRequest, OptMatchBounds},
     opt_path::{select_path, update_reps},
     opt_state::{OptBlockState, OptParserStrategy, Optimal, HASH_READ_SIZE, ZSTD_OPT_NUM},
     params::CompressionParameters,
@@ -93,6 +93,62 @@ fn compress_block_opt_with_state_and_ldm(
     repeat_offsets: RepeatOffsets,
     state: &mut OptBlockState,
     strategy: OptParserStrategy,
+    ldm_cursor: Option<&mut LdmOptCursor<'_>>,
+    bounds: OptMatchBounds,
+) -> GreedyBlockOutput {
+    match params.min_match.clamp(3, 6) {
+        3 => compress_block_opt_with_state_and_ldm_mls::<3>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+            strategy,
+            ldm_cursor,
+            bounds,
+        ),
+        4 => compress_block_opt_with_state_and_ldm_mls::<4>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+            strategy,
+            ldm_cursor,
+            bounds,
+        ),
+        5 => compress_block_opt_with_state_and_ldm_mls::<5>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+            strategy,
+            ldm_cursor,
+            bounds,
+        ),
+        6 => compress_block_opt_with_state_and_ldm_mls::<6>(
+            src,
+            block_range,
+            params,
+            repeat_offsets,
+            state,
+            strategy,
+            ldm_cursor,
+            bounds,
+        ),
+        _ => unreachable!("mls is clamped to 3..=6"),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compress_block_opt_with_state_and_ldm_mls<const MLS: u32>(
+    src: &[u8],
+    block_range: core::ops::Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut OptBlockState,
+    strategy: OptParserStrategy,
     mut ldm_cursor: Option<&mut LdmOptCursor<'_>>,
     bounds: OptMatchBounds,
 ) -> GreedyBlockOutput {
@@ -124,14 +180,14 @@ fn compress_block_opt_with_state_and_ldm(
 
     let ilimit = block_end - HASH_READ_SIZE;
     let sufficient_len = params.target_length.min((ZSTD_OPT_NUM - 1) as u32);
-    let min_match = if params.min_match == 3 { 3 } else { 4 };
+    let min_match = if MLS == 3 { 3 } else { 4 };
     let mut rep = repeat_offsets.as_offsets();
     let mut ip = block_start + usize::from(block_start == bounds.prefix_start_index());
     let mut anchor = block_start;
 
     while ip < ilimit {
         let litlen = ip - anchor;
-        let match_count = collect_matches(
+        let match_count = collect_matches_mls::<MLS>(
             src,
             ip,
             block_end,
@@ -165,7 +221,7 @@ fn compress_block_opt_with_state_and_ldm(
             });
         } else {
             let seeded_last_pos = seed_match_prices(min_match, match_count, opt_level, state);
-            let result = forward_pass(
+            let result = forward_pass::<MLS>(
                 src,
                 ip,
                 block_end,
@@ -245,7 +301,78 @@ pub(super) fn collect_matches(
     ldm_cursor: Option<&mut LdmOptCursor<'_>>,
     bounds: OptMatchBounds,
 ) -> usize {
-    bt_get_all_matches_no_dict(
+    match params.min_match.clamp(3, 6) {
+        3 => collect_matches_mls::<3>(
+            src,
+            ip,
+            block_end,
+            rep,
+            ll0,
+            length_to_beat,
+            params,
+            state,
+            block_start,
+            ldm_cursor,
+            bounds,
+        ),
+        4 => collect_matches_mls::<4>(
+            src,
+            ip,
+            block_end,
+            rep,
+            ll0,
+            length_to_beat,
+            params,
+            state,
+            block_start,
+            ldm_cursor,
+            bounds,
+        ),
+        5 => collect_matches_mls::<5>(
+            src,
+            ip,
+            block_end,
+            rep,
+            ll0,
+            length_to_beat,
+            params,
+            state,
+            block_start,
+            ldm_cursor,
+            bounds,
+        ),
+        6 => collect_matches_mls::<6>(
+            src,
+            ip,
+            block_end,
+            rep,
+            ll0,
+            length_to_beat,
+            params,
+            state,
+            block_start,
+            ldm_cursor,
+            bounds,
+        ),
+        _ => unreachable!("mls is clamped to 3..=6"),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn collect_matches_mls<const MLS: u32>(
+    src: &[u8],
+    ip: usize,
+    block_end: usize,
+    rep: [u32; 3],
+    ll0: bool,
+    length_to_beat: u32,
+    params: CompressionParameters,
+    state: &mut OptBlockState,
+    block_start: usize,
+    ldm_cursor: Option<&mut LdmOptCursor<'_>>,
+    bounds: OptMatchBounds,
+) -> usize {
+    bt_get_all_matches_no_dict_mls::<MLS>(
         &mut state.matches,
         BtMatchRequest {
             src,

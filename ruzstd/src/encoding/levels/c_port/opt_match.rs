@@ -131,13 +131,7 @@ pub(super) fn bt_get_all_matches_no_dict(
     request: BtMatchRequest<'_>,
     state: &mut GreedyMatchState,
 ) {
-    matches.clear();
-    if request.ip < state.next_to_update {
-        return;
-    }
-
     let params = request.params;
-    debug_assert_tables_ready(state, params);
     let mls = params.min_match.clamp(3, 6);
     match mls {
         3 => bt_get_all_matches_no_dict_mls::<3>(matches, request, state),
@@ -148,11 +142,17 @@ pub(super) fn bt_get_all_matches_no_dict(
     }
 }
 
-fn bt_get_all_matches_no_dict_mls<const MLS: u32>(
+pub(super) fn bt_get_all_matches_no_dict_mls<const MLS: u32>(
     matches: &mut Vec<OptMatch>,
     request: BtMatchRequest<'_>,
     state: &mut GreedyMatchState,
 ) {
+    matches.clear();
+    if request.ip < state.next_to_update {
+        return;
+    }
+
+    debug_assert_tables_ready(state, request.params);
     tree::bt_get_all_matches_no_dict_mls::<MLS>(matches, request, state);
 }
 
