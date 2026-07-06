@@ -1,4 +1,4 @@
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 
 use super::{
     cctx_params::{CctxParameters, LdmParameters, ParamSwitch},
@@ -10,7 +10,7 @@ use super::{
         },
         LdmEntry, LdmHashTable, LdmRollingHashState, LDM_BATCH_SIZE,
     },
-    opt_match::OptMatch,
+    opt_match::{OptMatch, OptMatchTable},
 };
 
 fn small_ldm_params() -> LdmParameters {
@@ -369,7 +369,7 @@ fn ldm_opt_cursor_truncates_match_at_block_end_like_c() {
         match_length: 10,
     }];
     let mut cursor = LdmOptCursor::new(&sequences, 6);
-    let mut matches = Vec::new();
+    let mut matches = OptMatchTable::new();
 
     assert_eq!(cursor.current_match(), Some((2, 6, 100)));
     assert_eq!(cursor.seq_store_position(), (0, 6));
@@ -377,7 +377,7 @@ fn ldm_opt_cursor_truncates_match_at_block_end_like_c() {
     cursor.process_match_candidate(&mut matches, 2, 4, 4);
 
     assert_eq!(
-        matches,
+        matches.as_slice(),
         [OptMatch {
             off_base: 103,
             len: 4,
@@ -414,27 +414,28 @@ fn ldm_opt_cursor_adds_candidates_only_when_ordered_like_c() {
         match_length: 10,
     }];
     let mut cursor = LdmOptCursor::new(&sequences, 20);
-    let mut matches = Vec::new();
+    let mut matches = OptMatchTable::new();
 
     cursor.process_match_candidate(&mut matches, 4, 16, 4);
     cursor.process_match_candidate(&mut matches, 8, 12, 4);
 
     assert_eq!(
-        matches,
+        matches.as_slice(),
         [OptMatch {
             off_base: 103,
             len: 10,
         }]
     );
 
-    let mut shorter_existing = vec![OptMatch {
+    let mut shorter_existing = OptMatchTable::new();
+    shorter_existing.push(OptMatch {
         off_base: 7,
         len: 5,
-    }];
+    });
     cursor.process_match_candidate(&mut shorter_existing, 8, 12, 4);
 
     assert_eq!(
-        shorter_existing,
+        shorter_existing.as_slice(),
         [
             OptMatch {
                 off_base: 7,

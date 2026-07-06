@@ -1,6 +1,7 @@
 //! Optimal-parser binary-tree match collection ported from `zstd_opt.c`.
 
-use alloc::vec::Vec;
+use alloc::boxed::Box;
+use core::ops::Index;
 
 use super::{
     greedy::GreedyMatchState,
@@ -19,6 +20,73 @@ const ZSTD_OPT_NUM: usize = 1 << 12;
 pub(super) struct OptMatch {
     pub(super) off_base: u32,
     pub(super) len: u32,
+}
+
+impl OptMatch {
+    const EMPTY: Self = Self {
+        off_base: 0,
+        len: 0,
+    };
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct OptMatchTable {
+    entries: Box<[OptMatch; ZSTD_OPT_NUM]>,
+    len: usize,
+}
+
+impl OptMatchTable {
+    pub(super) fn new() -> Self {
+        Self {
+            entries: Box::new([OptMatch::EMPTY; ZSTD_OPT_NUM]),
+            len: 0,
+        }
+    }
+
+    #[inline(always)]
+    pub(super) fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    #[inline(always)]
+    pub(super) fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline(always)]
+    pub(super) fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline(always)]
+    pub(super) fn push(&mut self, value: OptMatch) {
+        debug_assert!(self.len < ZSTD_OPT_NUM);
+        self.entries[self.len] = value;
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    pub(super) fn last(&self) -> Option<&OptMatch> {
+        if self.len == 0 {
+            None
+        } else {
+            Some(&self.entries[self.len - 1])
+        }
+    }
+
+    #[inline(always)]
+    pub(super) fn as_slice(&self) -> &[OptMatch] {
+        &self.entries[..self.len]
+    }
+}
+
+impl Index<usize> for OptMatchTable {
+    type Output = OptMatch;
+
+    #[inline(always)]
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.as_slice()[index]
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -127,7 +195,7 @@ impl OptMatchBounds {
 }
 
 pub(super) fn bt_get_all_matches_no_dict(
-    matches: &mut Vec<OptMatch>,
+    matches: &mut OptMatchTable,
     request: BtMatchRequest<'_>,
     state: &mut GreedyMatchState,
 ) {
@@ -144,7 +212,7 @@ pub(super) fn bt_get_all_matches_no_dict(
 
 #[inline(always)]
 pub(super) fn bt_get_all_matches_no_dict_mls<const MLS: u32>(
-    matches: &mut Vec<OptMatch>,
+    matches: &mut OptMatchTable,
     request: BtMatchRequest<'_>,
     state: &mut GreedyMatchState,
 ) {
@@ -206,7 +274,7 @@ pub(super) fn update_tree_no_dict(
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub(super) fn collect_repcode_matches(
-    matches: &mut Vec<OptMatch>,
+    matches: &mut OptMatchTable,
     src: &[u8],
     ip: usize,
     block_end: usize,
@@ -265,7 +333,7 @@ pub(super) fn collect_repcode_matches(
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 fn collect_repcode_matches_no_dict(
-    matches: &mut Vec<OptMatch>,
+    matches: &mut OptMatchTable,
     src: &[u8],
     ip: usize,
     block_end: usize,
@@ -314,7 +382,7 @@ fn collect_repcode_matches_no_dict(
 
 #[inline(always)]
 pub(super) fn should_stop_after_best_match(
-    matches: &[OptMatch],
+    matches: &OptMatchTable,
     ip: usize,
     block_end: usize,
     sufficient_len: usize,

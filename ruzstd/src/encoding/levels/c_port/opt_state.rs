@@ -4,7 +4,7 @@ use alloc::{vec, vec::Vec};
 
 use super::{
     greedy::GreedyMatchState,
-    opt_match::OptMatch,
+    opt_match::OptMatchTable,
     opt_price::{OptPriceState, ZSTD_MAX_PRICE},
     params::CompressionParameters,
     sequence_store::RepeatOffsets,
@@ -38,7 +38,7 @@ pub(crate) enum OptParserStrategy {
 pub(crate) struct OptBlockState {
     pub(super) match_state: GreedyMatchState,
     pub(super) price_state: OptPriceState,
-    pub(super) matches: Vec<OptMatch>,
+    pub(super) matches: OptMatchTable,
     pub(super) opt: Vec<Optimal>,
 }
 
@@ -59,7 +59,7 @@ impl OptBlockState {
         Self {
             match_state: GreedyMatchState::new(),
             price_state: OptPriceState::new(),
-            matches: Vec::with_capacity(ZSTD_OPT_NUM),
+            matches: OptMatchTable::new(),
             opt: vec![Optimal::default(); ZSTD_OPT_NUM + 4],
         }
     }

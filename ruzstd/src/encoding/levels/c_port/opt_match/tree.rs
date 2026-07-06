@@ -1,8 +1,8 @@
 //! Binary-tree update and match enumeration for the optimal parser.
 
-use alloc::vec::Vec;
-
-use super::{collect_repcode_matches, should_stop_after_best_match, OptMatch, OptMatchBounds};
+use super::{
+    collect_repcode_matches, should_stop_after_best_match, OptMatch, OptMatchBounds, OptMatchTable,
+};
 use crate::encoding::levels::c_port::{
     greedy::GreedyMatchState,
     hash_chain_match::{
@@ -17,7 +17,7 @@ const TREE_SLOT_NONE: usize = usize::MAX;
 
 #[inline(always)]
 pub(super) fn bt_get_all_matches_no_dict_mls<const MLS: u32>(
-    matches: &mut Vec<OptMatch>,
+    matches: &mut OptMatchTable,
     request: super::BtMatchRequest<'_>,
     state: &mut GreedyMatchState,
 ) {
@@ -147,7 +147,7 @@ fn insert_bt1_no_dict<const MLS: u32>(
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
-    matches: &mut Vec<OptMatch>,
+    matches: &mut OptMatchTable,
     src: &[u8],
     ip: usize,
     block_end: usize,

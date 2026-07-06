@@ -1,8 +1,8 @@
-use alloc::vec::Vec;
-
 use super::{
     greedy::GreedyMatchState,
-    opt_match::{bt_get_all_matches_no_dict, BtMatchRequest, OptMatch, OptMatchBounds},
+    opt_match::{
+        bt_get_all_matches_no_dict, BtMatchRequest, OptMatch, OptMatchBounds, OptMatchTable,
+    },
     params::{CompressionParameters, Strategy},
     sequence_store::{OffBase, RepeatCode, RepeatOffsets},
 };
@@ -25,7 +25,7 @@ fn opt_match_collector_reports_repcodes_before_tree_matches() {
     let params = params_for_min_match(4);
     let mut state = GreedyMatchState::new();
     state.ensure_tables(params);
-    let mut matches = Vec::new();
+    let mut matches = OptMatchTable::new();
 
     bt_get_all_matches_no_dict(
         &mut matches,
@@ -41,7 +41,7 @@ fn opt_match_collector_reports_repcodes_before_tree_matches() {
     );
 
     assert_eq!(
-        matches,
+        matches.as_slice(),
         [OptMatch {
             off_base: OffBase::Repeat(RepeatCode::First).to_c_value(),
             len: 6,
@@ -55,7 +55,7 @@ fn opt_match_collector_reports_increasing_tree_matches() {
     let params = params_for_min_match(4);
     let mut state = GreedyMatchState::new();
     state.ensure_tables(params);
-    let mut matches = Vec::new();
+    let mut matches = OptMatchTable::new();
 
     bt_get_all_matches_no_dict(
         &mut matches,
@@ -78,7 +78,7 @@ fn opt_match_collector_uses_hash3_for_min_match_three() {
     let params = params_for_min_match(3);
     let mut state = GreedyMatchState::new();
     state.ensure_tables(params);
-    let mut matches = Vec::new();
+    let mut matches = OptMatchTable::new();
 
     bt_get_all_matches_no_dict(
         &mut matches,
@@ -87,7 +87,7 @@ fn opt_match_collector_uses_hash3_for_min_match_three() {
     );
 
     assert_eq!(
-        matches,
+        matches.as_slice(),
         [OptMatch {
             off_base: OffBase::Offset(6).to_c_value(),
             len: 3,

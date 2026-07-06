@@ -1,7 +1,8 @@
-use alloc::vec::Vec;
-
 use super::sequence::LdmRawSequence;
-use crate::encoding::levels::c_port::{opt_match::OptMatch, sequence_store::OffBase};
+use crate::encoding::levels::c_port::{
+    opt_match::{OptMatch, OptMatchTable},
+    sequence_store::OffBase,
+};
 
 const NO_LDM_POSITION: u32 = u32::MAX;
 const ZSTD_OPT_NUM: usize = 1 << 12;
@@ -72,7 +73,7 @@ impl<'a> LdmOptCursor<'a> {
 
     pub(crate) fn process_match_candidate(
         &mut self,
-        matches: &mut Vec<OptMatch>,
+        matches: &mut OptMatchTable,
         curr_pos_in_block: u32,
         remaining_bytes: u32,
         min_match: u32,
@@ -149,7 +150,7 @@ impl<'a> LdmOptCursor<'a> {
         }
     }
 
-    fn maybe_add_match(&self, matches: &mut Vec<OptMatch>, curr_pos_in_block: u32, min_match: u32) {
+    fn maybe_add_match(&self, matches: &mut OptMatchTable, curr_pos_in_block: u32, min_match: u32) {
         if curr_pos_in_block < self.start_pos_in_block || curr_pos_in_block >= self.end_pos_in_block
         {
             return;

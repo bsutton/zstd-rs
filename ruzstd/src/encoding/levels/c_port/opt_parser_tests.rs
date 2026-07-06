@@ -175,7 +175,7 @@ fn opt_match_collection_appends_ldm_candidate_like_c() {
 
     assert_eq!(count, 1);
     assert_eq!(
-        state.matches,
+        state.matches.as_slice(),
         [OptMatch {
             off_base: 7,
             len: 10,
