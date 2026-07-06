@@ -45,13 +45,14 @@ pub(super) fn seed_match_prices(
     }
 
     let mut last_len = min_match;
+    let base_price =
+        state.opt[0].price + price_i32(state.price_state.lit_length_price(0, opt_level));
     for match_index in 0..match_count {
         let OptMatch { off_base, len } = state.matches[match_index];
         for pos in last_len..=len {
             state.opt[pos as usize] = Optimal {
-                price: state.opt[0].price
-                    + price_i32(state.price_state.match_price(off_base, pos, opt_level))
-                    + price_i32(state.price_state.lit_length_price(0, opt_level)),
+                price: base_price
+                    + price_i32(state.price_state.match_price(off_base, pos, opt_level)),
                 off: off_base,
                 mlen: pos,
                 litlen: 0,
