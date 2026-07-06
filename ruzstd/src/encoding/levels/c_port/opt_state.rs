@@ -59,7 +59,7 @@ impl OptBlockState {
         Self {
             match_state: GreedyMatchState::new(),
             price_state: OptPriceState::new(),
-            matches: Vec::new(),
+            matches: Vec::with_capacity(ZSTD_OPT_NUM),
             opt: vec![Optimal::default(); ZSTD_OPT_NUM + 4],
         }
     }
