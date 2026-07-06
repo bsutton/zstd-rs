@@ -77,7 +77,9 @@ fn insert_bt1_no_dict<const MLS: u32>(
     loaded_dict_end: usize,
 ) -> usize {
     let hash = hash_ptr_mls::<MLS>(src, ip, params.hash_log);
-    let mut match_index = state.hash_table[hash] as usize;
+    let hash_table = &mut state.hash_table;
+    let chain_table = &mut state.chain_table;
+    let mut match_index = hash_table[hash] as usize;
     let mask = bt_mask(params);
     let bt_low = ip.saturating_sub(mask);
     let window_low =
@@ -89,7 +91,7 @@ fn insert_bt1_no_dict<const MLS: u32>(
     let mut match_end_idx = ip + 9;
     let mut best_length = 8_usize;
     let mut nb_compares = 1_usize << params.search_log;
-    state.hash_table[hash] = ip as u32;
+    hash_table[hash] = ip as u32;
 
     while nb_compares > 0 && match_index >= window_low {
         nb_compares -= 1;
@@ -115,28 +117,28 @@ fn insert_bt1_no_dict<const MLS: u32>(
         }
 
         if src[match_index + match_length] < src[ip + match_length] {
-            state.chain_table[smaller_slot] = match_index as u32;
+            chain_table[smaller_slot] = match_index as u32;
             common_smaller = match_length;
             if match_index <= bt_low {
                 smaller_slot = TREE_SLOT_NONE;
                 break;
             }
             smaller_slot = next_slot + 1;
-            match_index = state.chain_table[next_slot + 1] as usize;
+            match_index = chain_table[next_slot + 1] as usize;
         } else {
-            state.chain_table[larger_slot] = match_index as u32;
+            chain_table[larger_slot] = match_index as u32;
             common_larger = match_length;
             if match_index <= bt_low {
                 larger_slot = TREE_SLOT_NONE;
                 break;
             }
             larger_slot = next_slot;
-            match_index = state.chain_table[next_slot] as usize;
+            match_index = chain_table[next_slot] as usize;
         }
     }
 
-    write_tree_slot(state, smaller_slot, 0);
-    write_tree_slot(state, larger_slot, 0);
+    write_tree_slot(chain_table, smaller_slot, 0);
+    write_tree_slot(chain_table, larger_slot, 0);
 
     let positions = best_length.saturating_sub(384).min(192);
     positions.max(match_end_idx - (ip + 8))
@@ -210,7 +212,9 @@ fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
         }
     }
 
-    state.hash_table[hash] = ip as u32;
+    let hash_table = &mut state.hash_table;
+    let chain_table = &mut state.chain_table;
+    hash_table[hash] = ip as u32;
 
     while nb_compares > 0 && match_index >= match_low {
         nb_compares -= 1;
@@ -238,28 +242,28 @@ fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
         }
 
         if src[match_index + match_length] < src[ip + match_length] {
-            state.chain_table[smaller_slot] = match_index as u32;
+            chain_table[smaller_slot] = match_index as u32;
             common_smaller = match_length;
             if match_index <= bt_low {
                 smaller_slot = TREE_SLOT_NONE;
                 break;
             }
             smaller_slot = next_slot + 1;
-            match_index = state.chain_table[next_slot + 1] as usize;
+            match_index = chain_table[next_slot + 1] as usize;
         } else {
-            state.chain_table[larger_slot] = match_index as u32;
+            chain_table[larger_slot] = match_index as u32;
             common_larger = match_length;
             if match_index <= bt_low {
                 larger_slot = TREE_SLOT_NONE;
                 break;
             }
             larger_slot = next_slot;
-            match_index = state.chain_table[next_slot] as usize;
+            match_index = chain_table[next_slot] as usize;
         }
     }
 
-    write_tree_slot(state, smaller_slot, 0);
-    write_tree_slot(state, larger_slot, 0);
+    write_tree_slot(chain_table, smaller_slot, 0);
+    write_tree_slot(chain_table, larger_slot, 0);
     state.next_to_update = match_end_idx - 8;
 }
 
@@ -293,8 +297,8 @@ fn tree_slot(index: usize, mask: usize) -> usize {
 }
 
 #[inline(always)]
-fn write_tree_slot(state: &mut GreedyMatchState, slot: usize, value: u32) {
+fn write_tree_slot(chain_table: &mut [u32], slot: usize, value: u32) {
     if slot != TREE_SLOT_NONE {
-        state.chain_table[slot] = value;
+        chain_table[slot] = value;
     }
 }
