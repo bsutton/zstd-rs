@@ -287,9 +287,9 @@ fn update_match_prices(
     }
 }
 
+#[inline(always)]
 fn ll_increment_price(litlen: u32, opt_level: OptLevel, price_state: &OptPriceState) -> i32 {
-    price_i32(price_state.lit_length_price(litlen, opt_level))
-        - price_i32(price_state.lit_length_price(litlen - 1, opt_level))
+    price_state.lit_length_increment_price(litlen, opt_level)
 }
 
 fn price_i32(price: u32) -> i32 {

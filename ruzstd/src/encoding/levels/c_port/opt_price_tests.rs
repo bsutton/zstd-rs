@@ -48,6 +48,23 @@ fn single_literal_cost_matches_slice_cost() {
 }
 
 #[test]
+fn literal_length_increment_matches_price_difference() {
+    for opt_level in [OptLevel::BtOpt, OptLevel::BtUltra] {
+        let mut state = OptPriceState::new();
+        state.rescale_freqs(b"abcabcabcabcabcabcabcabc", opt_level);
+        for lit_length in 1..=1024 {
+            let expected = state.lit_length_price(lit_length, opt_level) as i64
+                - state.lit_length_price(lit_length - 1, opt_level) as i64;
+            assert_eq!(
+                state.lit_length_increment_price(lit_length, opt_level),
+                expected as i32,
+                "lit_length={lit_length} opt_level={opt_level:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn opt_price_updates_sequence_statistics() {
     let mut state = OptPriceState::new();
     state.rescale_freqs(b"abcabcabcabc", OptLevel::BtOpt);

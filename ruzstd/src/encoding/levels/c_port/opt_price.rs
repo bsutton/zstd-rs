@@ -221,6 +221,7 @@ impl OptPriceState {
         price
     }
 
+    #[inline(always)]
     pub(super) fn raw_literal_cost(&self, literal: u8, opt_level: OptLevel) -> u32 {
         if !self.compressed_literals {
             return 8 * BITCOST_MULTIPLIER;
@@ -235,6 +236,7 @@ impl OptPriceState {
             - weight(self.lit_freq[literal as usize], opt_level).min(lit_price_max)
     }
 
+    #[inline(always)]
     pub(super) fn lit_length_price(&self, lit_length: u32, opt_level: OptLevel) -> u32 {
         debug_assert!(lit_length <= ZSTD_BLOCKSIZE_MAX);
         if self.price_type == PriceType::Predefined {
@@ -250,6 +252,38 @@ impl OptPriceState {
             - weight(self.lit_length_freq[ll_code], opt_level)
     }
 
+    #[inline(always)]
+    pub(super) fn lit_length_increment_price(&self, lit_length: u32, opt_level: OptLevel) -> i32 {
+        debug_assert!(lit_length > 0);
+        debug_assert!(lit_length <= ZSTD_BLOCKSIZE_MAX);
+
+        if self.price_type == PriceType::Predefined {
+            return price_delta(
+                weight(lit_length, opt_level),
+                weight(lit_length - 1, opt_level),
+            );
+        }
+
+        if lit_length == ZSTD_BLOCKSIZE_MAX {
+            return BITCOST_MULTIPLIER as i32;
+        }
+
+        let ll_code = literal_length_code(lit_length) as usize;
+        let previous_code = literal_length_code(lit_length - 1) as usize;
+        if ll_code == previous_code {
+            return 0;
+        }
+
+        let price = u32::from(LL_BITS[ll_code]) * BITCOST_MULTIPLIER
+            + self.lit_length_sum_base_price
+            - weight(self.lit_length_freq[ll_code], opt_level);
+        let previous_price = u32::from(LL_BITS[previous_code]) * BITCOST_MULTIPLIER
+            + self.lit_length_sum_base_price
+            - weight(self.lit_length_freq[previous_code], opt_level);
+        price_delta(price, previous_price)
+    }
+
+    #[inline(always)]
     pub(super) fn match_price(&self, off_base: u32, match_length: u32, opt_level: OptLevel) -> u32 {
         debug_assert!(match_length >= MINMATCH);
         let off_code = highbit32(off_base);
@@ -331,15 +365,18 @@ impl OptPriceState {
 }
 
 impl OptLevel {
+    #[inline(always)]
     fn accurate_weights(self) -> bool {
         matches!(self, Self::BtUltra)
     }
 
+    #[inline(always)]
     fn favors_small_offsets(self) -> bool {
         matches!(self, Self::BtOpt)
     }
 }
 
+#[inline(always)]
 fn weight(stat: u32, opt_level: OptLevel) -> u32 {
     if opt_level.accurate_weights() {
         frac_weight(stat)
@@ -348,16 +385,23 @@ fn weight(stat: u32, opt_level: OptLevel) -> u32 {
     }
 }
 
+#[inline(always)]
 fn bit_weight(stat: u32) -> u32 {
     highbit32(stat + 1) * BITCOST_MULTIPLIER
 }
 
+#[inline(always)]
 fn frac_weight(raw_stat: u32) -> u32 {
     let stat = raw_stat + 1;
     let high_bit = highbit32(stat);
     let base_weight = high_bit * BITCOST_MULTIPLIER;
     let frac_weight = (stat << BITCOST_ACCURACY) >> high_bit;
     base_weight + frac_weight
+}
+
+#[inline(always)]
+fn price_delta(price: u32, previous_price: u32) -> i32 {
+    (i64::from(price) - i64::from(previous_price)) as i32
 }
 
 fn scale_stats<const N: usize>(table: &mut [u32; N], log_target: u32) -> u32 {
