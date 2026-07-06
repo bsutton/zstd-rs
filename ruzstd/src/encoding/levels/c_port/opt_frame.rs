@@ -48,6 +48,15 @@ pub(crate) fn encode_frame_btultra2_no_dict(src: &[u8], level: i32) -> Vec<u8> {
     encode_frame_opt_no_dict(src, level, OptFrameStrategy::BtUltra2)
 }
 
+pub(crate) fn encode_frame_opt_no_dict_with_cctx(src: &[u8], cctx: CctxParameters) -> Vec<u8> {
+    cctx.assert_resolved();
+    encode_frame_opt_no_dict_resolved(
+        src,
+        cctx,
+        selected_opt_frame_strategy(cctx.compression.strategy),
+    )
+}
+
 pub(crate) fn encode_frame_btopt_with_dictionary(
     src: &[u8],
     level: i32,
@@ -109,9 +118,17 @@ fn opt_parser_strategy(strategy: OptFrameStrategy) -> super::opt_state::OptParse
 }
 
 fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) -> Vec<u8> {
-    let mut output = Vec::with_capacity(compress_bound(src.len()));
     let cctx = CctxParameters::for_level(level, src.len() as u64, 0);
     cctx.assert_resolved();
+    encode_frame_opt_no_dict_resolved(src, cctx, strategy)
+}
+
+fn encode_frame_opt_no_dict_resolved(
+    src: &[u8],
+    cctx: CctxParameters,
+    strategy: OptFrameStrategy,
+) -> Vec<u8> {
+    let mut output = Vec::with_capacity(compress_bound(src.len()));
     let params = cctx.compression;
     let post_block_splitter = cctx.post_block_splitter == ParamSwitch::Enable;
     let ldm_sequences = if cctx.ldm.enable_ldm == ParamSwitch::Enable {
