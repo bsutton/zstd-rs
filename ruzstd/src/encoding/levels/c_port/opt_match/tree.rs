@@ -115,7 +115,7 @@ fn insert_bt1_no_dict<const MLS: u32>(
         }
 
         if src[match_index + match_length] < src[ip + match_length] {
-            write_tree_slot(state, smaller_slot, match_index as u32);
+            state.chain_table[smaller_slot] = match_index as u32;
             common_smaller = match_length;
             if match_index <= bt_low {
                 smaller_slot = TREE_SLOT_NONE;
@@ -124,7 +124,7 @@ fn insert_bt1_no_dict<const MLS: u32>(
             smaller_slot = next_slot + 1;
             match_index = state.chain_table[next_slot + 1] as usize;
         } else {
-            write_tree_slot(state, larger_slot, match_index as u32);
+            state.chain_table[larger_slot] = match_index as u32;
             common_larger = match_length;
             if match_index <= bt_low {
                 larger_slot = TREE_SLOT_NONE;
@@ -238,7 +238,7 @@ fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
         }
 
         if src[match_index + match_length] < src[ip + match_length] {
-            write_tree_slot(state, smaller_slot, match_index as u32);
+            state.chain_table[smaller_slot] = match_index as u32;
             common_smaller = match_length;
             if match_index <= bt_low {
                 smaller_slot = TREE_SLOT_NONE;
@@ -247,7 +247,7 @@ fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
             smaller_slot = next_slot + 1;
             match_index = state.chain_table[next_slot + 1] as usize;
         } else {
-            write_tree_slot(state, larger_slot, match_index as u32);
+            state.chain_table[larger_slot] = match_index as u32;
             common_larger = match_length;
             if match_index <= bt_low {
                 larger_slot = TREE_SLOT_NONE;
