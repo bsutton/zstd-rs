@@ -9,13 +9,11 @@ use super::{
     params::Strategy,
     sequence_store::{OffBase, RepeatOffsets},
 };
-#[cfg(test)]
-use crate::encoding::blocks::PreparedSequence;
 use crate::{
     encoding::{
         blocks::{
             estimate_prepared_block_size_with_sequences, BlockCompressionConfig, EstimateScratch,
-            PreparedBlock, PreparedBlockRef,
+            PreparedBlock, PreparedBlockRef, PreparedSequence,
         },
         frame_compressor::{FseTables, OffsetHistory},
     },
@@ -65,15 +63,18 @@ pub(super) fn encode_split_block(
         let mut chunk = prepared_chunk(block, &prepared.prepared, &prefixes, start_seq, end_seq);
         let decompression_repeat_offsets_before = decompression_repeat_offsets;
         resolve_partition_off_codes(
-            &mut chunk.prepared,
+            &mut chunk.sequences,
             &mut decompression_repeat_offsets,
             &mut compression_repeat_offsets,
         );
         let encoded = encode_partition(
-            &chunk.source,
+            chunk.source,
             last_block && last_partition,
             decompression_repeat_offsets_before,
-            chunk.prepared.as_ref(),
+            PreparedBlockRef {
+                literals: chunk.literals,
+                sequences: &chunk.sequences,
+            },
             PartitionEncodeContext {
                 policy,
                 strategy,
@@ -264,25 +265,24 @@ fn estimate_partition_size_with_sequences(
     )
 }
 
-struct PreparedChunk {
-    source: Vec<u8>,
-    prepared: PreparedBlock,
+struct PreparedChunk<'a> {
+    source: &'a [u8],
+    literals: &'a [u8],
+    sequences: Vec<PreparedSequence>,
 }
 
-fn prepared_chunk(
-    block: &[u8],
-    prepared: &PreparedBlock,
+fn prepared_chunk<'a>(
+    block: &'a [u8],
+    prepared: &'a PreparedBlock,
     prefixes: &[SequencePrefix],
     start_seq: usize,
     end_seq: usize,
-) -> PreparedChunk {
+) -> PreparedChunk<'a> {
     let chunk = prepared_chunk_ref(block, prepared, prefixes, start_seq, end_seq);
     PreparedChunk {
-        source: chunk.source.to_vec(),
-        prepared: PreparedBlock {
-            literals: chunk.prepared.literals.to_vec(),
-            sequences: chunk.prepared.sequences.to_vec(),
-        },
+        source: chunk.source,
+        literals: chunk.prepared.literals,
+        sequences: chunk.prepared.sequences.to_vec(),
     }
 }
 
@@ -344,11 +344,11 @@ fn sequence_prefixes(prepared: &PreparedBlock) -> Vec<SequencePrefix> {
 }
 
 fn resolve_partition_off_codes(
-    prepared: &mut PreparedBlock,
+    sequences: &mut [PreparedSequence],
     decompression_repeat_offsets: &mut RepeatOffsets,
     compression_repeat_offsets: &mut RepeatOffsets,
 ) {
-    for sequence in &mut prepared.sequences {
+    for sequence in sequences {
         let original_off_base = sequence
             .encoded_offset_value
             .and_then(OffBase::from_c_value)

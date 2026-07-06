@@ -27,13 +27,13 @@ fn prepared_chunk_splits_literals_and_source_span() {
 
     let first = prepared_chunk(block, &prepared, &prefixes, 0, 1);
     assert_eq!(first.source, b"aa123");
-    assert_eq!(first.prepared.literals, b"aa");
-    assert_eq!(first.prepared.sequences.len(), 1);
+    assert_eq!(first.literals, b"aa");
+    assert_eq!(first.sequences.len(), 1);
 
     let second = prepared_chunk(block, &prepared, &prefixes, 1, 2);
     assert_eq!(second.source, b"bb45678tail");
-    assert_eq!(second.prepared.literals, b"bbtail");
-    assert_eq!(second.prepared.sequences.len(), 1);
+    assert_eq!(second.literals, b"bbtail");
+    assert_eq!(second.sequences.len(), 1);
 }
 
 #[test]
@@ -61,14 +61,14 @@ fn partition_offcode_resolution_rewrites_repcodes_after_raw_partition_like_c() {
     let mut decompression_repeats = initial_repeats;
 
     resolve_partition_off_codes(
-        &mut first_partition,
+        &mut first_partition.sequences,
         &mut decompression_repeats,
         &mut compression_repeats,
     );
     decompression_repeats = initial_repeats;
 
     resolve_partition_off_codes(
-        &mut second_partition,
+        &mut second_partition.sequences,
         &mut decompression_repeats,
         &mut compression_repeats,
     );
