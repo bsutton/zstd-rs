@@ -237,33 +237,16 @@ fn estimate_sequence_section_size(
             c_cost_model: config.c_cost_sequence_table_selection,
         },
     );
+    let (of_estimate, ll_estimate, ml_estimate) = sequence_symbol_estimates(sequences);
 
     sequence_header_size(sequences.len())
         + 1
         + table_definition_size(&ll_mode, table_bytes)
         + table_definition_size(&of_mode, table_bytes)
         + table_definition_size(&ml_mode, table_bytes)
-        + estimate_symbol_stream_size(
-            sequences,
-            &of_mode,
-            &fse_tables.of_default,
-            |seq| encode_offset(seq.of).0,
-            |seq| encode_offset(seq.of).2,
-        )
-        + estimate_symbol_stream_size(
-            sequences,
-            &ll_mode,
-            &fse_tables.ll_default,
-            |seq| encode_literal_length(seq.ll).0,
-            |seq| encode_literal_length(seq.ll).2,
-        )
-        + estimate_symbol_stream_size(
-            sequences,
-            &ml_mode,
-            &fse_tables.ml_default,
-            |seq| encode_match_len(seq.ml).0,
-            |seq| encode_match_len(seq.ml).2,
-        )
+        + estimate_symbol_stream_size(&of_mode, &fse_tables.of_default, &of_estimate)
+        + estimate_symbol_stream_size(&ll_mode, &fse_tables.ll_default, &ll_estimate)
+        + estimate_symbol_stream_size(&ml_mode, &fse_tables.ml_default, &ml_estimate)
 }
 
 fn sequence_header_size(seqnum: usize) -> usize {
@@ -289,21 +272,55 @@ fn table_definition_size(mode: &FseTableMode<'_>, bytes: &mut Vec<u8>) -> usize 
     bytes.len()
 }
 
-fn estimate_symbol_stream_size(
+fn sequence_symbol_estimates(
     sequences: &[Sequence],
+) -> (SymbolEstimate, SymbolEstimate, SymbolEstimate) {
+    let mut of_estimate = SymbolEstimate::new();
+    let mut ll_estimate = SymbolEstimate::new();
+    let mut ml_estimate = SymbolEstimate::new();
+
+    for sequence in sequences {
+        let (of_code, _, of_bits) = encode_offset(sequence.of);
+        of_estimate.counts.add_code(of_code);
+        of_estimate.extra_bits += of_bits;
+
+        let (ll_code, _, ll_bits) = encode_literal_length(sequence.ll);
+        ll_estimate.counts.add_code(ll_code);
+        ll_estimate.extra_bits += ll_bits;
+
+        let (ml_code, _, ml_bits) = encode_match_len(sequence.ml);
+        ml_estimate.counts.add_code(ml_code);
+        ml_estimate.extra_bits += ml_bits;
+    }
+
+    (of_estimate, ll_estimate, ml_estimate)
+}
+
+struct SymbolEstimate {
+    counts: CodeCounts,
+    extra_bits: usize,
+}
+
+impl SymbolEstimate {
+    fn new() -> Self {
+        Self {
+            counts: CodeCounts::new(),
+            extra_bits: 0,
+        }
+    }
+}
+
+fn estimate_symbol_stream_size(
     mode: &FseTableMode<'_>,
     default_table: &FSETable,
-    code: impl Fn(&Sequence) -> u8,
-    additional_bits: impl Fn(&Sequence) -> usize,
+    estimate: &SymbolEstimate,
 ) -> usize {
-    let counts = CodeCounts::from_codes(sequences.iter().map(&code));
     let symbol_bits = match mode {
-        FseTableMode::Predefined(_) => cross_entropy_cost(default_table, &counts),
+        FseTableMode::Predefined(_) => cross_entropy_cost(default_table, &estimate.counts),
         FseTableMode::Rle(_) => Some(0),
-        FseTableMode::Encoded(table) => repeat_table_cost(table, &counts),
-        FseTableMode::RepeatLast(table) => repeat_table_cost(table, &counts),
+        FseTableMode::Encoded(table) => repeat_table_cost(table, &estimate.counts),
+        FseTableMode::RepeatLast(table) => repeat_table_cost(table, &estimate.counts),
     }
-    .unwrap_or(sequences.len() * 10);
-    let extra_bits = sequences.iter().map(additional_bits).sum::<usize>();
-    (symbol_bits + extra_bits) >> 3
+    .unwrap_or(estimate.counts.total() * 10);
+    (symbol_bits + estimate.extra_bits) >> 3
 }

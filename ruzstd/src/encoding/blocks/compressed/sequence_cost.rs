@@ -7,23 +7,27 @@ pub(super) struct CodeCounts {
 }
 
 impl CodeCounts {
-    pub(super) fn from_codes(codes: impl Iterator<Item = u8>) -> Self {
-        let mut counts = [0usize; 256];
-        let mut most_frequent = 0usize;
-        let mut total = 0usize;
-
-        for code in codes {
-            let idx = usize::from(code);
-            counts[idx] += 1;
-            most_frequent = most_frequent.max(counts[idx]);
-            total += 1;
-        }
-
+    pub(super) fn new() -> Self {
         Self {
-            counts,
-            most_frequent,
-            total,
+            counts: [0; 256],
+            most_frequent: 0,
+            total: 0,
         }
+    }
+
+    pub(super) fn from_codes(codes: impl Iterator<Item = u8>) -> Self {
+        let mut counts = Self::new();
+        for code in codes {
+            counts.add_code(code);
+        }
+        counts
+    }
+
+    pub(super) fn add_code(&mut self, code: u8) {
+        let idx = usize::from(code);
+        self.counts[idx] += 1;
+        self.most_frequent = self.most_frequent.max(self.counts[idx]);
+        self.total += 1;
     }
 
     pub(super) fn most_frequent(&self) -> usize {
