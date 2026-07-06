@@ -13,6 +13,7 @@ use crate::encoding::levels::c_port::{
 };
 
 const ZSTD_OPT_NUM: usize = 1 << 12;
+const TREE_SLOT_NONE: usize = usize::MAX;
 
 pub(super) fn bt_get_all_matches_no_dict_mls<const MLS: u32>(
     matches: &mut Vec<OptMatch>,
@@ -80,8 +81,8 @@ fn insert_bt1_no_dict<const MLS: u32>(
         lowest_prefix_index_with_loaded_dict(target, params.window_log, loaded_dict_end).max(1);
     let mut common_smaller = 0_usize;
     let mut common_larger = 0_usize;
-    let mut smaller_slot = Some(tree_slot(ip, mask));
-    let mut larger_slot = Some(tree_slot(ip, mask) + 1);
+    let mut smaller_slot = tree_slot(ip, mask);
+    let mut larger_slot = smaller_slot + 1;
     let mut match_end_idx = ip + 9;
     let mut best_length = 8_usize;
     let mut nb_compares = 1_usize << params.search_log;
@@ -110,10 +111,10 @@ fn insert_bt1_no_dict<const MLS: u32>(
         if prediction_enabled && match_index == predicted_smaller {
             write_tree_slot(state, smaller_slot, match_index as u32);
             if match_index <= bt_low {
-                smaller_slot = None;
+                smaller_slot = TREE_SLOT_NONE;
                 break;
             }
-            smaller_slot = Some(next_slot + 1);
+            smaller_slot = next_slot + 1;
             match_index = state.chain_table[next_slot + 1] as usize;
             predicted_smaller = nonzero_successor(state.chain_table[predict_slot + 1]);
             continue;
@@ -121,10 +122,10 @@ fn insert_bt1_no_dict<const MLS: u32>(
         if prediction_enabled && match_index == predicted_larger {
             write_tree_slot(state, larger_slot, match_index as u32);
             if match_index <= bt_low {
-                larger_slot = None;
+                larger_slot = TREE_SLOT_NONE;
                 break;
             }
-            larger_slot = Some(next_slot);
+            larger_slot = next_slot;
             match_index = state.chain_table[next_slot] as usize;
             predicted_larger = nonzero_successor(state.chain_table[predict_slot]);
             continue;
@@ -153,19 +154,19 @@ fn insert_bt1_no_dict<const MLS: u32>(
             write_tree_slot(state, smaller_slot, match_index as u32);
             common_smaller = match_length;
             if match_index <= bt_low {
-                smaller_slot = None;
+                smaller_slot = TREE_SLOT_NONE;
                 break;
             }
-            smaller_slot = Some(next_slot + 1);
+            smaller_slot = next_slot + 1;
             match_index = state.chain_table[next_slot + 1] as usize;
         } else {
             write_tree_slot(state, larger_slot, match_index as u32);
             common_larger = match_length;
             if match_index <= bt_low {
-                larger_slot = None;
+                larger_slot = TREE_SLOT_NONE;
                 break;
             }
-            larger_slot = Some(next_slot);
+            larger_slot = next_slot;
             match_index = state.chain_table[next_slot] as usize;
         }
     }
@@ -200,8 +201,8 @@ fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
     let match_low = window_low.max(1);
     let mut common_smaller = 0_usize;
     let mut common_larger = 0_usize;
-    let mut smaller_slot = Some(tree_slot(ip, mask));
-    let mut larger_slot = Some(tree_slot(ip, mask) + 1);
+    let mut smaller_slot = tree_slot(ip, mask);
+    let mut larger_slot = smaller_slot + 1;
     let mut match_end_idx = ip + 9;
     let mut best_length = length_to_beat.saturating_sub(1) as usize;
     let mut nb_compares = 1_usize << params.search_log;
@@ -275,19 +276,19 @@ fn insert_bt_and_get_all_matches_no_dict<const MLS: u32>(
             write_tree_slot(state, smaller_slot, match_index as u32);
             common_smaller = match_length;
             if match_index <= bt_low {
-                smaller_slot = None;
+                smaller_slot = TREE_SLOT_NONE;
                 break;
             }
-            smaller_slot = Some(next_slot + 1);
+            smaller_slot = next_slot + 1;
             match_index = state.chain_table[next_slot + 1] as usize;
         } else {
             write_tree_slot(state, larger_slot, match_index as u32);
             common_larger = match_length;
             if match_index <= bt_low {
-                larger_slot = None;
+                larger_slot = TREE_SLOT_NONE;
                 break;
             }
-            larger_slot = Some(next_slot);
+            larger_slot = next_slot;
             match_index = state.chain_table[next_slot] as usize;
         }
     }
@@ -316,10 +317,12 @@ fn insert_and_find_first_index_hash3(
     Some(state.hash_table3[hash3_ptr(src, ip, state.hash_log3)] as usize)
 }
 
+#[inline(always)]
 fn bt_mask(params: CompressionParameters) -> usize {
     (1_usize << (params.chain_log - 1)) - 1
 }
 
+#[inline(always)]
 fn tree_slot(index: usize, mask: usize) -> usize {
     2 * (index & mask)
 }
@@ -328,8 +331,9 @@ fn nonzero_successor(index: u32) -> usize {
     index as usize + usize::from(index > 0)
 }
 
-fn write_tree_slot(state: &mut GreedyMatchState, slot: Option<usize>, value: u32) {
-    if let Some(slot) = slot {
+#[inline(always)]
+fn write_tree_slot(state: &mut GreedyMatchState, slot: usize, value: u32) {
+    if slot != TREE_SLOT_NONE {
         state.chain_table[slot] = value;
     }
 }
