@@ -157,6 +157,7 @@ pub(super) fn forward_pass<const MLS: u32, const ULTRA: bool>(
     }
 }
 
+#[inline(always)]
 fn update_literal_price<const ULTRA: bool>(
     src: &[u8],
     ip: usize,
@@ -229,6 +230,7 @@ fn refresh_node_reps(cur: usize, state: &mut OptBlockState) {
     );
 }
 
+#[inline(always)]
 fn update_match_prices<const ULTRA: bool>(
     cur: usize,
     min_match: u32,
@@ -288,6 +290,7 @@ fn ll_increment_price(litlen: u32, opt_level: OptLevel, price_state: &OptPriceSt
     price_state.lit_length_increment_price(litlen, opt_level)
 }
 
+#[inline(always)]
 fn price_i32(price: u32) -> i32 {
     i32::try_from(price).unwrap_or(ZSTD_MAX_PRICE)
 }
