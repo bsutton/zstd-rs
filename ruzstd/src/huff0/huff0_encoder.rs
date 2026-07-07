@@ -791,7 +791,11 @@ fn rank_limited_weights(counts: &[usize]) -> Vec<usize> {
         .enumerate()
         .filter(|(_, count)| **count > 0)
         .collect::<Vec<_>>();
-    counts_sorted.sort_by_key(|(_, c1)| *c1);
+    counts_sorted.sort_unstable_by(|(left_idx, left_count), (right_idx, right_count)| {
+        left_count
+            .cmp(right_count)
+            .then_with(|| left_idx.cmp(right_idx))
+    });
 
     let mut weights_distributed = alloc::vec![0; counts.len()];
     for (idx, count) in counts_sorted {
