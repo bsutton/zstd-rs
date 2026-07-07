@@ -193,7 +193,7 @@ impl FSETable {
     }
 
     pub(crate) fn can_encode_symbol(&self, symbol: u8) -> bool {
-        !self.states[symbol as usize].states.is_empty()
+        self.states[symbol as usize].probability != 0
     }
 
     pub(crate) fn bit_cost(&self, symbol: u8, accuracy_log: u8) -> Option<usize> {
@@ -515,6 +515,23 @@ pub(crate) fn build_huffman_weight_table_from_data(data: &[u8], max_log: u8) -> 
         .map(|probs| (probs, acc_log))
         .unwrap_or_else(|| old_normalize_counts(counts, max_log, false));
     build_table_from_probabilities(&probs, acc_log)
+}
+
+pub(crate) fn build_probability_table_for_estimate(probs: &[i32], acc_log: u8) -> FSETable {
+    let mut states = core::array::from_fn::<SymbolStates, 256, _>(|_| SymbolStates {
+        states: Vec::new(),
+        lookup: Vec::new(),
+        probability: 0,
+    });
+    for (symbol, probability) in probs.iter().copied().enumerate() {
+        states[symbol].probability = probability;
+    }
+
+    FSETable {
+        table_size: 1usize << acc_log,
+        acc_log,
+        states,
+    }
 }
 
 pub(crate) fn optimal_table_log(max_log: u8, total: usize, max_symbol: usize) -> u8 {

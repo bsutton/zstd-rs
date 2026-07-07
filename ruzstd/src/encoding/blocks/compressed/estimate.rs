@@ -24,7 +24,8 @@ use super::{
     sequence_codes::{encode_literal_length, encode_match_len, encode_offset},
     sequence_cost::{cross_entropy_cost, repeat_table_cost, CodeCounts},
     sequence_tables::{
-        choose_sequence_table_modes, encode_table, FseTableMode, SequenceModeSearchConfig,
+        choose_sequence_table_modes_for_estimate, encode_table, FseTableMode,
+        SequenceModeSearchConfig,
     },
     BlockCompressionConfig, PreparedBlockRef,
 };
@@ -219,7 +220,7 @@ fn estimate_sequence_section_size(
     } else {
         16
     };
-    let (ll_mode, ml_mode, of_mode) = choose_sequence_table_modes(
+    let (ll_mode, ml_mode, of_mode) = choose_sequence_table_modes_for_estimate(
         sequences,
         SequenceModeSearchConfig {
             ll_previous: fse_tables.ll_previous.as_deref(),

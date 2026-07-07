@@ -3,9 +3,9 @@ use alloc::{vec, vec::Vec};
 use crate::{
     blocks::sequence_section::Sequence,
     fse::fse_encoder::{
-        build_table_from_probabilities, ncount_cost_from_probabilities,
-        normalize_counts_with_table_log, normalized_probabilities_from_counts, optimal_table_log,
-        FSETable,
+        build_probability_table_for_estimate, build_table_from_probabilities,
+        ncount_cost_from_probabilities, normalize_counts_with_table_log,
+        normalized_probabilities_from_counts, optimal_table_log, FSETable,
     },
 };
 
@@ -23,6 +23,7 @@ struct TableModeCandidateConfig {
     predefined_max_sequences: usize,
     exact_sequence_mode_search: bool,
     selection_policy: TableSelectionPolicy,
+    table_builder: TableBuilder,
 }
 
 #[derive(Clone, Copy)]
@@ -30,6 +31,12 @@ enum TableSelectionPolicy {
     Legacy,
     CFast { default_norm_log: u8 },
     CCost,
+}
+
+#[derive(Clone, Copy)]
+enum TableBuilder {
+    Full,
+    ProbabilityOnly,
 }
 
 #[cfg(test)]
@@ -52,6 +59,7 @@ pub(in crate::encoding::blocks::compressed) fn choose_table<'a>(
         repeat_table_max_sequences,
         predefined_max_sequences,
         TableSelectionPolicy::Legacy,
+        TableBuilder::Full,
     )
 }
 
@@ -65,6 +73,7 @@ fn choose_table_with_policy<'a>(
     repeat_table_max_sequences: usize,
     predefined_max_sequences: usize,
     selection_policy: TableSelectionPolicy,
+    table_builder: TableBuilder,
 ) -> FseTableMode<'a> {
     match selection_policy {
         TableSelectionPolicy::CFast { default_norm_log } => {
@@ -79,11 +88,20 @@ fn choose_table_with_policy<'a>(
                 repeat_table_max_sequences,
                 predefined_max_sequences,
                 default_norm_log,
+                table_builder,
             );
         }
         TableSelectionPolicy::CCost => {
             let counts = CodeCounts::from_codes(sequences.iter().map(code));
-            return choose_c_cost_table(previous, default_table, sequences, code, &counts, max_log);
+            return choose_c_cost_table(
+                previous,
+                default_table,
+                sequences,
+                code,
+                &counts,
+                max_log,
+                table_builder,
+            );
         }
         TableSelectionPolicy::Legacy => {}
     }
@@ -120,7 +138,12 @@ fn choose_table_with_policy<'a>(
         }
     }
 
-    FseTableMode::Encoded(build_sequence_table(sequences, code, max_log))
+    FseTableMode::Encoded(build_sequence_table(
+        sequences,
+        code,
+        max_log,
+        table_builder,
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -134,6 +157,7 @@ fn choose_c_fast_table<'a>(
     repeat_table_max_sequences: usize,
     predefined_max_sequences: usize,
     default_norm_log: u8,
+    table_builder: TableBuilder,
 ) -> FseTableMode<'a> {
     if counts.most_frequent() == counts.total() {
         let first_code = counts.max_symbol() as u8;
@@ -165,6 +189,7 @@ fn choose_c_fast_table<'a>(
         counts,
         code(&sequences[sequences.len() - 1]),
         max_log,
+        table_builder,
     ))
 }
 
@@ -175,6 +200,7 @@ fn choose_c_cost_table<'a>(
     code: impl Fn(&Sequence) -> u8 + Copy,
     counts: &CodeCounts,
     max_log: u8,
+    table_builder: TableBuilder,
 ) -> FseTableMode<'a> {
     let default_allowed = counts.default_allowed(default_table);
 
@@ -211,9 +237,9 @@ fn choose_c_cost_table<'a>(
 
     let last_code = code(&sequences[sequences.len() - 1]);
     let encoded_table = if counts.counts()[usize::from(last_code)] > 1 {
-        build_sequence_table_from_counts(counts, last_code, max_log)
+        build_sequence_table_from_counts(counts, last_code, max_log, table_builder)
     } else {
-        build_table_from_probabilities(&encoded_probs, encoded_acc_log)
+        build_table_from_probabilities_with_builder(&encoded_probs, encoded_acc_log, table_builder)
     };
     FseTableMode::Encoded(encoded_table)
 }
@@ -222,6 +248,7 @@ fn build_sequence_table(
     sequences: &[Sequence],
     code: impl Fn(&Sequence) -> u8 + Copy,
     max_log: u8,
+    table_builder: TableBuilder,
 ) -> FSETable {
     let mut counts = [0usize; 256];
     for sequence in sequences {
@@ -229,18 +256,29 @@ fn build_sequence_table(
     }
 
     let last_code = usize::from(code(&sequences[sequences.len() - 1]));
-    build_sequence_table_from_raw_counts(&mut counts, last_code, max_log)
+    build_sequence_table_from_raw_counts(&mut counts, last_code, max_log, table_builder)
 }
 
-fn build_sequence_table_from_counts(counts: &CodeCounts, last_code: u8, max_log: u8) -> FSETable {
+fn build_sequence_table_from_counts(
+    counts: &CodeCounts,
+    last_code: u8,
+    max_log: u8,
+    table_builder: TableBuilder,
+) -> FSETable {
     let mut counts = *counts.counts();
-    build_sequence_table_from_raw_counts(&mut counts, usize::from(last_code), max_log)
+    build_sequence_table_from_raw_counts(
+        &mut counts,
+        usize::from(last_code),
+        max_log,
+        table_builder,
+    )
 }
 
 fn build_sequence_table_from_raw_counts(
     counts: &mut [usize; 256],
     last_code: usize,
     max_log: u8,
+    table_builder: TableBuilder,
 ) -> FSETable {
     let original_total = counts.iter().sum::<usize>();
     let original_max_symbol = counts
@@ -269,7 +307,7 @@ fn build_sequence_table_from_raw_counts(
         low_prob_count,
         true,
     );
-    build_table_from_probabilities(&probs, acc_log)
+    build_table_from_probabilities_with_builder(&probs, acc_log, table_builder)
 }
 
 fn candidate_table_modes<'a>(
@@ -288,6 +326,7 @@ fn candidate_table_modes<'a>(
         config.repeat_table_max_sequences,
         config.predefined_max_sequences,
         config.selection_policy,
+        config.table_builder,
     );
 
     let mut candidates = vec![heuristic];
@@ -330,6 +369,7 @@ fn candidate_table_modes<'a>(
                 sequences,
                 code,
                 candidate_max_log,
+                config.table_builder,
             )));
         }
     }
@@ -340,6 +380,26 @@ fn candidate_table_modes<'a>(
 pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes<'a>(
     sequences: &[Sequence],
     config: SequenceModeSearchConfig<'a>,
+) -> (FseTableMode<'a>, FseTableMode<'a>, FseTableMode<'a>) {
+    choose_sequence_table_modes_with_builder(sequences, config, TableBuilder::Full)
+}
+
+pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes_for_estimate<'a>(
+    sequences: &[Sequence],
+    config: SequenceModeSearchConfig<'a>,
+) -> (FseTableMode<'a>, FseTableMode<'a>, FseTableMode<'a>) {
+    let table_builder = if config.exact_sequence_mode_search {
+        TableBuilder::Full
+    } else {
+        TableBuilder::ProbabilityOnly
+    };
+    choose_sequence_table_modes_with_builder(sequences, config, table_builder)
+}
+
+fn choose_sequence_table_modes_with_builder<'a>(
+    sequences: &[Sequence],
+    config: SequenceModeSearchConfig<'a>,
+    table_builder: TableBuilder,
 ) -> (FseTableMode<'a>, FseTableMode<'a>, FseTableMode<'a>) {
     let llml_policy =
         sequence_table_selection_policy(config.c_fast_heuristics, config.c_cost_model, 6);
@@ -357,6 +417,7 @@ pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes<'a>(
                 config.repeat_table_max_sequences,
                 config.llml_predefined_max_sequences,
                 llml_policy,
+                table_builder,
             ),
             choose_table_with_policy(
                 config.ml_previous,
@@ -367,6 +428,7 @@ pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes<'a>(
                 config.repeat_table_max_sequences,
                 config.llml_predefined_max_sequences,
                 llml_policy,
+                table_builder,
             ),
             choose_table_with_policy(
                 config.of_previous,
@@ -377,6 +439,7 @@ pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes<'a>(
                 config.repeat_table_max_sequences,
                 config.of_predefined_max_sequences,
                 offset_policy,
+                table_builder,
             ),
         );
     }
@@ -392,6 +455,7 @@ pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes<'a>(
             predefined_max_sequences: config.llml_predefined_max_sequences,
             exact_sequence_mode_search: config.exact_sequence_mode_search,
             selection_policy: llml_policy,
+            table_builder,
         },
     );
     let ml_candidates = candidate_table_modes(
@@ -405,6 +469,7 @@ pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes<'a>(
             predefined_max_sequences: config.llml_predefined_max_sequences,
             exact_sequence_mode_search: config.exact_sequence_mode_search,
             selection_policy: llml_policy,
+            table_builder,
         },
     );
     let of_candidates = candidate_table_modes(
@@ -418,6 +483,7 @@ pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes<'a>(
             predefined_max_sequences: config.of_predefined_max_sequences,
             exact_sequence_mode_search: config.exact_sequence_mode_search,
             selection_policy: offset_policy,
+            table_builder,
         },
     );
 
@@ -453,6 +519,17 @@ pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes<'a>(
         ml_candidates.swap_remove(best_ml),
         of_candidates.swap_remove(best_of),
     )
+}
+
+fn build_table_from_probabilities_with_builder(
+    probs: &[i32],
+    acc_log: u8,
+    table_builder: TableBuilder,
+) -> FSETable {
+    match table_builder {
+        TableBuilder::Full => build_table_from_probabilities(probs, acc_log),
+        TableBuilder::ProbabilityOnly => build_probability_table_for_estimate(probs, acc_log),
+    }
 }
 
 fn sequence_table_selection_policy(

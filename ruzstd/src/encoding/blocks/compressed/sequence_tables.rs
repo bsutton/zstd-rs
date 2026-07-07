@@ -6,9 +6,9 @@ use super::encode_sequences;
 
 mod selection;
 
-pub(super) use selection::choose_sequence_table_modes;
 #[cfg(test)]
 pub(super) use selection::choose_table;
+pub(super) use selection::{choose_sequence_table_modes, choose_sequence_table_modes_for_estimate};
 
 #[derive(Clone)]
 #[allow(clippy::large_enum_variant)]
