@@ -45,6 +45,10 @@ impl BlockEncodeMode {
             Self::Normal
         }
     }
+
+    pub(crate) fn split_block_enabled(self) -> bool {
+        matches!(self, Self::SplitBlock)
+    }
 }
 
 impl FrameBlockState {

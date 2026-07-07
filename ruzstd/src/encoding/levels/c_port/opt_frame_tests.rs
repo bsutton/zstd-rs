@@ -1,10 +1,11 @@
 use alloc::vec::Vec;
 
 use super::{
+    cctx_params::{CctxParameters, ParamSwitch},
     dictionary::{parse_dictionary, DictionaryContentType, ParsedDictionary},
     opt_frame::{
         encode_frame_btopt_with_dictionary, encode_frame_btultra2_with_dictionary,
-        encode_frame_btultra_with_dictionary,
+        encode_frame_btultra_with_dictionary, encode_frame_opt_no_dict_with_cctx,
     },
     test_dictionary::{dictionary_content, full_dictionary_fixture, DICT_ID},
 };
@@ -48,6 +49,23 @@ fn btultra2_dictionary_path_uses_btultra_block_compressor_like_c() {
     assert_eq!(btultra2, btultra);
 }
 
+#[test]
+fn target_c_block_size_bypasses_post_split_path_for_opt_frame() {
+    let data = repeated_no_dict_payload();
+    let mut target_cctx = CctxParameters::for_level(16, data.len() as u64, 0);
+    target_cctx.post_block_splitter = ParamSwitch::Enable;
+    assert!(target_cctx.set_target_c_block_size(2048));
+
+    let mut no_split_cctx = CctxParameters::for_level(16, data.len() as u64, 0);
+    no_split_cctx.post_block_splitter = ParamSwitch::Disable;
+
+    let target_encoded = encode_frame_opt_no_dict_with_cctx(&data, target_cctx);
+    let no_split_encoded = encode_frame_opt_no_dict_with_cctx(&data, no_split_cctx);
+
+    assert_eq!(target_encoded, no_split_encoded);
+    assert_round_trips(&target_encoded, &data);
+}
+
 fn encode_with_fixture_dictionary(
     level: i32,
     encode: fn(&[u8], i32, ParsedDictionary<'_>) -> Vec<u8>,
@@ -59,6 +77,14 @@ fn encode_with_fixture_dictionary(
     let data = dictionary_payload();
 
     encode(&data, level, parsed)
+}
+
+fn assert_round_trips(encoded: &[u8], expected: &[u8]) {
+    let mut decoded = Vec::with_capacity(expected.len());
+    let mut decoder = FrameDecoder::new();
+    decoder.decode_all_to_vec(encoded, &mut decoded).unwrap();
+
+    assert_eq!(decoded, expected);
 }
 
 fn assert_dictionary_frame_round_trips(encoded: &[u8]) {
@@ -98,6 +124,14 @@ fn dictionary_payload() -> Vec<u8> {
     let mut data = Vec::new();
     for _ in 0..10 {
         data.extend_from_slice(dictionary_content());
+    }
+    data
+}
+
+fn repeated_no_dict_payload() -> Vec<u8> {
+    let mut data = Vec::new();
+    for _ in 0..64 {
+        data.extend_from_slice(b"target-c-block-size-opt-frame ");
     }
     data
 }

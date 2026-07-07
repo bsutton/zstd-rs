@@ -10,7 +10,7 @@ use super::{
     compress_bound::compress_bound,
     dictionary::ParsedDictionary,
     dictionary_frame::DictionaryFrameContext,
-    frame_state::{streaming_dict_limit, FrameBlockState},
+    frame_state::{streaming_dict_limit, BlockEncodeMode, FrameBlockState},
     greedy_block::{GreedyBlockEncodeContext, GreedyBlockSource},
     greedy_ext_block::GreedyExtDictBlockSource,
     ldm::{
@@ -130,7 +130,8 @@ fn encode_frame_opt_no_dict_resolved(
 ) -> Vec<u8> {
     let mut output = Vec::with_capacity(compress_bound(src.len()));
     let params = cctx.compression;
-    let post_block_splitter = cctx.post_block_splitter == ParamSwitch::Enable;
+    let block_encode_mode = BlockEncodeMode::from_cctx(cctx);
+    let post_block_splitter = block_encode_mode.split_block_enabled();
     let ldm_sequences = if cctx.ldm.enable_ldm == ParamSwitch::Enable {
         let mut ldm_table = LdmHashTable::new(cctx.ldm);
         Some(generate_sequences_no_dict(src, cctx.ldm, &mut ldm_table))
@@ -258,7 +259,8 @@ fn encode_frame_opt_with_dictionary(
 ) -> Vec<u8> {
     let mut context = DictionaryFrameContext::new(src, level, dictionary);
     let params = context.cctx.compression;
-    let post_block_splitter = context.cctx.post_block_splitter == ParamSwitch::Enable;
+    let block_encode_mode = BlockEncodeMode::from_cctx(context.cctx);
+    let post_block_splitter = block_encode_mode.split_block_enabled();
     let ldm_sequences = if context.cctx.ldm.enable_ldm == ParamSwitch::Enable {
         let mut ldm_table = LdmHashTable::new(context.cctx.ldm);
         fill_prefix_hash_table(
