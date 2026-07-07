@@ -38,7 +38,7 @@ fn prepared_chunk_splits_literals_and_source_span() {
 
 #[test]
 fn partition_offcode_resolution_rewrites_repcodes_after_raw_partition_like_c() {
-    let mut first_partition = PreparedBlock {
+    let first_partition = PreparedBlock {
         literals: b"a".to_vec(),
         sequences: vec![PreparedSequence {
             ll: 1,
@@ -47,7 +47,7 @@ fn partition_offcode_resolution_rewrites_repcodes_after_raw_partition_like_c() {
             encoded_offset_value: Some(OffBase::offset_to_c_value(4)),
         }],
     };
-    let mut second_partition = PreparedBlock {
+    let second_partition = PreparedBlock {
         literals: b"b".to_vec(),
         sequences: vec![PreparedSequence {
             ll: 1,
@@ -60,24 +60,49 @@ fn partition_offcode_resolution_rewrites_repcodes_after_raw_partition_like_c() {
     let mut compression_repeats = initial_repeats;
     let mut decompression_repeats = initial_repeats;
 
-    resolve_partition_off_codes(
-        &mut first_partition.sequences,
+    let _ = resolved_partition_sequences(
+        &first_partition.sequences,
         &mut decompression_repeats,
         &mut compression_repeats,
     );
     decompression_repeats = initial_repeats;
 
-    resolve_partition_off_codes(
-        &mut second_partition.sequences,
+    let second_sequences = resolved_partition_sequences(
+        &second_partition.sequences,
         &mut decompression_repeats,
         &mut compression_repeats,
     );
 
     assert_eq!(
-        second_partition.sequences[0].encoded_offset_value,
+        second_sequences[0].encoded_offset_value,
         Some(OffBase::offset_to_c_value(4))
     );
-    assert_eq!(second_partition.sequences[0].raw_offset, 4);
+    assert_eq!(second_sequences[0].raw_offset, 4);
+    assert_eq!(decompression_repeats.as_offsets(), [4, 1, 4]);
+    assert_eq!(compression_repeats.as_offsets(), [4, 1, 4]);
+}
+
+#[test]
+fn partition_offcode_resolution_borrows_when_no_rewrite_is_needed() {
+    let partition = PreparedBlock {
+        literals: b"a".to_vec(),
+        sequences: vec![PreparedSequence {
+            ll: 1,
+            ml: 3,
+            raw_offset: 4,
+            encoded_offset_value: Some(OffBase::offset_to_c_value(4)),
+        }],
+    };
+    let mut compression_repeats = RepeatOffsets::new();
+    let mut decompression_repeats = RepeatOffsets::new();
+
+    let resolved = resolved_partition_sequences(
+        &partition.sequences,
+        &mut decompression_repeats,
+        &mut compression_repeats,
+    );
+
+    assert!(matches!(resolved, Cow::Borrowed(_)));
     assert_eq!(decompression_repeats.as_offsets(), [4, 1, 4]);
     assert_eq!(compression_repeats.as_offsets(), [4, 1, 4]);
 }

@@ -1,6 +1,6 @@
 //! Post-sequence block splitter, following `ZSTD_deriveBlockSplits()`.
 
-use alloc::vec::Vec;
+use alloc::{borrow::Cow, vec::Vec};
 
 use super::{
     block_emit::{append_prepared_block_or_raw, append_special_block, PreparedBlockEmission},
@@ -60,10 +60,10 @@ pub(super) fn encode_split_block(
     let mut start_seq = 0usize;
     for (idx, &end_seq) in partitions.iter().enumerate() {
         let last_partition = idx + 1 == partitions.len();
-        let mut chunk = prepared_chunk(block, &prepared.prepared, &prefixes, start_seq, end_seq);
+        let chunk = prepared_chunk_ref(block, &prepared.prepared, &prefixes, start_seq, end_seq);
         let decompression_repeat_offsets_before = decompression_repeat_offsets;
-        resolve_partition_off_codes(
-            &mut chunk.sequences,
+        let sequences = resolved_partition_sequences(
+            chunk.prepared.sequences,
             &mut decompression_repeat_offsets,
             &mut compression_repeat_offsets,
         );
@@ -72,8 +72,8 @@ pub(super) fn encode_split_block(
             last_block && last_partition,
             decompression_repeat_offsets_before,
             PreparedBlockRef {
-                literals: chunk.literals,
-                sequences: &chunk.sequences,
+                literals: chunk.prepared.literals,
+                sequences: &sequences,
             },
             PartitionEncodeContext {
                 policy,
@@ -343,12 +343,14 @@ fn sequence_prefixes(prepared: &PreparedBlock) -> Vec<SequencePrefix> {
     prefixes
 }
 
-fn resolve_partition_off_codes(
-    sequences: &mut [PreparedSequence],
+fn resolved_partition_sequences<'a>(
+    sequences: &'a [PreparedSequence],
     decompression_repeat_offsets: &mut RepeatOffsets,
     compression_repeat_offsets: &mut RepeatOffsets,
-) {
-    for sequence in sequences {
+) -> Cow<'a, [PreparedSequence]> {
+    let mut resolved = None;
+
+    for (idx, sequence) in sequences.iter().copied().enumerate() {
         let original_off_base = sequence
             .encoded_offset_value
             .and_then(OffBase::from_c_value)
@@ -362,13 +364,20 @@ fn resolve_partition_off_codes(
                 compression_repeat_offsets.resolve(original_off_base, sequence.ll);
             if decompression_raw_offset != compression_raw_offset {
                 decompression_off_base = OffBase::Offset(compression_raw_offset);
-                sequence.raw_offset = compression_raw_offset;
-                sequence.encoded_offset_value = Some(decompression_off_base.to_c_value());
+                let resolved_sequences = resolved.get_or_insert_with(|| sequences.to_vec());
+                resolved_sequences[idx].raw_offset = compression_raw_offset;
+                resolved_sequences[idx].encoded_offset_value =
+                    Some(decompression_off_base.to_c_value());
             }
         }
 
         decompression_repeat_offsets.update(decompression_off_base, sequence.ll);
         compression_repeat_offsets.update(original_off_base, sequence.ll);
+    }
+
+    match resolved {
+        Some(resolved) => Cow::Owned(resolved),
+        None => Cow::Borrowed(sequences),
     }
 }
 
