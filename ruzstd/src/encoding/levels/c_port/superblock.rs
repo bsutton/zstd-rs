@@ -22,6 +22,21 @@ pub(super) struct SubBlockBudgetPlan {
     pub(super) avg_block_budget: usize,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum EntropyTableMode {
+    Basic,
+    Rle,
+    Compressed,
+    Repeat,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct SequenceEntropyModes {
+    pub(super) ll: EntropyTableMode,
+    pub(super) ml: EntropyTableMode,
+    pub(super) of: EntropyTableMode,
+}
+
 pub(super) fn sub_block_budget_plan(
     estimate: EstimatedSubBlockSize,
     nb_literals: usize,
@@ -51,6 +66,16 @@ pub(super) fn sub_block_budget_plan(
         nb_sub_blocks,
         avg_block_budget,
     })
+}
+
+pub(super) fn should_commit_sub_block(compressed_size: usize, decompressed_size: usize) -> bool {
+    compressed_size > 0 && compressed_size < decompressed_size
+}
+
+pub(super) fn need_sequence_entropy_tables(modes: SequenceEntropyModes) -> bool {
+    [modes.ll, modes.ml, modes.of]
+        .iter()
+        .any(|mode| matches!(mode, EntropyTableMode::Compressed | EntropyTableMode::Rle))
 }
 
 pub(super) fn count_literals(sequences: &[PreparedSequence]) -> usize {
@@ -225,6 +250,37 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn should_commit_sub_block_matches_c_compressibility_gate() {
+        assert!(should_commit_sub_block(9, 10));
+        assert!(!should_commit_sub_block(0, 10));
+        assert!(!should_commit_sub_block(10, 10));
+        assert!(!should_commit_sub_block(11, 10));
+    }
+
+    #[test]
+    fn need_sequence_entropy_tables_matches_c_metadata_gate() {
+        let no_tables = SequenceEntropyModes {
+            ll: EntropyTableMode::Basic,
+            ml: EntropyTableMode::Repeat,
+            of: EntropyTableMode::Basic,
+        };
+        let rle_tables = SequenceEntropyModes {
+            ll: EntropyTableMode::Basic,
+            ml: EntropyTableMode::Rle,
+            of: EntropyTableMode::Basic,
+        };
+        let compressed_tables = SequenceEntropyModes {
+            ll: EntropyTableMode::Repeat,
+            ml: EntropyTableMode::Basic,
+            of: EntropyTableMode::Compressed,
+        };
+
+        assert!(!need_sequence_entropy_tables(no_tables));
+        assert!(need_sequence_entropy_tables(rle_tables));
+        assert!(need_sequence_entropy_tables(compressed_tables));
     }
 
     #[test]
