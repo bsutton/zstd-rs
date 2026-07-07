@@ -100,6 +100,10 @@ pub(super) fn append_special_block(block: &[u8], last_block: bool, output: &mut 
     false
 }
 
+pub(super) fn append_raw_block(block: &[u8], last_block: bool, output: &mut Vec<u8>) {
+    write_raw_block(last_block, block.len() as u32, block, output);
+}
+
 fn rle_byte(data: &[u8]) -> Option<u8> {
     let first = *data.first()?;
     data.iter().all(|byte| *byte == first).then_some(first)

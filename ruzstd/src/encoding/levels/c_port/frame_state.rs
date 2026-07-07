@@ -49,6 +49,13 @@ impl BlockEncodeMode {
     pub(crate) fn split_block_enabled(self) -> bool {
         matches!(self, Self::SplitBlock)
     }
+
+    pub(crate) fn target_c_block_size(self) -> Option<usize> {
+        match self {
+            Self::TargetCompressedBlockSize { target_size } => Some(target_size),
+            Self::SplitBlock | Self::Normal => None,
+        }
+    }
 }
 
 impl FrameBlockState {

@@ -5,6 +5,7 @@ use core::ops::Range;
 
 use super::{
     block_policy::BlockEncodingPolicy,
+    frame_state::BlockEncodeMode,
     greedy::{GreedyBlockOutput, GreedyMatchState},
     greedy_block::{
         encode_prepared_block, encode_special_block, prepare_from_greedy_output,
@@ -115,6 +116,33 @@ pub(crate) fn encode_block_hash_chain_ext_dict_with_state_and_policy(
     depth: LazyBlockStrategy,
     policy: BlockEncodingPolicy,
 ) -> GreedyEncodedBlock {
+    encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        match_state,
+        context,
+        depth,
+        policy,
+        BlockEncodeMode::Normal,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode(
+    source: GreedyExtDictBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut GreedyMatchState,
+    context: GreedyBlockEncodeContext<'_, '_>,
+    depth: LazyBlockStrategy,
+    policy: BlockEncodingPolicy,
+    block_encode_mode: BlockEncodeMode,
+) -> GreedyEncodedBlock {
     let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
 
@@ -131,6 +159,14 @@ pub(crate) fn encode_block_hash_chain_ext_dict_with_state_and_policy(
         match_state,
         depth,
     );
+    if let Some(_target_size) = block_encode_mode.target_c_block_size() {
+        return super::greedy_block::encode_target_block_raw_fallback(
+            block,
+            last_block,
+            repeat_offsets,
+            bytes,
+        );
+    }
     encode_prepared_block(
         block,
         last_block,

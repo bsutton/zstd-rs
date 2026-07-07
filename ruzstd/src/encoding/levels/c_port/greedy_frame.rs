@@ -11,12 +11,13 @@ use super::{
     frame_state::{streaming_dict_limit, BlockEncodeMode, FrameBlockState},
     greedy::GreedyMatchState,
     greedy_block::{
-        encode_block_hash_chain_no_dict, encode_block_hash_chain_no_dict_with_state_and_policy,
-        GreedyBlockEncodeContext, GreedyBlockSource, LazyBlockStrategy,
+        encode_block_hash_chain_no_dict,
+        encode_block_hash_chain_no_dict_with_state_and_policy_in_mode, GreedyBlockEncodeContext,
+        GreedyBlockSource, LazyBlockStrategy,
     },
     greedy_dict::{load_binary_tree_prefix, load_prefix},
     greedy_ext_block::{
-        encode_block_hash_chain_ext_dict_with_state_and_policy, GreedyExtDictBlockSource,
+        encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode, GreedyExtDictBlockSource,
     },
 };
 use crate::common::MAX_BLOCK_SIZE;
@@ -101,9 +102,7 @@ pub(crate) fn encode_frame_hash_chain_no_dict_with_cctx(
 ) -> Vec<u8> {
     let mut output = Vec::with_capacity(compress_bound(src.len()));
     cctx.assert_resolved();
-    // Resolve CCtx block mode at frame entry so target-size superblock
-    // emission can branch here when that C path is wired into hash-chain blocks.
-    let _block_encode_mode = BlockEncodeMode::from_cctx(cctx);
+    let block_encode_mode = BlockEncodeMode::from_cctx(cctx);
     let params = cctx.compression;
     write_frame_header_no_dict(&mut output, src.len(), params);
     let mut frame_state = FrameBlockState::new(params, cctx.max_block_size);
@@ -145,7 +144,7 @@ pub(crate) fn encode_frame_hash_chain_no_dict_with_cctx(
             offset_history: &mut frame_state.offset_history,
         };
         let encoded_block = if dict_limit == 0 {
-            encode_block_hash_chain_no_dict_with_state_and_policy(
+            encode_block_hash_chain_no_dict_with_state_and_policy_in_mode(
                 GreedyBlockSource {
                     src,
                     block_range: block_start..block_end,
@@ -159,9 +158,10 @@ pub(crate) fn encode_frame_hash_chain_no_dict_with_cctx(
                 block_context,
                 depth,
                 policy,
+                block_encode_mode,
             )
         } else {
-            encode_block_hash_chain_ext_dict_with_state_and_policy(
+            encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode(
                 GreedyExtDictBlockSource {
                     src,
                     block_range: block_start..block_end,
@@ -176,6 +176,7 @@ pub(crate) fn encode_frame_hash_chain_no_dict_with_cctx(
                 block_context,
                 depth,
                 policy,
+                block_encode_mode,
             )
         };
         frame_state.record_encoded_block(
@@ -199,6 +200,7 @@ fn encode_frame_hash_chain_with_dictionary(
 ) -> Vec<u8> {
     let mut context = DictionaryFrameContext::new(src, level, dictionary);
     let params = context.cctx.compression;
+    let block_encode_mode = BlockEncodeMode::from_cctx(context.cctx);
 
     let mut match_state = GreedyMatchState::new();
     match_state.reset_for_frame(params);
@@ -253,7 +255,7 @@ fn encode_frame_hash_chain_with_dictionary(
             offset_history: &mut context.frame_state.offset_history,
         };
         let encoded_block = if loaded_dict_end == 0 {
-            encode_block_hash_chain_no_dict_with_state_and_policy(
+            encode_block_hash_chain_no_dict_with_state_and_policy_in_mode(
                 GreedyBlockSource {
                     src: &context.combined,
                     block_range: block_start..block_end,
@@ -267,9 +269,10 @@ fn encode_frame_hash_chain_with_dictionary(
                 block_context,
                 depth,
                 policy,
+                block_encode_mode,
             )
         } else {
-            encode_block_hash_chain_ext_dict_with_state_and_policy(
+            encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode(
                 GreedyExtDictBlockSource {
                     src: &context.combined,
                     block_range: block_start..block_end,
@@ -284,6 +287,7 @@ fn encode_frame_hash_chain_with_dictionary(
                 block_context,
                 depth,
                 policy,
+                block_encode_mode,
             )
         };
         context.frame_state.record_encoded_block(

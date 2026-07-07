@@ -3,8 +3,9 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use super::block_emit::{append_prepared_block_or_raw, PreparedBlockEmission};
+use super::block_emit::{append_prepared_block_or_raw, append_raw_block, PreparedBlockEmission};
 use super::block_policy::{should_skip_sequence_build, BlockEncodingPolicy};
+use super::frame_state::BlockEncodeMode;
 use super::greedy::{
     compress_block_btlazy2_no_dict_with_state_and_loaded_dict,
     compress_block_greedy_no_dict_with_state_and_loaded_dict,
@@ -290,6 +291,33 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy(
     depth: LazyBlockStrategy,
     policy: BlockEncodingPolicy,
 ) -> GreedyEncodedBlock {
+    encode_block_hash_chain_no_dict_with_state_and_policy_in_mode(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        match_state,
+        context,
+        depth,
+        policy,
+        BlockEncodeMode::Normal,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy_in_mode(
+    source: GreedyBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut GreedyMatchState,
+    context: GreedyBlockEncodeContext<'_, '_>,
+    depth: LazyBlockStrategy,
+    policy: BlockEncodingPolicy,
+    block_encode_mode: BlockEncodeMode,
+) -> GreedyEncodedBlock {
     let block = &source.src[source.block_range.clone()];
     let mut bytes = Vec::new();
 
@@ -308,6 +336,9 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy(
         depth,
         source.loaded_dict_end,
     );
+    if let Some(_target_size) = block_encode_mode.target_c_block_size() {
+        return encode_target_block_raw_fallback(block, last_block, repeat_offsets, bytes);
+    }
     encode_prepared_block(
         block,
         last_block,
@@ -362,6 +393,20 @@ pub(super) fn encode_prepared_block(
             repeat_offsets: compressed_repeat_offsets,
             new_huffman_table,
         },
+    }
+}
+
+pub(super) fn encode_target_block_raw_fallback(
+    block: &[u8],
+    last_block: bool,
+    repeat_offsets: RepeatOffsets,
+    mut bytes: Vec<u8>,
+) -> GreedyEncodedBlock {
+    append_raw_block(block, last_block, &mut bytes);
+    GreedyEncodedBlock {
+        bytes,
+        repeat_offsets,
+        new_huffman_table: None,
     }
 }
 

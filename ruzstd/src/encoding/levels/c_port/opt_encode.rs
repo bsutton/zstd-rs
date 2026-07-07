@@ -4,9 +4,11 @@ use alloc::vec::Vec;
 
 use super::{
     block_policy::BlockEncodingPolicy,
+    frame_state::BlockEncodeMode,
     greedy_block::{
-        encode_prepared_block, encode_special_block, prepare_from_greedy_output,
-        GreedyBlockEncodeContext, GreedyBlockSource, GreedyEncodedBlock, GreedyPreparedBlock,
+        encode_prepared_block, encode_special_block, encode_target_block_raw_fallback,
+        prepare_from_greedy_output, GreedyBlockEncodeContext, GreedyBlockSource,
+        GreedyEncodedBlock, GreedyPreparedBlock,
     },
     greedy_ext_block::GreedyExtDictBlockSource,
     ldm::opt::LdmOptCursor,
@@ -184,9 +186,38 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm(
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
     opt_state: &mut OptBlockState,
-    mut context: GreedyBlockEncodeContext<'_, '_>,
+    context: GreedyBlockEncodeContext<'_, '_>,
     strategy: OptParserStrategy,
     post_block_splitter: bool,
+    policy: BlockEncodingPolicy,
+    ldm_cursor: Option<&mut LdmOptCursor<'_>>,
+) -> GreedyEncodedBlock {
+    encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        opt_state,
+        context,
+        strategy,
+        block_encode_mode_from_splitter(post_block_splitter),
+        policy,
+        ldm_cursor,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode(
+    source: GreedyBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    opt_state: &mut OptBlockState,
+    mut context: GreedyBlockEncodeContext<'_, '_>,
+    strategy: OptParserStrategy,
+    block_encode_mode: BlockEncodeMode,
     policy: BlockEncodingPolicy,
     ldm_cursor: Option<&mut LdmOptCursor<'_>>,
 ) -> GreedyEncodedBlock {
@@ -214,7 +245,10 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm(
         prepared,
         repeat_offsets: output.repeat_offsets,
     };
-    if post_block_splitter {
+    if let Some(_target_size) = block_encode_mode.target_c_block_size() {
+        return encode_target_block_raw_fallback(block, last_block, repeat_offsets, bytes);
+    }
+    if block_encode_mode.split_block_enabled() {
         if let Some(encoded) = encode_split_block(
             block,
             last_block,
@@ -253,9 +287,38 @@ pub(crate) fn encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
     opt_state: &mut OptBlockState,
-    mut context: GreedyBlockEncodeContext<'_, '_>,
+    context: GreedyBlockEncodeContext<'_, '_>,
     strategy: OptParserStrategy,
     post_block_splitter: bool,
+    policy: BlockEncodingPolicy,
+    ldm_cursor: Option<&mut LdmOptCursor<'_>>,
+) -> GreedyEncodedBlock {
+    encode_block_opt_ext_dict_with_state_and_policy_and_ldm_in_mode(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        opt_state,
+        context,
+        strategy,
+        block_encode_mode_from_splitter(post_block_splitter),
+        policy,
+        ldm_cursor,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_opt_ext_dict_with_state_and_policy_and_ldm_in_mode(
+    source: GreedyExtDictBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    opt_state: &mut OptBlockState,
+    mut context: GreedyBlockEncodeContext<'_, '_>,
+    strategy: OptParserStrategy,
+    block_encode_mode: BlockEncodeMode,
     policy: BlockEncodingPolicy,
     ldm_cursor: Option<&mut LdmOptCursor<'_>>,
 ) -> GreedyEncodedBlock {
@@ -284,7 +347,10 @@ pub(crate) fn encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
         prepared,
         repeat_offsets: output.repeat_offsets,
     };
-    if post_block_splitter {
+    if let Some(_target_size) = block_encode_mode.target_c_block_size() {
+        return encode_target_block_raw_fallback(block, last_block, repeat_offsets, bytes);
+    }
+    if block_encode_mode.split_block_enabled() {
         if let Some(encoded) = encode_split_block(
             block,
             last_block,
@@ -313,4 +379,12 @@ pub(crate) fn encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
         context,
         bytes,
     )
+}
+
+fn block_encode_mode_from_splitter(post_block_splitter: bool) -> BlockEncodeMode {
+    if post_block_splitter {
+        BlockEncodeMode::SplitBlock
+    } else {
+        BlockEncodeMode::Normal
+    }
 }

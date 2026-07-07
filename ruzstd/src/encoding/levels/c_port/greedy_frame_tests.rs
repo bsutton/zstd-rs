@@ -178,6 +178,7 @@ fn target_c_block_size_cctx_path_round_trips_hash_chain_frame() {
         encode_frame_hash_chain_no_dict_with_cctx(&data, cctx, LazyBlockStrategy::BtLazy2);
 
     assert!(count_frame_blocks(&encoded) > 1);
+    assert_eq!(first_frame_block_type(&encoded), BlockType::Raw);
     assert_round_trips(&encoded, &data);
 }
 

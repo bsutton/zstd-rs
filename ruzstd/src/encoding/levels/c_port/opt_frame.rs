@@ -25,8 +25,8 @@ use super::{
     opt_encode::{
         encode_block_btopt_no_dict_with_state_and_policy,
         encode_block_btultra_no_dict_with_state_and_policy,
-        encode_block_opt_ext_dict_with_state_and_policy_and_ldm,
-        encode_block_opt_no_dict_with_state_and_policy_and_ldm,
+        encode_block_opt_ext_dict_with_state_and_policy_and_ldm_in_mode,
+        encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode,
     },
     opt_state::OptBlockState,
     params::{CompressionParameters, Strategy},
@@ -131,7 +131,6 @@ fn encode_frame_opt_no_dict_resolved(
     let mut output = Vec::with_capacity(compress_bound(src.len()));
     let params = cctx.compression;
     let block_encode_mode = BlockEncodeMode::from_cctx(cctx);
-    let post_block_splitter = block_encode_mode.split_block_enabled();
     let ldm_sequences = if cctx.ldm.enable_ldm == ParamSwitch::Enable {
         let mut ldm_table = LdmHashTable::new(cctx.ldm);
         Some(generate_sequences_no_dict(src, cctx.ldm, &mut ldm_table))
@@ -165,7 +164,7 @@ fn encode_frame_opt_no_dict_resolved(
                 offset_history: &mut frame_state.offset_history,
             },
             strategy,
-            post_block_splitter,
+            block_encode_mode,
             FrameBlockState::block_policy(true),
             None,
         );
@@ -211,12 +210,12 @@ fn encode_frame_opt_no_dict_resolved(
                 &mut opt_state,
                 block_context,
                 strategy,
-                post_block_splitter,
+                block_encode_mode,
                 policy,
                 ldm_cursor.as_mut(),
             )
         } else {
-            encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
+            encode_block_opt_ext_dict_with_state_and_policy_and_ldm_in_mode(
                 GreedyExtDictBlockSource {
                     src,
                     block_range: block_start..block_end,
@@ -230,7 +229,7 @@ fn encode_frame_opt_no_dict_resolved(
                 &mut opt_state,
                 block_context,
                 opt_parser_strategy(strategy),
-                post_block_splitter,
+                block_encode_mode,
                 policy,
                 ldm_cursor.as_mut(),
             )
@@ -260,7 +259,6 @@ fn encode_frame_opt_with_dictionary(
     let mut context = DictionaryFrameContext::new(src, level, dictionary);
     let params = context.cctx.compression;
     let block_encode_mode = BlockEncodeMode::from_cctx(context.cctx);
-    let post_block_splitter = block_encode_mode.split_block_enabled();
     let ldm_sequences = if context.cctx.ldm.enable_ldm == ParamSwitch::Enable {
         let mut ldm_table = LdmHashTable::new(context.cctx.ldm);
         fill_prefix_hash_table(
@@ -307,7 +305,7 @@ fn encode_frame_opt_with_dictionary(
                 offset_history: &mut context.frame_state.offset_history,
             },
             strategy,
-            post_block_splitter,
+            block_encode_mode,
             FrameBlockState::block_policy(true),
             None,
         );
@@ -359,12 +357,12 @@ fn encode_frame_opt_with_dictionary(
                 &mut opt_state,
                 block_context,
                 strategy,
-                post_block_splitter,
+                block_encode_mode,
                 policy,
                 ldm_cursor.as_mut(),
             )
         } else {
-            encode_block_opt_ext_dict_with_state_and_policy_and_ldm(
+            encode_block_opt_ext_dict_with_state_and_policy_and_ldm_in_mode(
                 GreedyExtDictBlockSource {
                     src: &context.combined,
                     block_range: block_start..block_end,
@@ -378,7 +376,7 @@ fn encode_frame_opt_with_dictionary(
                 &mut opt_state,
                 block_context,
                 opt_parser_strategy(strategy),
-                post_block_splitter,
+                block_encode_mode,
                 policy,
                 ldm_cursor.as_mut(),
             )
@@ -409,14 +407,15 @@ fn encode_block_opt_no_dict_with_state(
     opt_state: &mut OptBlockState,
     context: GreedyBlockEncodeContext<'_, '_>,
     strategy: OptFrameStrategy,
-    post_block_splitter: bool,
+    block_encode_mode: BlockEncodeMode,
     policy: BlockEncodingPolicy,
     ldm_cursor: Option<&mut LdmOptCursor<'_>>,
 ) -> super::greedy_block::GreedyEncodedBlock {
+    let target_mode = block_encode_mode.target_c_block_size().is_some();
     match strategy {
         OptFrameStrategy::BtOpt => {
-            if ldm_cursor.is_some() {
-                encode_block_opt_no_dict_with_state_and_policy_and_ldm(
+            if ldm_cursor.is_some() || target_mode {
+                encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode(
                     source,
                     last_block,
                     params,
@@ -425,7 +424,7 @@ fn encode_block_opt_no_dict_with_state(
                     opt_state,
                     context,
                     super::opt_state::OptParserStrategy::BtOpt,
-                    post_block_splitter,
+                    block_encode_mode,
                     policy,
                     ldm_cursor,
                 )
@@ -438,7 +437,7 @@ fn encode_block_opt_no_dict_with_state(
                     repeat_offsets,
                     opt_state,
                     context,
-                    post_block_splitter,
+                    block_encode_mode.split_block_enabled(),
                     policy,
                 )
             }
@@ -448,8 +447,8 @@ fn encode_block_opt_no_dict_with_state(
                 params.strategy,
                 Strategy::BtUltra | Strategy::BtUltra2
             ));
-            if strategy == OptFrameStrategy::BtUltra2 || ldm_cursor.is_some() {
-                encode_block_opt_no_dict_with_state_and_policy_and_ldm(
+            if strategy == OptFrameStrategy::BtUltra2 || ldm_cursor.is_some() || target_mode {
+                encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode(
                     source,
                     last_block,
                     params,
@@ -458,7 +457,7 @@ fn encode_block_opt_no_dict_with_state(
                     opt_state,
                     context,
                     super::opt_state::OptParserStrategy::BtUltra,
-                    post_block_splitter,
+                    block_encode_mode,
                     policy,
                     ldm_cursor,
                 )
@@ -471,7 +470,7 @@ fn encode_block_opt_no_dict_with_state(
                     repeat_offsets,
                     opt_state,
                     context,
-                    post_block_splitter,
+                    block_encode_mode.split_block_enabled(),
                     policy,
                 )
             }
