@@ -8,6 +8,51 @@ const ENTROPY_HEADER_BUDGET: usize = 120 * BYTESCALE;
 
 pub(super) const TARGET_CBLOCK_SIZE_MIN: usize = 1340;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct EstimatedSubBlockSize {
+    pub(super) literal_size: usize,
+    pub(super) block_size: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct SubBlockBudgetPlan {
+    pub(super) avg_lit_cost: usize,
+    pub(super) avg_seq_cost: usize,
+    pub(super) nb_sub_blocks: usize,
+    pub(super) avg_block_budget: usize,
+}
+
+pub(super) fn sub_block_budget_plan(
+    estimate: EstimatedSubBlockSize,
+    nb_literals: usize,
+    nb_sequences: usize,
+    target_c_block_size: usize,
+    src_size: usize,
+) -> Option<SubBlockBudgetPlan> {
+    debug_assert!(nb_sequences > 0);
+    debug_assert!(estimate.literal_size <= estimate.block_size);
+    if estimate.block_size > src_size {
+        return None;
+    }
+
+    let target = target_c_block_size.max(TARGET_CBLOCK_SIZE_MIN);
+    let nb_sub_blocks = target_sub_block_count(estimate.block_size, target);
+    let avg_lit_cost = if nb_literals > 0 {
+        (estimate.literal_size * BYTESCALE) / nb_literals
+    } else {
+        BYTESCALE
+    };
+    let avg_seq_cost = ((estimate.block_size - estimate.literal_size) * BYTESCALE) / nb_sequences;
+    let avg_block_budget = (estimate.block_size * BYTESCALE) / nb_sub_blocks;
+
+    Some(SubBlockBudgetPlan {
+        avg_lit_cost,
+        avg_seq_cost,
+        nb_sub_blocks,
+        avg_block_budget,
+    })
+}
+
 pub(super) fn count_literals(sequences: &[PreparedSequence]) -> usize {
     sequences.iter().map(|sequence| sequence.ll as usize).sum()
 }
@@ -92,6 +137,94 @@ mod tests {
         assert_eq!(target_sub_block_count(6_700, 1_340), 5);
         assert_eq!(target_sub_block_count(6_701, 1_340), 5);
         assert_eq!(target_sub_block_count(7_371, 1_340), 6);
+    }
+
+    #[test]
+    fn sub_block_budget_plan_matches_c_quick_estimation_formula() {
+        let plan = sub_block_budget_plan(
+            EstimatedSubBlockSize {
+                literal_size: 300,
+                block_size: 2_010,
+            },
+            100,
+            30,
+            1_340,
+            8_000,
+        )
+        .expect("estimated superblock is compressible");
+
+        assert_eq!(
+            plan,
+            SubBlockBudgetPlan {
+                avg_lit_cost: 768,
+                avg_seq_cost: 14_592,
+                nb_sub_blocks: 2,
+                avg_block_budget: 257_280,
+            }
+        );
+    }
+
+    #[test]
+    fn sub_block_budget_plan_uses_one_byte_per_literal_when_no_literals() {
+        let plan = sub_block_budget_plan(
+            EstimatedSubBlockSize {
+                literal_size: 0,
+                block_size: 1_340,
+            },
+            0,
+            10,
+            1_340,
+            4_096,
+        )
+        .expect("estimated superblock is compressible");
+
+        assert_eq!(plan.avg_lit_cost, BYTESCALE);
+        assert_eq!(plan.avg_seq_cost, 34_304);
+    }
+
+    #[test]
+    fn sub_block_budget_plan_clamps_target_size_like_c() {
+        let clamped = sub_block_budget_plan(
+            EstimatedSubBlockSize {
+                literal_size: 100,
+                block_size: 2_010,
+            },
+            50,
+            10,
+            1,
+            4_096,
+        )
+        .expect("estimated superblock is compressible");
+        let explicit = sub_block_budget_plan(
+            EstimatedSubBlockSize {
+                literal_size: 100,
+                block_size: 2_010,
+            },
+            50,
+            10,
+            TARGET_CBLOCK_SIZE_MIN,
+            4_096,
+        )
+        .expect("estimated superblock is compressible");
+
+        assert_eq!(clamped, explicit);
+    }
+
+    #[test]
+    fn sub_block_budget_plan_bails_out_when_estimate_exceeds_source_size() {
+        assert_eq!(
+            sub_block_budget_plan(
+                EstimatedSubBlockSize {
+                    literal_size: 500,
+                    block_size: 4_097,
+                },
+                100,
+                10,
+                1_340,
+                4_096,
+            ),
+            None
+        );
     }
 
     #[test]
