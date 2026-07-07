@@ -1,4 +1,5 @@
 use super::*;
+use alloc::vec::Vec;
 
 fn sequence(ll: u32, ml: u32) -> PreparedSequence {
     PreparedSequence {
@@ -7,6 +8,25 @@ fn sequence(ll: u32, ml: u32) -> PreparedSequence {
         raw_offset: 1,
         encoded_offset_value: None,
     }
+}
+
+fn decode_literals(encoded: &[u8]) -> Vec<u8> {
+    let mut section = crate::blocks::literals_section::LiteralsSection::new();
+    let header_size = section
+        .parse_from_header(encoded)
+        .expect("literal header should parse");
+    let mut scratch = crate::decoding::scratch::HuffmanScratch::new();
+    let mut decoded = Vec::new();
+    let bytes_read = crate::decoding::literals_section_decoder::decode_literals(
+        &section,
+        &mut scratch,
+        &encoded[header_size as usize..],
+        &mut decoded,
+    )
+    .expect("literal payload should decode");
+
+    assert_eq!(header_size as usize + bytes_read as usize, encoded.len());
+    decoded
 }
 
 #[test]
@@ -167,6 +187,87 @@ fn sub_block_literal_header_size_reserves_entropy_header_guess_like_c() {
         sub_block_literal_header_size(16 * 1024 - LITERAL_HEADER_ENTROPY_GUESS, true),
         5
     );
+}
+
+#[test]
+fn append_sub_block_literals_basic_emits_raw_literals() {
+    let literals = [7; 31];
+    let mut encoded = Vec::new();
+
+    let emission =
+        append_sub_block_literals(&literals, EntropyTableMode::Basic, true, &mut encoded)
+            .expect("basic literal mode is supported");
+
+    assert_eq!(
+        emission,
+        SubBlockLiteralEmission {
+            byte_size: encoded.len(),
+            entropy_written: false,
+        }
+    );
+    assert_eq!(encoded[0] & 0b11, 0);
+    assert_eq!(decode_literals(&encoded), literals);
+}
+
+#[test]
+fn append_sub_block_literals_reports_appended_byte_size() {
+    let prefix_len = 2;
+    let mut encoded = alloc::vec![0xAA, 0xBB];
+
+    let emission = append_sub_block_literals(b"abc", EntropyTableMode::Basic, false, &mut encoded)
+        .expect("basic literal mode is supported");
+
+    assert_eq!(emission.byte_size, encoded.len() - prefix_len);
+    assert_eq!(&encoded[..prefix_len], &[0xAA, 0xBB]);
+    assert_eq!(decode_literals(&encoded[prefix_len..]), b"abc");
+}
+
+#[test]
+fn append_sub_block_literals_rle_emits_rle_literals() {
+    let literals = [9; 44];
+    let mut encoded = Vec::new();
+
+    let emission = append_sub_block_literals(&literals, EntropyTableMode::Rle, false, &mut encoded)
+        .expect("rle literal mode is supported");
+
+    assert_eq!(emission.byte_size, encoded.len());
+    assert!(!emission.entropy_written);
+    assert_eq!(encoded[0] & 0b11, 1);
+    assert_eq!(decode_literals(&encoded), literals);
+}
+
+#[test]
+fn append_sub_block_literals_empty_rle_falls_back_to_raw_like_c() {
+    let mut encoded = Vec::new();
+
+    let emission = append_sub_block_literals(&[], EntropyTableMode::Rle, true, &mut encoded)
+        .expect("empty rle literal mode is supported");
+
+    assert_eq!(emission.byte_size, encoded.len());
+    assert!(!emission.entropy_written);
+    assert_eq!(encoded[0] & 0b11, 0);
+    assert!(decode_literals(&encoded).is_empty());
+}
+
+#[test]
+fn append_sub_block_literals_defers_huffman_modes_until_tables_are_ported() {
+    let mut encoded = Vec::new();
+
+    assert_eq!(
+        append_sub_block_literals(
+            b"literals",
+            EntropyTableMode::Compressed,
+            true,
+            &mut encoded
+        ),
+        None
+    );
+    assert!(encoded.is_empty());
+    assert_eq!(
+        append_sub_block_literals(b"literals", EntropyTableMode::Repeat, false, &mut encoded),
+        None
+    );
+    assert!(encoded.is_empty());
 }
 
 #[test]

@@ -4,6 +4,7 @@
 use alloc::vec::Vec;
 
 use super::{block_policy::min_compression_gain, params::Strategy};
+use crate::bit_io::BitWriter;
 use crate::encoding::blocks::PreparedSequence;
 
 const BYTESCALE: usize = 256;
@@ -49,6 +50,12 @@ pub(super) struct PlannedSubBlock {
     pub(super) literal_size: usize,
     pub(super) decompressed_size: usize,
     pub(super) last: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct SubBlockLiteralEmission {
+    pub(super) byte_size: usize,
+    pub(super) entropy_written: bool,
 }
 
 pub(super) fn sub_block_budget_plan(
@@ -105,10 +112,68 @@ pub(super) fn sub_block_literal_header_size(literal_size: usize, write_entropy: 
         + usize::from(literal_size >= 16 * 1024 - entropy_guess)
 }
 
+pub(super) fn append_sub_block_literals(
+    literals: &[u8],
+    mode: EntropyTableMode,
+    _write_entropy: bool,
+    output: &mut Vec<u8>,
+) -> Option<SubBlockLiteralEmission> {
+    let start = output.len();
+    let mut writer = BitWriter::from(output);
+    match mode {
+        EntropyTableMode::Basic => write_raw_literals(literals, &mut writer),
+        EntropyTableMode::Rle => {
+            if literals.is_empty() {
+                write_raw_literals(literals, &mut writer);
+            } else {
+                write_rle_literals(literals, &mut writer);
+            }
+        }
+        EntropyTableMode::Compressed | EntropyTableMode::Repeat => return None,
+    }
+    writer.flush();
+
+    Some(SubBlockLiteralEmission {
+        byte_size: writer.index() / 8 - start,
+        entropy_written: false,
+    })
+}
+
 pub(super) fn need_sequence_entropy_tables(modes: SequenceEntropyModes) -> bool {
     [modes.ll, modes.ml, modes.of]
         .iter()
         .any(|mode| matches!(mode, EntropyTableMode::Compressed | EntropyTableMode::Rle))
+}
+
+fn write_raw_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>) {
+    writer.write_bits(0u8, 2);
+    write_raw_or_rle_literal_size(literals.len(), writer);
+    writer.append_bytes(literals);
+}
+
+fn write_rle_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>) {
+    debug_assert!(!literals.is_empty());
+    writer.write_bits(1u8, 2);
+    write_raw_or_rle_literal_size(literals.len(), writer);
+    writer.write_bits(literals[0], 8);
+}
+
+fn write_raw_or_rle_literal_size(len: usize, writer: &mut BitWriter<&mut Vec<u8>>) {
+    match len {
+        0..=31 => {
+            writer.write_bits(0u8, 1);
+            writer.write_bits(len as u32, 5);
+        }
+        32..=4095 => {
+            writer.write_bits(0b01u8, 2);
+            writer.write_bits(len as u32, 12);
+        }
+        4096..=1_048_575 => {
+            writer.write_bits(0b11u8, 2);
+            writer.write_bits(len as u32, 20);
+        }
+        _ => unimplemented!("too many literals"),
+    }
 }
 
 pub(super) fn plan_sub_blocks(
