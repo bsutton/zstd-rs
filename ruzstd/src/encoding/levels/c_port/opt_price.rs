@@ -336,6 +336,7 @@ impl OptPriceState {
         self.match_length_sum += 1;
     }
 
+    #[inline(always)]
     pub(super) fn refresh_base_prices(&mut self, opt_level: OptLevel) {
         self.set_base_prices(opt_level);
     }
@@ -354,6 +355,7 @@ impl OptPriceState {
         )
     }
 
+    #[inline(always)]
     fn set_base_prices(&mut self, opt_level: OptLevel) {
         if self.compressed_literals {
             self.lit_sum_base_price = weight(self.lit_sum, opt_level);
