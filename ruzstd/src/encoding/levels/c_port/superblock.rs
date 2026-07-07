@@ -9,6 +9,7 @@ use crate::encoding::blocks::PreparedSequence;
 const BYTESCALE: usize = 256;
 const ENTROPY_HEADER_BUDGET: usize = 120 * BYTESCALE;
 const BLOCK_HEADER_SIZE: usize = 3;
+const LITERAL_HEADER_ENTROPY_GUESS: usize = 200;
 
 pub(super) const TARGET_CBLOCK_SIZE_MIN: usize = 1340;
 
@@ -92,6 +93,16 @@ pub(super) fn should_accept_target_superblock(
 ) -> bool {
     let max_compressed_size = src_size.saturating_sub(min_compression_gain(src_size, strategy));
     compressed_size > 0 && compressed_size < max_compressed_size + BLOCK_HEADER_SIZE
+}
+
+pub(super) fn sub_block_literal_header_size(literal_size: usize, write_entropy: bool) -> usize {
+    let entropy_guess = if write_entropy {
+        LITERAL_HEADER_ENTROPY_GUESS
+    } else {
+        0
+    };
+    3 + usize::from(literal_size >= 1024 - entropy_guess)
+        + usize::from(literal_size >= 16 * 1024 - entropy_guess)
 }
 
 pub(super) fn need_sequence_entropy_tables(modes: SequenceEntropyModes) -> bool {

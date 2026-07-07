@@ -142,6 +142,34 @@ fn target_superblock_acceptance_rejects_zero_like_c() {
 }
 
 #[test]
+fn sub_block_literal_header_size_matches_c_thresholds_without_entropy() {
+    assert_eq!(sub_block_literal_header_size(1023, false), 3);
+    assert_eq!(sub_block_literal_header_size(1024, false), 4);
+    assert_eq!(sub_block_literal_header_size((16 * 1024) - 1, false), 4);
+    assert_eq!(sub_block_literal_header_size(16 * 1024, false), 5);
+}
+
+#[test]
+fn sub_block_literal_header_size_reserves_entropy_header_guess_like_c() {
+    assert_eq!(
+        sub_block_literal_header_size(1024 - LITERAL_HEADER_ENTROPY_GUESS - 1, true),
+        3
+    );
+    assert_eq!(
+        sub_block_literal_header_size(1024 - LITERAL_HEADER_ENTROPY_GUESS, true),
+        4
+    );
+    assert_eq!(
+        sub_block_literal_header_size(16 * 1024 - LITERAL_HEADER_ENTROPY_GUESS - 1, true),
+        4
+    );
+    assert_eq!(
+        sub_block_literal_header_size(16 * 1024 - LITERAL_HEADER_ENTROPY_GUESS, true),
+        5
+    );
+}
+
+#[test]
 fn need_sequence_entropy_tables_matches_c_metadata_gate() {
     let no_tables = SequenceEntropyModes {
         ll: EntropyTableMode::Basic,
