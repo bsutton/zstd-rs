@@ -1,5 +1,20 @@
 # Agent Workflow
 
+## Current Restart Checkpoint
+
+When resuming the zstd C compressor port on branch
+`faithful-c-compressor-port`, read
+`ruzstd/src/encoding/levels/c_port/README.md` first. The current checkpoint is
+the target compressed block size / superblock port.
+
+As of July 7, 2026, target mode dispatch is threaded through the CCtx, frame
+state, optimal frame path, and hash-chain frame path. The active target encoder
+tries a literal-only RLE superblock and otherwise falls back to raw blocks.
+
+Next implementation step: assemble non-empty basic-mode sub-blocks from the
+existing superblock literal and predefined/basic sequence helpers, then call
+that path from target mode before the raw fallback.
+
 ## Operating Principle
 
 Use delegation to remove waiting, log scraping, and mechanical follow-through
