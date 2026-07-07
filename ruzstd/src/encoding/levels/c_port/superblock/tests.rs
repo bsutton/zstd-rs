@@ -29,6 +29,27 @@ fn decode_literals(encoded: &[u8]) -> Vec<u8> {
     decoded
 }
 
+fn decode_compressed_block(encoded: &[u8]) -> Vec<u8> {
+    let mut block_decoder = crate::decoding::block_decoder::new();
+    let (header, header_size) = block_decoder
+        .read_block_header(encoded)
+        .expect("block header should parse");
+    assert_eq!(
+        header.block_type,
+        crate::blocks::block::BlockType::Compressed
+    );
+    assert_eq!(
+        header.content_size as usize,
+        encoded.len() - header_size as usize
+    );
+
+    let mut scratch = crate::decoding::scratch::DecoderScratch::new(128 * 1024);
+    block_decoder
+        .decode_block_content(&header, &mut scratch, &encoded[header_size as usize..])
+        .expect("block content should decode");
+    scratch.buffer.drain()
+}
+
 #[test]
 fn target_sub_block_count_clamps_target_and_rounds_like_c() {
     assert_eq!(target_sub_block_count(0, 0), 1);
@@ -297,6 +318,82 @@ fn append_sub_block_sequences_defers_non_empty_sequences_until_fse_tables_are_po
             basic_sequence_modes(),
             true,
             &mut encoded
+        ),
+        None
+    );
+    assert_eq!(encoded, [0xAA]);
+}
+
+#[test]
+fn append_literal_only_sub_block_builds_decodable_raw_literal_block() {
+    let literals = b"literal-only-superblock";
+    let mut encoded = Vec::new();
+
+    let emission = append_literal_only_sub_block(
+        literals,
+        true,
+        EntropyTableMode::Basic,
+        basic_sequence_modes(),
+        true,
+        true,
+        &mut encoded,
+    )
+    .expect("literal-only basic sub-block is supported");
+
+    assert_eq!(
+        emission,
+        SubBlockEmission {
+            byte_size: encoded.len(),
+            literal_entropy_written: false,
+            sequence_entropy_written: false,
+        }
+    );
+    let mut block_decoder = crate::decoding::block_decoder::new();
+    let (header, _) = block_decoder
+        .read_block_header(encoded.as_slice())
+        .expect("block header should parse");
+    assert!(header.last_block);
+    assert_eq!(decode_compressed_block(&encoded), literals);
+}
+
+#[test]
+fn append_literal_only_sub_block_builds_decodable_rle_literal_block() {
+    let literals = [0x5A; 64];
+    let mut encoded = Vec::new();
+
+    let emission = append_literal_only_sub_block(
+        &literals,
+        false,
+        EntropyTableMode::Rle,
+        basic_sequence_modes(),
+        false,
+        false,
+        &mut encoded,
+    )
+    .expect("literal-only rle sub-block is supported");
+
+    assert_eq!(emission.byte_size, encoded.len());
+    let mut block_decoder = crate::decoding::block_decoder::new();
+    let (header, _) = block_decoder
+        .read_block_header(encoded.as_slice())
+        .expect("block header should parse");
+    assert!(!header.last_block);
+    assert_eq!(decode_compressed_block(&encoded), literals);
+}
+
+#[test]
+fn append_literal_only_sub_block_defers_unsupported_literal_modes() {
+    let mut encoded = alloc::vec![0xAA];
+
+    assert_eq!(
+        append_literal_only_sub_block(
+            b"abc",
+            true,
+            EntropyTableMode::Compressed,
+            basic_sequence_modes(),
+            true,
+            true,
+            &mut encoded,
         ),
         None
     );

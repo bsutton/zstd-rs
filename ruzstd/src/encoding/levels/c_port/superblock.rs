@@ -4,8 +4,11 @@
 use alloc::vec::Vec;
 
 use super::{block_policy::min_compression_gain, params::Strategy};
-use crate::bit_io::BitWriter;
-use crate::encoding::blocks::PreparedSequence;
+use crate::{
+    bit_io::BitWriter,
+    blocks::block::BlockType,
+    encoding::{block_header::BlockHeader, blocks::PreparedSequence},
+};
 
 const BYTESCALE: usize = 256;
 const ENTROPY_HEADER_BUDGET: usize = 120 * BYTESCALE;
@@ -62,6 +65,13 @@ pub(super) struct SubBlockLiteralEmission {
 pub(super) struct SubBlockSequenceEmission {
     pub(super) byte_size: usize,
     pub(super) entropy_written: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct SubBlockEmission {
+    pub(super) byte_size: usize,
+    pub(super) literal_entropy_written: bool,
+    pub(super) sequence_entropy_written: bool,
 }
 
 pub(super) fn sub_block_budget_plan(
@@ -159,6 +169,46 @@ pub(super) fn append_sub_block_sequences(
     Some(SubBlockSequenceEmission {
         byte_size: 1,
         entropy_written: false,
+    })
+}
+
+pub(super) fn append_literal_only_sub_block(
+    literals: &[u8],
+    last_block: bool,
+    literal_mode: EntropyTableMode,
+    sequence_modes: SequenceEntropyModes,
+    write_literal_entropy: bool,
+    write_sequence_entropy: bool,
+    output: &mut Vec<u8>,
+) -> Option<SubBlockEmission> {
+    let block_start = output.len();
+    output.extend_from_slice(&[0; BLOCK_HEADER_SIZE]);
+    let content_start = output.len();
+    let Some(literal_emission) =
+        append_sub_block_literals(literals, literal_mode, write_literal_entropy, output)
+    else {
+        output.truncate(block_start);
+        return None;
+    };
+    let Some(sequence_emission) =
+        append_sub_block_sequences(&[], sequence_modes, write_sequence_entropy, output)
+    else {
+        output.truncate(block_start);
+        return None;
+    };
+
+    let content_size = output.len() - content_start;
+    let header = BlockHeader {
+        last_block,
+        block_type: BlockType::Compressed,
+        block_size: content_size as u32,
+    };
+    output[block_start..content_start].copy_from_slice(&header.serialize_to_bytes());
+
+    Some(SubBlockEmission {
+        byte_size: BLOCK_HEADER_SIZE + content_size,
+        literal_entropy_written: literal_emission.entropy_written,
+        sequence_entropy_written: sequence_emission.entropy_written,
     })
 }
 
