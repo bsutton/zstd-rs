@@ -6,6 +6,8 @@
 use super::params::{CParamMode, CompressionParameters, Strategy};
 
 const ZSTD_BLOCKSIZE_MAX: usize = 128 * 1024;
+const ZSTD_TARGETCBLOCKSIZE_MIN: usize = 1340;
+const ZSTD_TARGETCBLOCKSIZE_MAX: usize = ZSTD_BLOCKSIZE_MAX;
 const ZSTD_HASHLOG_MIN: u32 = 6;
 const ZSTD_HASHLOG_MAX: u32 = 30;
 const ZSTD_LDM_BUCKETSIZELOG_MAX: u32 = 8;
@@ -49,6 +51,7 @@ pub(crate) struct CctxParameters {
     pub(crate) post_block_splitter: ParamSwitch,
     pub(crate) ldm: LdmParameters,
     pub(crate) max_block_size: usize,
+    pub(crate) target_c_block_size: usize,
     pub(crate) search_for_external_repcodes: ParamSwitch,
 }
 
@@ -88,8 +91,21 @@ impl CctxParameters {
             post_block_splitter: resolve_block_splitter(ParamSwitch::Auto, compression),
             ldm,
             max_block_size: resolve_max_block_size(compression, pledged_src_size),
+            target_c_block_size: 0,
             search_for_external_repcodes: resolve_external_repcode_search(ParamSwitch::Auto, level),
         }
+    }
+
+    pub(crate) fn set_target_c_block_size(&mut self, value: usize) -> bool {
+        let Some(target) = resolve_target_c_block_size(value) else {
+            return false;
+        };
+        self.target_c_block_size = target;
+        true
+    }
+
+    pub(crate) fn use_target_c_block_size(&self) -> bool {
+        self.target_c_block_size != 0
     }
 
     pub(crate) fn assert_resolved(&self) {
@@ -98,6 +114,11 @@ impl CctxParameters {
         debug_assert_ne!(self.ldm.enable_ldm, ParamSwitch::Auto);
         debug_assert_ne!(self.search_for_external_repcodes, ParamSwitch::Auto);
         debug_assert!((1..=ZSTD_BLOCKSIZE_MAX).contains(&self.max_block_size));
+        debug_assert!(
+            self.target_c_block_size == 0
+                || (ZSTD_TARGETCBLOCKSIZE_MIN..=ZSTD_TARGETCBLOCKSIZE_MAX)
+                    .contains(&self.target_c_block_size)
+        );
         if self.ldm.enable_ldm == ParamSwitch::Enable {
             debug_assert!(self.ldm.window_log > 0);
             debug_assert!(self.ldm.hash_log > 0);
@@ -108,6 +129,14 @@ impl CctxParameters {
             debug_assert!(gear.stop_mask() > 0 || self.ldm.hash_rate_log == 0);
         }
     }
+}
+
+fn resolve_target_c_block_size(value: usize) -> Option<usize> {
+    if value == 0 {
+        return Some(0);
+    }
+    let value = value.max(ZSTD_TARGETCBLOCKSIZE_MIN);
+    (value <= ZSTD_TARGETCBLOCKSIZE_MAX).then_some(value)
 }
 
 fn resolve_max_block_size(params: CompressionParameters, pledged_src_size: u64) -> usize {

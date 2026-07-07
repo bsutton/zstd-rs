@@ -64,6 +64,32 @@ fn cctx_params_external_repcode_search_uses_c_level_gate() {
 }
 
 #[test]
+fn cctx_params_default_target_c_block_size_is_disabled_like_c() {
+    let params = CctxParameters::for_level(16, 512 * 1024, 0);
+
+    assert_eq!(params.target_c_block_size, 0);
+    assert!(!params.use_target_c_block_size());
+}
+
+#[test]
+fn cctx_params_target_c_block_size_clamps_small_nonzero_values_like_c() {
+    let mut params = CctxParameters::for_level(16, 512 * 1024, 0);
+
+    assert!(params.set_target_c_block_size(1));
+    assert_eq!(params.target_c_block_size, 1340);
+    assert!(params.use_target_c_block_size());
+}
+
+#[test]
+fn cctx_params_target_c_block_size_rejects_values_above_c_bound() {
+    let mut params = CctxParameters::for_level(16, 512 * 1024, 0);
+
+    assert!(!params.set_target_c_block_size(128 * 1024 + 1));
+    assert_eq!(params.target_c_block_size, 0);
+    assert!(!params.use_target_c_block_size());
+}
+
+#[test]
 fn cctx_params_can_resolve_from_explicit_compression_params() {
     let compression = CompressionParameters {
         window_log: 27,
