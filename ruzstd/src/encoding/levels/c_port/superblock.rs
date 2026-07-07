@@ -7,7 +7,11 @@ use super::{block_policy::min_compression_gain, params::Strategy};
 use crate::{
     bit_io::BitWriter,
     blocks::block::BlockType,
-    encoding::{block_header::BlockHeader, blocks::PreparedSequence},
+    encoding::{
+        block_header::BlockHeader,
+        blocks::{append_predefined_sequence_section, PreparedSequence},
+        frame_compressor::{FseTables, OffsetHistory},
+    },
 };
 
 const BYTESCALE: usize = 256;
@@ -172,6 +176,29 @@ pub(super) fn append_sub_block_sequences(
     })
 }
 
+pub(super) fn append_basic_sub_block_sequences(
+    sequences: &[PreparedSequence],
+    modes: SequenceEntropyModes,
+    write_entropy: bool,
+    fse_tables: &FseTables,
+    offset_history: &mut OffsetHistory,
+    output: &mut Vec<u8>,
+) -> Option<SubBlockSequenceEmission> {
+    if sequences.is_empty() {
+        return append_sub_block_sequences(sequences, modes, write_entropy, output);
+    }
+    if !write_entropy || !all_sequence_modes_basic(modes) {
+        return None;
+    }
+
+    let byte_size =
+        append_predefined_sequence_section(sequences, fse_tables, offset_history, output)?;
+    Some(SubBlockSequenceEmission {
+        byte_size,
+        entropy_written: true,
+    })
+}
+
 pub(super) fn append_literal_only_sub_block(
     literals: &[u8],
     last_block: bool,
@@ -216,6 +243,17 @@ pub(super) fn need_sequence_entropy_tables(modes: SequenceEntropyModes) -> bool 
     [modes.ll, modes.ml, modes.of]
         .iter()
         .any(|mode| matches!(mode, EntropyTableMode::Compressed | EntropyTableMode::Rle))
+}
+
+fn all_sequence_modes_basic(modes: SequenceEntropyModes) -> bool {
+    matches!(
+        modes,
+        SequenceEntropyModes {
+            ll: EntropyTableMode::Basic,
+            ml: EntropyTableMode::Basic,
+            of: EntropyTableMode::Basic,
+        }
+    )
 }
 
 fn write_raw_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>) {

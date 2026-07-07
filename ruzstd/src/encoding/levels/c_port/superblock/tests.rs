@@ -1,4 +1,8 @@
 use super::*;
+use crate::encoding::{
+    block_header::BlockHeader,
+    frame_compressor::{FseTables, OffsetHistory},
+};
 use alloc::vec::Vec;
 
 fn sequence(ll: u32, ml: u32) -> PreparedSequence {
@@ -322,6 +326,86 @@ fn append_sub_block_sequences_defers_non_empty_sequences_until_fse_tables_are_po
         None
     );
     assert_eq!(encoded, [0xAA]);
+}
+
+#[test]
+fn append_basic_sub_block_sequences_emits_decodable_predefined_sequences() {
+    let literals = b"abc";
+    let sequences = [
+        PreparedSequence {
+            ll: 3,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        },
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        },
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        },
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        },
+    ];
+    let mut encoded = alloc::vec![0; BLOCK_HEADER_SIZE];
+    append_sub_block_literals(literals, EntropyTableMode::Basic, true, &mut encoded)
+        .expect("basic literals");
+    let mut offset_history = OffsetHistory::new();
+    let emission = append_basic_sub_block_sequences(
+        &sequences,
+        basic_sequence_modes(),
+        true,
+        &FseTables::new(),
+        &mut offset_history,
+        &mut encoded,
+    )
+    .expect("basic sequence modes should encode");
+    let content_size = encoded.len() - BLOCK_HEADER_SIZE;
+    let header = BlockHeader {
+        last_block: true,
+        block_type: crate::blocks::block::BlockType::Compressed,
+        block_size: content_size as u32,
+    };
+    encoded[..BLOCK_HEADER_SIZE].copy_from_slice(&header.serialize_to_bytes());
+
+    assert!(emission.byte_size >= 4);
+    assert!(emission.entropy_written);
+    assert_eq!(offset_history.as_offsets(), (3, 3, 1));
+    assert_eq!(decode_compressed_block(&encoded), b"abcabcabcabcabc");
+}
+
+#[test]
+fn append_basic_sub_block_sequences_defers_repeat_mode_until_metadata_is_ported() {
+    let mut encoded = alloc::vec![0xAA];
+    let mut offset_history = OffsetHistory::new();
+
+    assert_eq!(
+        append_basic_sub_block_sequences(
+            &[sequence(1, 3)],
+            SequenceEntropyModes {
+                ll: EntropyTableMode::Repeat,
+                ml: EntropyTableMode::Repeat,
+                of: EntropyTableMode::Repeat,
+            },
+            false,
+            &FseTables::new(),
+            &mut offset_history,
+            &mut encoded,
+        ),
+        None
+    );
+    assert_eq!(encoded, [0xAA]);
+    assert_eq!(offset_history.as_offsets(), (1, 4, 8));
 }
 
 #[test]
