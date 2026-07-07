@@ -2,6 +2,7 @@
 
 use super::{
     block_policy::BlockEncodingPolicy,
+    cctx_params::{CctxParameters, ParamSwitch},
     dictionary::ParsedDictionary,
     params::{CompressionParameters, Strategy},
     pre_split::FrameProgress,
@@ -23,6 +24,27 @@ pub(crate) struct FrameBlockState {
     pub(crate) block_config: BlockCompressionConfig,
     block_size_max: usize,
     progress: FrameProgress,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BlockEncodeMode {
+    TargetCompressedBlockSize { target_size: usize },
+    SplitBlock,
+    Normal,
+}
+
+impl BlockEncodeMode {
+    pub(crate) fn from_cctx(cctx: CctxParameters) -> Self {
+        if cctx.use_target_c_block_size() {
+            Self::TargetCompressedBlockSize {
+                target_size: cctx.target_c_block_size,
+            }
+        } else if cctx.post_block_splitter == ParamSwitch::Enable {
+            Self::SplitBlock
+        } else {
+            Self::Normal
+        }
+    }
 }
 
 impl FrameBlockState {
@@ -152,6 +174,35 @@ mod tests {
         let config = block_config(params(Strategy::DFast, 4));
 
         assert!(!config.literal_compression_disabled());
+    }
+
+    #[test]
+    fn block_encode_mode_uses_target_c_block_size_before_splitter_like_c() {
+        let mut cctx = CctxParameters::for_level(16, 512 * 1024, 0);
+        assert_eq!(cctx.post_block_splitter, ParamSwitch::Enable);
+        assert!(cctx.set_target_c_block_size(2048));
+
+        assert_eq!(
+            BlockEncodeMode::from_cctx(cctx),
+            BlockEncodeMode::TargetCompressedBlockSize { target_size: 2048 }
+        );
+    }
+
+    #[test]
+    fn block_encode_mode_uses_splitter_when_target_c_block_size_is_disabled() {
+        let cctx = CctxParameters::for_level(16, 512 * 1024, 0);
+
+        assert_eq!(
+            BlockEncodeMode::from_cctx(cctx),
+            BlockEncodeMode::SplitBlock
+        );
+    }
+
+    #[test]
+    fn block_encode_mode_uses_normal_path_when_no_optional_mode_is_enabled() {
+        let cctx = CctxParameters::for_level(15, 512 * 1024, 0);
+
+        assert_eq!(BlockEncodeMode::from_cctx(cctx), BlockEncodeMode::Normal);
     }
 
     #[test]
