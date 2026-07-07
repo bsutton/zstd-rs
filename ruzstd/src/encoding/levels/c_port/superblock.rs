@@ -58,6 +58,12 @@ pub(super) struct SubBlockLiteralEmission {
     pub(super) entropy_written: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct SubBlockSequenceEmission {
+    pub(super) byte_size: usize,
+    pub(super) entropy_written: bool,
+}
+
 pub(super) fn sub_block_budget_plan(
     estimate: EstimatedSubBlockSize,
     nb_literals: usize,
@@ -135,6 +141,23 @@ pub(super) fn append_sub_block_literals(
 
     Some(SubBlockLiteralEmission {
         byte_size: writer.index() / 8 - start,
+        entropy_written: false,
+    })
+}
+
+pub(super) fn append_sub_block_sequences(
+    sequences: &[PreparedSequence],
+    _modes: SequenceEntropyModes,
+    _write_entropy: bool,
+    output: &mut Vec<u8>,
+) -> Option<SubBlockSequenceEmission> {
+    if !sequences.is_empty() {
+        return None;
+    }
+
+    output.push(0);
+    Some(SubBlockSequenceEmission {
+        byte_size: 1,
         entropy_written: false,
     })
 }

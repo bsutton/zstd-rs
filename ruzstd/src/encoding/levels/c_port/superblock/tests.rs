@@ -271,6 +271,39 @@ fn append_sub_block_literals_defers_huffman_modes_until_tables_are_ported() {
 }
 
 #[test]
+fn append_sub_block_sequences_empty_emits_zero_sequence_header() {
+    let mut encoded = Vec::new();
+
+    let emission = append_sub_block_sequences(&[], basic_sequence_modes(), true, &mut encoded)
+        .expect("zero-sequence section is supported");
+
+    assert_eq!(
+        emission,
+        SubBlockSequenceEmission {
+            byte_size: 1,
+            entropy_written: false,
+        }
+    );
+    assert_eq!(encoded, [0]);
+}
+
+#[test]
+fn append_sub_block_sequences_defers_non_empty_sequences_until_fse_tables_are_ported() {
+    let mut encoded = alloc::vec![0xAA];
+
+    assert_eq!(
+        append_sub_block_sequences(
+            &[sequence(1, 3)],
+            basic_sequence_modes(),
+            true,
+            &mut encoded
+        ),
+        None
+    );
+    assert_eq!(encoded, [0xAA]);
+}
+
+#[test]
 fn need_sequence_entropy_tables_matches_c_metadata_gate() {
     let no_tables = SequenceEntropyModes {
         ll: EntropyTableMode::Basic,
@@ -291,6 +324,14 @@ fn need_sequence_entropy_tables_matches_c_metadata_gate() {
     assert!(!need_sequence_entropy_tables(no_tables));
     assert!(need_sequence_entropy_tables(rle_tables));
     assert!(need_sequence_entropy_tables(compressed_tables));
+}
+
+fn basic_sequence_modes() -> SequenceEntropyModes {
+    SequenceEntropyModes {
+        ll: EntropyTableMode::Basic,
+        ml: EntropyTableMode::Basic,
+        of: EntropyTableMode::Basic,
+    }
 }
 
 #[test]
