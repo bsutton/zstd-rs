@@ -76,5 +76,9 @@ Current profiling notes:
 - Rejected micro-optimizations from the same session: unchecked byte reads for
   the binary-tree branch byte compare, iterating over a match slice instead of
   indexing `state.matches`, moving the FSE spread-symbol scratch buffer to the
-  stack, and lowering the FSE direct-lookup threshold. Each preserved compressed
-  output bytes but did not improve the focused 80-run timing sample.
+  stack, lowering the FSE direct-lookup threshold, and enabling the optional
+  `ZSTD_C_PREDICT` binary-tree insertion shortcut. The prediction shortcut
+  changed compressed output and made the broad 100-file byte comparison worse
+  overall, so keep it out unless revisited with stronger evidence. The other
+  rejected experiments preserved compressed output bytes but did not improve the
+  focused 80-run timing sample.
