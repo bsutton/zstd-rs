@@ -116,6 +116,32 @@ fn should_commit_sub_block_matches_c_compressibility_gate() {
 }
 
 #[test]
+fn target_superblock_acceptance_matches_c_minimum_gain_gate() {
+    let src_size = 128 * 1024;
+    let max_c_size = src_size - min_compression_gain(src_size, Strategy::Fast);
+
+    assert!(should_accept_target_superblock(
+        max_c_size + BLOCK_HEADER_SIZE - 1,
+        src_size,
+        Strategy::Fast
+    ));
+    assert!(!should_accept_target_superblock(
+        max_c_size + BLOCK_HEADER_SIZE,
+        src_size,
+        Strategy::Fast
+    ));
+}
+
+#[test]
+fn target_superblock_acceptance_rejects_zero_like_c() {
+    assert!(!should_accept_target_superblock(
+        0,
+        128 * 1024,
+        Strategy::BtUltra2
+    ));
+}
+
+#[test]
 fn need_sequence_entropy_tables_matches_c_metadata_gate() {
     let no_tables = SequenceEntropyModes {
         ll: EntropyTableMode::Basic,

@@ -3,10 +3,12 @@
 
 use alloc::vec::Vec;
 
+use super::{block_policy::min_compression_gain, params::Strategy};
 use crate::encoding::blocks::PreparedSequence;
 
 const BYTESCALE: usize = 256;
 const ENTROPY_HEADER_BUDGET: usize = 120 * BYTESCALE;
+const BLOCK_HEADER_SIZE: usize = 3;
 
 pub(super) const TARGET_CBLOCK_SIZE_MIN: usize = 1340;
 
@@ -81,6 +83,15 @@ pub(super) fn sub_block_budget_plan(
 
 pub(super) fn should_commit_sub_block(compressed_size: usize, decompressed_size: usize) -> bool {
     compressed_size > 0 && compressed_size < decompressed_size
+}
+
+pub(super) fn should_accept_target_superblock(
+    compressed_size: usize,
+    src_size: usize,
+    strategy: Strategy,
+) -> bool {
+    let max_compressed_size = src_size.saturating_sub(min_compression_gain(src_size, strategy));
+    compressed_size > 0 && compressed_size < max_compressed_size + BLOCK_HEADER_SIZE
 }
 
 pub(super) fn need_sequence_entropy_tables(modes: SequenceEntropyModes) -> bool {
