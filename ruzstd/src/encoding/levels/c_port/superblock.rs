@@ -2,6 +2,7 @@
 //! `zstd_compress_superblock.c`.
 
 use crate::encoding::blocks::PreparedSequence;
+use alloc::vec::Vec;
 
 const BYTESCALE: usize = 256;
 const ENTROPY_HEADER_BUDGET: usize = 120 * BYTESCALE;
@@ -35,6 +36,15 @@ pub(super) struct SequenceEntropyModes {
     pub(super) ll: EntropyTableMode,
     pub(super) ml: EntropyTableMode,
     pub(super) of: EntropyTableMode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct PlannedSubBlock {
+    pub(super) start_sequence: usize,
+    pub(super) end_sequence: usize,
+    pub(super) literal_size: usize,
+    pub(super) decompressed_size: usize,
+    pub(super) last: bool,
 }
 
 pub(super) fn sub_block_budget_plan(
@@ -76,6 +86,82 @@ pub(super) fn need_sequence_entropy_tables(modes: SequenceEntropyModes) -> bool 
     [modes.ll, modes.ml, modes.of]
         .iter()
         .any(|mode| matches!(mode, EntropyTableMode::Compressed | EntropyTableMode::Rle))
+}
+
+pub(super) fn plan_sub_blocks(
+    sequences: &[PreparedSequence],
+    total_literal_size: usize,
+    plan: SubBlockBudgetPlan,
+    mut compressed_size_for: impl FnMut(PlannedSubBlock) -> usize,
+) -> Vec<PlannedSubBlock> {
+    debug_assert!(!sequences.is_empty());
+
+    let mut sub_blocks = Vec::new();
+    let mut start_sequence = 0;
+    let mut literal_consumed = 0;
+
+    for block_idx in 0..plan.nb_sub_blocks.saturating_sub(1) {
+        let remaining = &sequences[start_sequence..];
+        if remaining.is_empty() {
+            break;
+        }
+
+        let sequence_count = size_block_sequences(
+            remaining,
+            plan.avg_block_budget,
+            plan.avg_lit_cost,
+            plan.avg_seq_cost,
+            block_idx == 0,
+        );
+        let end_sequence = start_sequence + sequence_count;
+        if end_sequence == sequences.len() {
+            break;
+        }
+
+        let candidate = planned_sub_block(
+            sequences,
+            start_sequence,
+            end_sequence,
+            count_literals(&sequences[start_sequence..end_sequence]),
+            false,
+        );
+        let compressed_size = compressed_size_for(candidate);
+        if should_commit_sub_block(compressed_size, candidate.decompressed_size) {
+            literal_consumed += candidate.literal_size;
+            sub_blocks.push(candidate);
+            start_sequence = end_sequence;
+        }
+    }
+
+    debug_assert!(literal_consumed <= total_literal_size);
+    sub_blocks.push(planned_sub_block(
+        sequences,
+        start_sequence,
+        sequences.len(),
+        total_literal_size - literal_consumed,
+        true,
+    ));
+    sub_blocks
+}
+
+fn planned_sub_block(
+    sequences: &[PreparedSequence],
+    start_sequence: usize,
+    end_sequence: usize,
+    literal_size: usize,
+    last: bool,
+) -> PlannedSubBlock {
+    PlannedSubBlock {
+        start_sequence,
+        end_sequence,
+        literal_size,
+        decompressed_size: decompressed_size(
+            &sequences[start_sequence..end_sequence],
+            literal_size,
+            last,
+        ),
+        last,
+    }
 }
 
 pub(super) fn count_literals(sequences: &[PreparedSequence]) -> usize {
@@ -281,6 +367,104 @@ mod tests {
         assert!(!need_sequence_entropy_tables(no_tables));
         assert!(need_sequence_entropy_tables(rle_tables));
         assert!(need_sequence_entropy_tables(compressed_tables));
+    }
+
+    #[test]
+    fn plan_sub_blocks_commits_compressible_tentative_block() {
+        let sequences = [sequence(1, 200), sequence(2, 200), sequence(3, 200)];
+        let plan = SubBlockBudgetPlan {
+            avg_lit_cost: 0,
+            avg_seq_cost: 100,
+            nb_sub_blocks: 2,
+            avg_block_budget: ENTROPY_HEADER_BUDGET + 150,
+        };
+
+        let mut outcomes = [3].iter().copied();
+        let blocks = plan_sub_blocks(&sequences, 9, plan, |_| {
+            outcomes.next().expect("one tentative block")
+        });
+
+        assert_eq!(
+            blocks,
+            alloc::vec![
+                PlannedSubBlock {
+                    start_sequence: 0,
+                    end_sequence: 1,
+                    literal_size: 1,
+                    decompressed_size: 201,
+                    last: false,
+                },
+                PlannedSubBlock {
+                    start_sequence: 1,
+                    end_sequence: 3,
+                    literal_size: 8,
+                    decompressed_size: 408,
+                    last: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn plan_sub_blocks_coalesces_failed_tentative_block_like_c() {
+        let sequences = [sequence(0, 10), sequence(0, 10), sequence(0, 10)];
+        let plan = SubBlockBudgetPlan {
+            avg_lit_cost: 0,
+            avg_seq_cost: 100,
+            nb_sub_blocks: 3,
+            avg_block_budget: 250,
+        };
+
+        let mut outcomes = [0, 10].iter().copied();
+        let blocks = plan_sub_blocks(&sequences, 0, plan, |_| {
+            outcomes.next().expect("two tentative blocks")
+        });
+
+        assert_eq!(
+            blocks,
+            alloc::vec![
+                PlannedSubBlock {
+                    start_sequence: 0,
+                    end_sequence: 2,
+                    literal_size: 0,
+                    decompressed_size: 20,
+                    last: false,
+                },
+                PlannedSubBlock {
+                    start_sequence: 2,
+                    end_sequence: 3,
+                    literal_size: 0,
+                    decompressed_size: 10,
+                    last: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn plan_sub_blocks_breaks_to_last_block_when_candidate_reaches_end() {
+        let sequences = [sequence(1, 5), sequence(2, 7)];
+        let plan = SubBlockBudgetPlan {
+            avg_lit_cost: 0,
+            avg_seq_cost: 1,
+            nb_sub_blocks: 3,
+            avg_block_budget: ENTROPY_HEADER_BUDGET + 100,
+        };
+
+        let blocks = plan_sub_blocks(&sequences, 5, plan, |_| {
+            panic!("candidate reaches end and should not be compressed")
+        });
+
+        assert_eq!(
+            blocks,
+            alloc::vec![PlannedSubBlock {
+                start_sequence: 0,
+                end_sequence: 2,
+                literal_size: 5,
+                decompressed_size: 17,
+                last: true,
+            }]
+        );
     }
 
     #[test]
