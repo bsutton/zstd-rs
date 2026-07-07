@@ -1,5 +1,15 @@
 # Agent Workflow
 
+## Operating Principle
+
+Use delegation to remove waiting, log scraping, and mechanical follow-through
+from the main agent. Keep code ownership, architectural judgment, benchmark
+interpretation, and PR positioning with the main agent.
+
+The default sidecar mode is no-edit. A worker should only change files when the
+main agent gives an exact file list, exact command sequence, and exact expected
+outcome. Prefer narrow prompts over sharing broad conversation history.
+
 ## Performance and Validation Delegation
 
 Use a cheaper sidecar agent for repeatable validation and benchmark runs when the
@@ -18,6 +28,19 @@ Use a low-cost worker model for this validation loop when available. Give the
 worker a self-contained prompt rather than forking full history if model
 overrides are needed.
 
+Recommended worker scopes:
+
+- `validation-worker`: runs `cargo fmt`, focused tests, clippy, and build
+  commands; reports exact failures and artifact paths.
+- `benchmark-worker`: runs fixed benchmark commands; reports CSV/Markdown paths
+  and summary lines without interpreting whether the PR is worthwhile.
+- `ci-worker`: collects GitHub Actions status and failing log excerpts; does not
+  choose fixes.
+- `hygiene-worker`: reports `git status`, changed-file lists, diff stats,
+  generated artifacts, and large-file or Rust file-size checks.
+- `commit-worker`: stages an exact file list and commits an exact message after
+  the main agent has decided both.
+
 ## Cost Control
 
 Delegation should reduce the expensive model's time spent waiting on commands
@@ -35,6 +58,9 @@ Use a sidecar when all of these are true:
 Do not delegate when the prompt would need large parts of the repository
 history, when interpreting the result requires code ownership context, or when
 the worker would need to choose between competing implementation approaches.
+
+Do not use delegation merely to avoid thinking about a result. A sidecar should
+produce evidence; the main agent should decide what that evidence means.
 
 Keep sidecar prompts narrow. Include the current branch, exact command, expected
 artifact paths, and report format. Avoid sending full prior conversation
