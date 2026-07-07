@@ -40,6 +40,7 @@ pub(crate) struct OptBlockState {
     pub(super) price_state: OptPriceState,
     pub(super) matches: OptMatchTable,
     pub(super) opt: Vec<Optimal>,
+    pub(super) path: Vec<Optimal>,
 }
 
 impl Default for Optimal {
@@ -61,6 +62,7 @@ impl OptBlockState {
             price_state: OptPriceState::new(),
             matches: OptMatchTable::new(),
             opt: vec![Optimal::default(); ZSTD_OPT_NUM + 4],
+            path: Vec::with_capacity(16),
         }
     }
 

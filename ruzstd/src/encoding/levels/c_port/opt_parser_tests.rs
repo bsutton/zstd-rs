@@ -98,6 +98,27 @@ fn btopt_parser_state_spans_blocks() {
 }
 
 #[test]
+fn btopt_parser_reuses_path_scratch_without_stale_entries() {
+    let data = b"scratch-path-reuse scratch-path-reuse scratch-path-reuse";
+    let params = btopt_params(data.len());
+    let mut state = OptBlockState::new();
+    state.path.reserve(32);
+    let capacity = state.path.capacity();
+
+    let output = super::opt_block::compress_block_btopt_no_dict_with_state(
+        data,
+        0..data.len(),
+        params,
+        RepeatOffsets::new(),
+        &mut state,
+    );
+
+    assert!(!output.sequences.is_empty());
+    assert_eq!(state.path.len(), 0);
+    assert!(state.path.capacity() >= capacity);
+}
+
+#[test]
 fn btultra_parser_emits_matches_for_structured_data() {
     let mut data = Vec::new();
     for i in 0..2048u32 {

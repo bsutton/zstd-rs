@@ -202,7 +202,8 @@ fn compress_block_opt_with_state_and_ldm_mls_level<const MLS: u32, const ULTRA: 
     // growth without allocating for the theoretical maximum sequence density.
     let sequence_capacity = (block_len / (min_match_len::<MLS>() * 4)).min(block_len);
     let mut sequences = Vec::with_capacity(sequence_capacity);
-    let mut path = Vec::with_capacity(16);
+    let mut path = core::mem::take(&mut state.path);
+    path.clear();
 
     state.match_state.ensure_tables(params);
     state.match_state.correct_after_long_match_gap(block_start);
@@ -318,10 +319,14 @@ fn compress_block_opt_with_state_and_ldm_mls_level<const MLS: u32, const ULTRA: 
         state.price_state.refresh_base_prices(opt_level);
     }
 
+    let repeat_offsets = RepeatOffsets::from_offsets(rep[0], rep[1], rep[2]);
+    path.clear();
+    state.path = path;
+
     GreedyBlockOutput {
         sequences,
         last_literals: (block_end - anchor) as u32,
-        repeat_offsets: RepeatOffsets::from_offsets(rep[0], rep[1], rep[2]),
+        repeat_offsets,
     }
 }
 
