@@ -8,6 +8,28 @@ const ENTROPY_HEADER_BUDGET: usize = 120 * BYTESCALE;
 
 pub(super) const TARGET_CBLOCK_SIZE_MIN: usize = 1340;
 
+pub(super) fn count_literals(sequences: &[PreparedSequence]) -> usize {
+    sequences.iter().map(|sequence| sequence.ll as usize).sum()
+}
+
+pub(super) fn decompressed_size(
+    sequences: &[PreparedSequence],
+    literal_size: usize,
+    last_sub_block: bool,
+) -> usize {
+    let match_length_sum = sequences
+        .iter()
+        .map(|sequence| sequence.ml as usize)
+        .sum::<usize>();
+    let literal_length_sum = count_literals(sequences);
+    if last_sub_block {
+        debug_assert!(literal_length_sum <= literal_size);
+    } else {
+        debug_assert_eq!(literal_length_sum, literal_size);
+    }
+    match_length_sum + literal_size
+}
+
 pub(super) fn target_sub_block_count(
     estimated_block_size: usize,
     target_c_block_size: usize,
@@ -70,6 +92,28 @@ mod tests {
         assert_eq!(target_sub_block_count(6_700, 1_340), 5);
         assert_eq!(target_sub_block_count(6_701, 1_340), 5);
         assert_eq!(target_sub_block_count(7_371, 1_340), 6);
+    }
+
+    #[test]
+    fn count_literals_sums_sequence_literal_lengths_like_c() {
+        let sequences = [sequence(2, 5), sequence(0, 3), sequence(7, 11)];
+
+        assert_eq!(count_literals(&sequences), 9);
+        assert_eq!(count_literals(&[]), 0);
+    }
+
+    #[test]
+    fn decompressed_size_adds_literal_size_and_match_lengths_like_c() {
+        let sequences = [sequence(2, 5), sequence(0, 3), sequence(7, 11)];
+
+        assert_eq!(decompressed_size(&sequences, 9, false), 28);
+    }
+
+    #[test]
+    fn decompressed_size_allows_last_sub_block_to_include_last_literals() {
+        let sequences = [sequence(2, 5), sequence(0, 3), sequence(7, 11)];
+
+        assert_eq!(decompressed_size(&sequences, 13, true), 32);
     }
 
     #[test]
