@@ -18,6 +18,45 @@ Use a low-cost worker model for this validation loop when available. Give the
 worker a self-contained prompt rather than forking full history if model
 overrides are needed.
 
+## Other Good Delegation Targets
+
+Delegate tasks that are mechanical, bounded, and easy for the main agent to
+verify. Good sidecar tasks include:
+
+- validation runs,
+- benchmark summarisation and CSV comparison,
+- worktree hygiene checks,
+- diff stats and changed-file summaries,
+- Rust file-size reports,
+- documentation consistency checks,
+- CI log collection and failure summaries,
+- no-edit code searches,
+- post-change smoke tests.
+
+Delegation is most likely to reduce cost when the task is long-running,
+command-heavy, low-reasoning, and easy to summarize. It does not reduce machine
+time, and it can add overhead if prompts or reports are too broad.
+
+Keep design decisions, risky code changes, benchmark interpretation, PR
+positioning, and final keep-or-revert decisions in the main agent.
+
+## Delegating Commits
+
+Commit execution can be delegated only after the main agent has decided the
+exact commit scope and message. The sidecar prompt must name the exact files to
+stage and the exact commit message.
+
+For delegated commits, require the worker to:
+
+- confirm the latest commit and worktree status,
+- stage only the named files,
+- inspect `git diff --cached`,
+- commit with the exact requested message,
+- report the new commit hash.
+
+Sidecar workers must not decide what belongs in a commit, stage unrelated files,
+amend commits, rebase, reset, or revert changes.
+
 Standard validation command set:
 
 ```sh
@@ -52,4 +91,3 @@ Sidecar reports should include:
 - exact focused benchmark output for each run,
 - broad benchmark summary lines,
 - any command failures.
-
