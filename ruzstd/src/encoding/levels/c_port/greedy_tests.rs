@@ -9,14 +9,14 @@ use super::greedy::{
     GreedyBlockOutput, GreedyMatchState,
 };
 use super::greedy_block::{
-    encode_block_hash_chain_no_dict, prepare_block_greedy_no_dict, GreedyBlockEncodeContext,
-    LazyBlockStrategy,
+    encode_block_hash_chain_no_dict, encode_target_block_with_superblock_fallback,
+    prepare_block_greedy_no_dict, GreedyBlockEncodeContext, GreedyPreparedBlock, LazyBlockStrategy,
 };
 use super::params::{CompressionParameters, Strategy};
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
 use crate::blocks::block::BlockType;
 use crate::common::MAX_BLOCK_SIZE;
-use crate::encoding::blocks::BlockCompressionConfig;
+use crate::encoding::blocks::{BlockCompressionConfig, PreparedBlock};
 use crate::encoding::frame_compressor::{FseTables, OffsetHistory};
 use crate::encoding::CompressionLevel;
 
@@ -428,6 +428,61 @@ fn greedy_hidden_block_emits_rle_for_single_byte_run() {
     assert_eq!(block_size as usize, data.len());
     assert_eq!(encoded.bytes, [0x03, 0x08, 0x00, 0x6D]);
     assert_eq!(encoded.repeat_offsets, RepeatOffsets::new());
+}
+
+#[test]
+fn target_block_uses_literal_only_superblock_for_rle_literals() {
+    let data = [0x5A; 64];
+    let prepared = GreedyPreparedBlock {
+        prepared: PreparedBlock {
+            literals: data.to_vec(),
+            sequences: Vec::new(),
+        },
+        repeat_offsets: RepeatOffsets::new(),
+    };
+
+    let encoded = encode_target_block_with_superblock_fallback(
+        &data,
+        true,
+        RepeatOffsets::new(),
+        &prepared,
+        Vec::new(),
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(last_block);
+    assert_eq!(block_type, BlockType::Compressed);
+    assert_eq!(block_size as usize, encoded.bytes.len() - 3);
+    assert_eq!(encoded.repeat_offsets, RepeatOffsets::new());
+}
+
+#[test]
+fn target_block_keeps_raw_fallback_for_literal_only_non_rle_literals() {
+    let mut data = Vec::new();
+    for idx in 0..64 {
+        data.push(idx);
+    }
+    let prepared = GreedyPreparedBlock {
+        prepared: PreparedBlock {
+            literals: data.clone(),
+            sequences: Vec::new(),
+        },
+        repeat_offsets: RepeatOffsets::new(),
+    };
+
+    let encoded = encode_target_block_with_superblock_fallback(
+        &data,
+        false,
+        RepeatOffsets::new(),
+        &prepared,
+        Vec::new(),
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(!last_block);
+    assert_eq!(block_type, BlockType::Raw);
+    assert_eq!(block_size as usize, data.len());
+    assert_eq!(&encoded.bytes[3..], data);
 }
 
 #[test]

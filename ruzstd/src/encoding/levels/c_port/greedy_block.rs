@@ -14,6 +14,9 @@ use super::greedy::{
 };
 use super::params::CompressionParameters;
 use super::sequence_store::RepeatOffsets;
+use super::superblock::{
+    append_literal_only_sub_block, should_commit_sub_block, EntropyTableMode, SequenceEntropyModes,
+};
 use crate::{
     encoding::{
         block_header::BlockHeader,
@@ -337,7 +340,13 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy_in_mode(
         source.loaded_dict_end,
     );
     if let Some(_target_size) = block_encode_mode.target_c_block_size() {
-        return encode_target_block_raw_fallback(block, last_block, repeat_offsets, bytes);
+        return encode_target_block_with_superblock_fallback(
+            block,
+            last_block,
+            repeat_offsets,
+            &prepared,
+            bytes,
+        );
     }
     encode_prepared_block(
         block,
@@ -407,6 +416,52 @@ pub(super) fn encode_target_block_raw_fallback(
         bytes,
         repeat_offsets,
         new_huffman_table: None,
+    }
+}
+
+pub(super) fn encode_target_block_with_superblock_fallback(
+    block: &[u8],
+    last_block: bool,
+    repeat_offsets: RepeatOffsets,
+    prepared: &GreedyPreparedBlock,
+    bytes: Vec<u8>,
+) -> GreedyEncodedBlock {
+    if prepared.prepared.sequences.is_empty()
+        && literal_rle_byte(prepared.prepared.literals.as_slice()).is_some()
+    {
+        let mut candidate = bytes.clone();
+        if let Some(emission) = append_literal_only_sub_block(
+            prepared.prepared.literals.as_slice(),
+            last_block,
+            EntropyTableMode::Rle,
+            basic_sequence_modes(),
+            false,
+            false,
+            &mut candidate,
+        ) {
+            if should_commit_sub_block(emission.byte_size, block.len()) {
+                return GreedyEncodedBlock {
+                    bytes: candidate,
+                    repeat_offsets,
+                    new_huffman_table: None,
+                };
+            }
+        }
+    }
+
+    encode_target_block_raw_fallback(block, last_block, repeat_offsets, bytes)
+}
+
+fn literal_rle_byte(literals: &[u8]) -> Option<u8> {
+    let first = *literals.first()?;
+    literals.iter().all(|byte| *byte == first).then_some(first)
+}
+
+fn basic_sequence_modes() -> SequenceEntropyModes {
+    SequenceEntropyModes {
+        ll: EntropyTableMode::Basic,
+        ml: EntropyTableMode::Basic,
+        of: EntropyTableMode::Basic,
     }
 }
 

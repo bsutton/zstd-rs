@@ -6,7 +6,7 @@ use super::{
     block_policy::BlockEncodingPolicy,
     frame_state::BlockEncodeMode,
     greedy_block::{
-        encode_prepared_block, encode_special_block, encode_target_block_raw_fallback,
+        encode_prepared_block, encode_special_block, encode_target_block_with_superblock_fallback,
         prepare_from_greedy_output, GreedyBlockEncodeContext, GreedyBlockSource,
         GreedyEncodedBlock, GreedyPreparedBlock,
     },
@@ -246,7 +246,13 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode(
         repeat_offsets: output.repeat_offsets,
     };
     if let Some(_target_size) = block_encode_mode.target_c_block_size() {
-        return encode_target_block_raw_fallback(block, last_block, repeat_offsets, bytes);
+        return encode_target_block_with_superblock_fallback(
+            block,
+            last_block,
+            repeat_offsets,
+            &prepared,
+            bytes,
+        );
     }
     if block_encode_mode.split_block_enabled() {
         if let Some(encoded) = encode_split_block(
@@ -348,7 +354,13 @@ pub(crate) fn encode_block_opt_ext_dict_with_state_and_policy_and_ldm_in_mode(
         repeat_offsets: output.repeat_offsets,
     };
     if let Some(_target_size) = block_encode_mode.target_c_block_size() {
-        return encode_target_block_raw_fallback(block, last_block, repeat_offsets, bytes);
+        return encode_target_block_with_superblock_fallback(
+            block,
+            last_block,
+            repeat_offsets,
+            &prepared,
+            bytes,
+        );
     }
     if block_encode_mode.split_block_enabled() {
         if let Some(encoded) = encode_split_block(
