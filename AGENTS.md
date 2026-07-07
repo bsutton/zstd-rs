@@ -18,6 +18,28 @@ Use a low-cost worker model for this validation loop when available. Give the
 worker a self-contained prompt rather than forking full history if model
 overrides are needed.
 
+## Cost Control
+
+Delegation should reduce the expensive model's time spent waiting on commands
+and reading large logs. It will not reduce CPU time, wall-clock time for the
+benchmark itself, or the cost of running the benchmark machine.
+
+Use a sidecar when all of these are true:
+
+- the task is command-heavy or log-heavy,
+- the expected output can be summarized in a few lines,
+- the worker does not need to make design decisions,
+- the main agent can verify the result from the reported command and artifact
+  paths.
+
+Do not delegate when the prompt would need large parts of the repository
+history, when interpreting the result requires code ownership context, or when
+the worker would need to choose between competing implementation approaches.
+
+Keep sidecar prompts narrow. Include the current branch, exact command, expected
+artifact paths, and report format. Avoid sending full prior conversation
+history unless the worker genuinely needs it.
+
 ## Other Good Delegation Targets
 
 Delegate tasks that are mechanical, bounded, and easy for the main agent to
@@ -39,6 +61,47 @@ time, and it can add overhead if prompts or reports are too broad.
 
 Keep design decisions, risky code changes, benchmark interpretation, PR
 positioning, and final keep-or-revert decisions in the main agent.
+
+## Sidecar Prompt Patterns
+
+Validation prompt:
+
+```text
+You are a no-edit validation worker in /home/bsutton/git/zstd-rs on branch
+<branch>. Do not modify files. Run the following commands exactly, capture
+pass/fail and the important error lines, and report latest commit plus
+git status --short:
+
+<commands>
+```
+
+Benchmark prompt:
+
+```text
+You are a no-edit benchmark worker in /home/bsutton/git/zstd-rs on branch
+<branch>. Do not modify files. Run the following benchmark command exactly.
+Then summarize the resulting CSV with the supplied awk command and report the
+artifact paths, exact summary lines, latest commit, and git status --short:
+
+<benchmark command>
+<summary command>
+```
+
+Commit prompt:
+
+```text
+You are a commit worker in /home/bsutton/git/zstd-rs on branch <branch>. Stage
+only these files:
+
+<files>
+
+Inspect git diff --cached and commit with this exact message:
+
+<message>
+
+Report the new commit hash and git status --short. Do not amend, rebase, reset,
+revert, or stage any other files.
+```
 
 ## Delegating Commits
 
