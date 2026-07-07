@@ -51,9 +51,28 @@ Current parity notes:
   `ZSTD_c_targetCBlockSize` is explicitly non-zero. Normal level-based
   compression, including the local level-16 benchmarks, uses the regular
   block path. Treat this as a full-port gap, not as an explanation for the
-  current C comparison gap. The first pure sizing helpers from
-  `zstd_compress_superblock.c` are ported in `superblock.rs`; the sub-block
-  entropy reuse and emission path is not wired yet.
+  current C comparison gap.
+- Restart checkpoint from July 7, 2026: target compressed block size dispatch
+  is threaded through the CCtx, frame state, optimal frame path, and hash-chain
+  frame path. The active target-mode encoder currently tries a literal-only RLE
+  superblock and then falls back to a raw block. Normal sequence-bearing target
+  blocks still use the raw fallback.
+- Ported superblock pieces from `zstd_compress_superblock.c` now include the
+  planning helpers, target acceptance gate, literal header sizing, basic and
+  RLE literal emission, zero-sequence emission, literal-only compressed block
+  assembly, and a predefined/basic sequence-section writer. The next concrete
+  step is to assemble non-empty basic-mode sub-blocks by combining the existing
+  literal and sequence helpers, then call that path from target mode before the
+  raw fallback.
+- Remaining superblock gaps after that: Huffman compressed/treeless literal
+  metadata, FSE RLE/repeat/compressed sequence table metadata, the full
+  `ZSTD_compressSubBlock_multi()` loop, entropy reuse across sub-blocks, and
+  the general target superblock success path for normal sequence-bearing data.
+- Validation at this checkpoint: `cargo test -p ruzstd --quiet`,
+  `cargo test -p ruzstd superblock --quiet`,
+  `cargo test -p ruzstd greedy --quiet`,
+  `cargo clippy -p ruzstd --all-targets -- -D warnings`, `cargo fmt --check`,
+  and `git diff --check` had all passed before this note was added.
 - `zstd_opt.c` seeds optimal-parser literal/LL/ML/offset frequencies from
   full-dictionary entropy tables when dictionary repeat tables are valid. The
   Rust full-dictionary path now derives and consumes the same shape of
