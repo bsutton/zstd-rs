@@ -1,9 +1,12 @@
 use alloc::vec::Vec;
 
+use super::cctx_params::CctxParameters;
 use super::dictionary::{parse_dictionary, DictionaryContentType};
+use super::greedy_block::LazyBlockStrategy;
 use super::greedy_frame::{
     encode_frame_btlazy2_no_dict, encode_frame_btlazy2_with_dictionary,
-    encode_frame_greedy_no_dict, encode_frame_greedy_with_dictionary, encode_frame_lazy2_no_dict,
+    encode_frame_greedy_no_dict, encode_frame_greedy_with_dictionary,
+    encode_frame_hash_chain_no_dict_with_cctx, encode_frame_lazy2_no_dict,
     encode_frame_lazy2_with_dictionary, encode_frame_lazy_no_dict,
     encode_frame_lazy_with_dictionary, encode_single_block_frame_btlazy2_no_dict,
     encode_single_block_frame_greedy_no_dict, encode_single_block_frame_lazy2_no_dict,
@@ -154,6 +157,25 @@ fn btlazy2_hidden_frame_round_trips_multiple_blocks() {
 
     assert_eq!(btlazy2_params(data.len()).strategy, Strategy::BtLazy2);
     let encoded = encode_frame_btlazy2_no_dict(&data, btlazy2_level(data.len()));
+
+    assert!(count_frame_blocks(&encoded) > 1);
+    assert_round_trips(&encoded, &data);
+}
+
+#[test]
+fn target_c_block_size_cctx_path_round_trips_hash_chain_frame() {
+    let mut data = Vec::new();
+    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1536 {
+        data.extend_from_slice(b"tenant=theta method=GET route=/v7/items status=200 bytes=177\n");
+    }
+    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1536);
+
+    let level = btlazy2_level(data.len());
+    let mut cctx = CctxParameters::for_level(level, data.len() as u64, 0);
+    assert!(cctx.set_target_c_block_size(2048));
+
+    let encoded =
+        encode_frame_hash_chain_no_dict_with_cctx(&data, cctx, LazyBlockStrategy::BtLazy2);
 
     assert!(count_frame_blocks(&encoded) > 1);
     assert_round_trips(&encoded, &data);

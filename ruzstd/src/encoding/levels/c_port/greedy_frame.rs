@@ -8,7 +8,7 @@ use super::{
     compress_bound::compress_bound,
     dictionary::ParsedDictionary,
     dictionary_frame::DictionaryFrameContext,
-    frame_state::{streaming_dict_limit, FrameBlockState},
+    frame_state::{streaming_dict_limit, BlockEncodeMode, FrameBlockState},
     greedy::GreedyMatchState,
     greedy_block::{
         encode_block_hash_chain_no_dict, encode_block_hash_chain_no_dict_with_state_and_policy,
@@ -90,9 +90,20 @@ pub(crate) fn encode_frame_btlazy2_with_dictionary(
 }
 
 fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrategy) -> Vec<u8> {
-    let mut output = Vec::with_capacity(compress_bound(src.len()));
     let cctx = CctxParameters::for_level(level, src.len() as u64, 0);
+    encode_frame_hash_chain_no_dict_with_cctx(src, cctx, depth)
+}
+
+pub(crate) fn encode_frame_hash_chain_no_dict_with_cctx(
+    src: &[u8],
+    cctx: CctxParameters,
+    depth: LazyBlockStrategy,
+) -> Vec<u8> {
+    let mut output = Vec::with_capacity(compress_bound(src.len()));
     cctx.assert_resolved();
+    // Resolve CCtx block mode at frame entry so target-size superblock
+    // emission can branch here when that C path is wired into hash-chain blocks.
+    let _block_encode_mode = BlockEncodeMode::from_cctx(cctx);
     let params = cctx.compression;
     write_frame_header_no_dict(&mut output, src.len(), params);
     let mut frame_state = FrameBlockState::new(params, cctx.max_block_size);
