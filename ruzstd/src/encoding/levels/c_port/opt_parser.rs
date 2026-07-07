@@ -190,16 +190,19 @@ fn compress_block_opt_with_state_and_ldm_mls_level<const MLS: u32, const ULTRA: 
     let block_start = block_range.start;
     let block_end = block_range.end;
     let block_len = block_end - block_start;
-    let mut sequences = Vec::new();
-    let mut path = Vec::new();
-
     if block_len <= HASH_READ_SIZE {
         return GreedyBlockOutput {
-            sequences,
+            sequences: Vec::new(),
             last_literals: block_len as u32,
             repeat_offsets,
         };
     }
+
+    // C writes into a reused seqStore; reserve conservatively to avoid repeated
+    // growth without allocating for the theoretical maximum sequence density.
+    let sequence_capacity = (block_len / (min_match_len::<MLS>() * 4)).min(block_len);
+    let mut sequences = Vec::with_capacity(sequence_capacity);
+    let mut path = Vec::with_capacity(16);
 
     state.match_state.ensure_tables(params);
     state.match_state.correct_after_long_match_gap(block_start);
@@ -319,6 +322,14 @@ fn compress_block_opt_with_state_and_ldm_mls_level<const MLS: u32, const ULTRA: 
         sequences,
         last_literals: (block_end - anchor) as u32,
         repeat_offsets: RepeatOffsets::from_offsets(rep[0], rep[1], rep[2]),
+    }
+}
+
+const fn min_match_len<const MLS: u32>() -> usize {
+    if MLS == 3 {
+        3
+    } else {
+        4
     }
 }
 
