@@ -281,6 +281,10 @@ impl HuffmanTable {
         };
         let mut best_len = candidate_len(&best);
 
+        if is_flat_distribution(counts) {
+            return best;
+        }
+
         let rank_limited = Self::build_from_weights(&rank_limited_weights(counts));
         if rank_limited.can_encode_counts(counts) {
             let rank_limited_len = candidate_len(&rank_limited);
@@ -288,10 +292,6 @@ impl HuffmanTable {
                 best = rank_limited;
                 best_len = rank_limited_len;
             }
-        }
-
-        if is_flat_distribution(counts) {
-            return best;
         }
 
         let min_bits = counts
@@ -1079,6 +1079,21 @@ the quick brown fox";
     assert!(smallest.encoded_len(data, true, false) < baseline.encoded_len(data, true, false));
     assert!(smallest.max_num_bits <= MAX_HUFFMAN_BITS as u8);
     assert_prefix_free(&smallest.codes);
+}
+
+#[test]
+fn build_smallest_from_counts_keeps_flat_distribution_table() {
+    let data = (0..=255).chain(0..=255).collect::<Vec<_>>();
+    let counts = [2usize; 256];
+
+    let baseline = HuffmanTable::build_from_counts(&counts);
+    let smallest = HuffmanTable::build_smallest_from_counts(&counts, &data, false);
+
+    assert_eq!(smallest.codes, baseline.codes);
+    assert_eq!(
+        smallest.table_description_len,
+        baseline.table_description_len
+    );
 }
 
 #[test]
