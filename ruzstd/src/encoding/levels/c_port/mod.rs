@@ -51,6 +51,7 @@ mod pre_split;
 mod row_match;
 mod sequence_store;
 mod strategy_frame;
+mod superblock;
 
 pub(crate) use strategy_frame::encode_frame_no_dict;
 pub(crate) use strategy_frame::encode_frame_with_dictionary;

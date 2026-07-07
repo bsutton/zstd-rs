@@ -51,7 +51,9 @@ Current parity notes:
   `ZSTD_c_targetCBlockSize` is explicitly non-zero. Normal level-based
   compression, including the local level-16 benchmarks, uses the regular
   block path. Treat this as a full-port gap, not as an explanation for the
-  current C comparison gap.
+  current C comparison gap. The first pure sizing helpers from
+  `zstd_compress_superblock.c` are ported in `superblock.rs`; the sub-block
+  entropy reuse and emission path is not wired yet.
 - `zstd_opt.c` seeds optimal-parser literal/LL/ML/offset frequencies from
   full-dictionary entropy tables when dictionary repeat tables are valid. The
   Rust full-dictionary path now derives and consumes the same shape of
