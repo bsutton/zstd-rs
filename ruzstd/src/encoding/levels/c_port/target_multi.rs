@@ -9,9 +9,10 @@ use super::{
     greedy_block::{GreedyEncodedBlock, GreedyPreparedBlock},
     sequence_store::{OffBase, RepeatOffsets},
     superblock::{
-        append_supported_sub_block_sequences, count_literals, decompressed_size,
-        should_commit_sub_block, size_block_sequences, sub_block_budget_plan, EntropyTableMode,
-        EstimatedSubBlockSize, SequenceEntropyModes,
+        append_supported_sub_block_sequences, append_supported_sub_block_sequences_with_tables,
+        build_compressed_sequence_tables_for_modes, count_literals, decompressed_size,
+        select_sequence_entropy_modes, should_commit_sub_block, size_block_sequences,
+        sub_block_budget_plan, EntropyTableMode, EstimatedSubBlockSize, SequenceEntropyModes,
     },
 };
 use crate::{
@@ -19,10 +20,8 @@ use crate::{
     encoding::{
         block_header::BlockHeader,
         blocks::{
-            append_compressed_sequence_section_with_tables,
-            append_huffman_literal_section_with_table, build_compressed_sequence_tables,
-            build_huffman_literal_table, CompressedSequenceTables, HuffmanLiteralMode,
-            PreparedSequence,
+            append_huffman_literal_section_with_table, build_huffman_literal_table,
+            CompressedSequenceTables, HuffmanLiteralMode, PreparedSequence,
         },
         frame_compressor::{FseTables, OffsetHistory},
     },
@@ -54,12 +53,28 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
     offset_history: &mut OffsetHistory,
 ) -> Option<GreedyEncodedBlock> {
     let huffman_table = build_huffman_literal_table(prepared.prepared.literals.as_slice())?;
-    let sequence_tables =
-        build_compressed_sequence_tables(prepared.prepared.sequences.as_slice(), *offset_history)?;
+    let sequence_modes = select_sequence_entropy_modes(
+        prepared.prepared.sequences.as_slice(),
+        fse_tables,
+        *offset_history,
+    );
+    let sequence_modes = if sequence_modes_are_mixed(sequence_modes)
+        && sequence_modes_are_table_backed(sequence_modes)
+    {
+        sequence_modes
+    } else {
+        compressed_sequence_modes()
+    };
+    let sequence_tables = build_compressed_sequence_tables_for_modes(
+        prepared.prepared.sequences.as_slice(),
+        sequence_modes,
+        *offset_history,
+    );
     let estimate = estimate_huffman_literal_sequence_block(
         prepared,
         &huffman_table,
-        &sequence_tables,
+        sequence_modes,
+        sequence_tables.as_ref(),
         fse_tables,
         *offset_history,
     )?;
@@ -117,8 +132,8 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
             HuffmanLiteralMode::Compressed
         };
         let write_sequence_entropy = !sequence_entropy_written;
-        let sequence_modes = if write_sequence_entropy {
-            compressed_sequence_modes()
+        let sub_block_sequence_modes = if write_sequence_entropy {
+            sequence_modes
         } else {
             repeat_sequence_modes()
         };
@@ -131,8 +146,8 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
             false,
             &huffman_table,
             literal_mode,
-            &sequence_tables,
-            sequence_modes,
+            sequence_tables.as_ref(),
+            sub_block_sequence_modes,
             write_sequence_entropy,
             fse_tables,
             offset_history,
@@ -175,8 +190,8 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
         HuffmanLiteralMode::Compressed
     };
     let write_sequence_entropy = !sequence_entropy_written;
-    let sequence_modes = if write_sequence_entropy {
-        compressed_sequence_modes()
+    let sub_block_sequence_modes = if write_sequence_entropy {
+        sequence_modes
     } else {
         repeat_sequence_modes()
     };
@@ -189,8 +204,8 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
         target.last_block,
         &huffman_table,
         literal_mode,
-        &sequence_tables,
-        sequence_modes,
+        sequence_tables.as_ref(),
+        sub_block_sequence_modes,
         write_sequence_entropy,
         fse_tables,
         offset_history,
@@ -256,7 +271,8 @@ pub(super) fn repeat_offsets_after_sequences(
 fn estimate_huffman_literal_sequence_block(
     prepared: &GreedyPreparedBlock,
     huffman_table: &HuffmanTable,
-    sequence_tables: &CompressedSequenceTables,
+    sequence_modes: SequenceEntropyModes,
+    sequence_tables: Option<&CompressedSequenceTables>,
     fse_tables: &FseTables,
     offset_history: OffsetHistory,
 ) -> Option<EstimatedSubBlockSize> {
@@ -269,16 +285,18 @@ fn estimate_huffman_literal_sequence_block(
         HuffmanLiteralMode::Compressed,
         &mut output,
     )?;
-    let sequence_emission = append_compressed_sequence_section_with_tables(
+    let sequence_emission = append_supported_sub_block_sequences_with_tables(
         prepared.prepared.sequences.as_slice(),
+        sequence_modes,
         sequence_tables,
+        true,
         &mut fse_tables,
         &mut offset_history,
         &mut output,
     )?;
     Some(EstimatedSubBlockSize {
         literal_size: literal_emission.byte_size,
-        block_size: BLOCK_HEADER_SIZE + literal_emission.byte_size + sequence_emission,
+        block_size: BLOCK_HEADER_SIZE + literal_emission.byte_size + sequence_emission.byte_size,
     })
 }
 
@@ -289,7 +307,7 @@ fn append_huffman_sequence_sub_block(
     last_block: bool,
     huffman_table: &HuffmanTable,
     literal_mode: HuffmanLiteralMode,
-    sequence_tables: &CompressedSequenceTables,
+    sequence_tables: Option<&CompressedSequenceTables>,
     sequence_modes: SequenceEntropyModes,
     write_sequence_entropy: bool,
     fse_tables: &mut FseTables,
@@ -307,15 +325,17 @@ fn append_huffman_sequence_sub_block(
         return None;
     };
     let sequence_emission = if write_sequence_entropy {
-        append_compressed_sequence_section_with_tables(
+        append_supported_sub_block_sequences_with_tables(
             sequences,
+            sequence_modes,
             sequence_tables,
+            true,
             fse_tables,
             offset_history,
             output,
         )
         .map(|byte_size| super::superblock::SubBlockSequenceEmission {
-            byte_size,
+            byte_size: byte_size.byte_size,
             entropy_written: true,
         })
     } else {
@@ -367,4 +387,28 @@ fn compressed_sequence_modes() -> SequenceEntropyModes {
         ml: EntropyTableMode::Compressed,
         of: EntropyTableMode::Compressed,
     }
+}
+
+pub(super) fn sequence_modes_are_mixed(modes: SequenceEntropyModes) -> bool {
+    !sequence_modes_are(modes, EntropyTableMode::Basic)
+        && !sequence_modes_are(modes, EntropyTableMode::Rle)
+        && !sequence_modes_are(modes, EntropyTableMode::Repeat)
+        && !sequence_modes_are(modes, EntropyTableMode::Compressed)
+}
+
+pub(super) fn sequence_modes_are_table_backed(modes: SequenceEntropyModes) -> bool {
+    matches!(
+        modes.ll,
+        EntropyTableMode::Compressed | EntropyTableMode::Repeat
+    ) && matches!(
+        modes.ml,
+        EntropyTableMode::Compressed | EntropyTableMode::Repeat
+    ) && matches!(
+        modes.of,
+        EntropyTableMode::Compressed | EntropyTableMode::Repeat
+    )
+}
+
+fn sequence_modes_are(modes: SequenceEntropyModes, mode: EntropyTableMode) -> bool {
+    modes.ll == mode && modes.ml == mode && modes.of == mode
 }

@@ -6,20 +6,22 @@ use super::{
     block_emit::append_raw_block,
     greedy_block::{GreedyEncodedBlock, GreedyPreparedBlock},
     superblock::{
-        append_sub_block_literals, append_supported_sub_block_sequences, count_literals,
-        decompressed_size, should_commit_sub_block, size_block_sequences, sub_block_budget_plan,
-        EntropyTableMode, EstimatedSubBlockSize, SequenceEntropyModes,
+        append_sub_block_literals, append_supported_sub_block_sequences,
+        append_supported_sub_block_sequences_with_tables,
+        build_compressed_sequence_tables_for_modes, count_literals, decompressed_size,
+        select_sequence_entropy_modes, should_commit_sub_block, size_block_sequences,
+        sub_block_budget_plan, EntropyTableMode, EstimatedSubBlockSize, SequenceEntropyModes,
     },
-    target_multi::{repeat_offsets_after_sequences, TargetMultiBlock},
+    target_multi::{
+        repeat_offsets_after_sequences, sequence_modes_are_mixed, sequence_modes_are_table_backed,
+        TargetMultiBlock,
+    },
 };
 use crate::{
     blocks::block::BlockType,
     encoding::{
         block_header::BlockHeader,
-        blocks::{
-            append_compressed_sequence_section_with_tables, build_compressed_sequence_tables,
-            CompressedSequenceTables, PreparedSequence,
-        },
+        blocks::{CompressedSequenceTables, PreparedSequence},
         frame_compressor::{FseTables, OffsetHistory},
     },
 };
@@ -38,11 +40,27 @@ pub(super) fn try_basic_literal_multi_sub_blocks(
     fse_tables: &mut FseTables,
     offset_history: &mut OffsetHistory,
 ) -> Option<GreedyEncodedBlock> {
-    let sequence_tables =
-        build_compressed_sequence_tables(prepared.prepared.sequences.as_slice(), *offset_history)?;
+    let sequence_modes = select_sequence_entropy_modes(
+        prepared.prepared.sequences.as_slice(),
+        fse_tables,
+        *offset_history,
+    );
+    let sequence_modes = if sequence_modes_are_mixed(sequence_modes)
+        && sequence_modes_are_table_backed(sequence_modes)
+    {
+        sequence_modes
+    } else {
+        compressed_sequence_modes()
+    };
+    let sequence_tables = build_compressed_sequence_tables_for_modes(
+        prepared.prepared.sequences.as_slice(),
+        sequence_modes,
+        *offset_history,
+    );
     let estimate = estimate_basic_literal_sequence_block(
         prepared,
-        &sequence_tables,
+        sequence_modes,
+        sequence_tables.as_ref(),
         fse_tables,
         *offset_history,
     )?;
@@ -94,8 +112,8 @@ pub(super) fn try_basic_literal_multi_sub_blocks(
             break;
         };
         let write_sequence_entropy = !sequence_entropy_written;
-        let sequence_modes = if write_sequence_entropy {
-            compressed_sequence_modes()
+        let sub_block_sequence_modes = if write_sequence_entropy {
+            sequence_modes
         } else {
             repeat_sequence_modes()
         };
@@ -106,8 +124,8 @@ pub(super) fn try_basic_literal_multi_sub_blocks(
             literals,
             sequences,
             false,
-            &sequence_tables,
-            sequence_modes,
+            sequence_tables.as_ref(),
+            sub_block_sequence_modes,
             write_sequence_entropy,
             fse_tables,
             offset_history,
@@ -142,8 +160,8 @@ pub(super) fn try_basic_literal_multi_sub_blocks(
     let remaining_literals = prepared.prepared.literals.get(literal_pos..)?;
     let remaining_decompressed = target.block.len().checked_sub(decompressed_pos)?;
     let write_sequence_entropy = !sequence_entropy_written;
-    let sequence_modes = if write_sequence_entropy {
-        compressed_sequence_modes()
+    let sub_block_sequence_modes = if write_sequence_entropy {
+        sequence_modes
     } else {
         repeat_sequence_modes()
     };
@@ -154,8 +172,8 @@ pub(super) fn try_basic_literal_multi_sub_blocks(
         remaining_literals,
         remaining_sequences,
         target.last_block,
-        &sequence_tables,
-        sequence_modes,
+        sequence_tables.as_ref(),
+        sub_block_sequence_modes,
         write_sequence_entropy,
         fse_tables,
         offset_history,
@@ -206,7 +224,8 @@ pub(super) fn try_basic_literal_multi_sub_blocks(
 
 fn estimate_basic_literal_sequence_block(
     prepared: &GreedyPreparedBlock,
-    sequence_tables: &CompressedSequenceTables,
+    sequence_modes: SequenceEntropyModes,
+    sequence_tables: Option<&CompressedSequenceTables>,
     fse_tables: &FseTables,
     offset_history: OffsetHistory,
 ) -> Option<EstimatedSubBlockSize> {
@@ -218,7 +237,7 @@ fn estimate_basic_literal_sequence_block(
         prepared.prepared.sequences.as_slice(),
         true,
         sequence_tables,
-        compressed_sequence_modes(),
+        sequence_modes,
         true,
         &mut fse_tables,
         &mut offset_history,
@@ -235,7 +254,7 @@ fn append_basic_sequence_sub_block(
     literals: &[u8],
     sequences: &[PreparedSequence],
     last_block: bool,
-    sequence_tables: &CompressedSequenceTables,
+    sequence_tables: Option<&CompressedSequenceTables>,
     sequence_modes: SequenceEntropyModes,
     write_sequence_entropy: bool,
     fse_tables: &mut FseTables,
@@ -253,15 +272,17 @@ fn append_basic_sequence_sub_block(
         return None;
     };
     let sequence_emission = if write_sequence_entropy {
-        append_compressed_sequence_section_with_tables(
+        append_supported_sub_block_sequences_with_tables(
             sequences,
+            sequence_modes,
             sequence_tables,
+            true,
             fse_tables,
             offset_history,
             output,
         )
         .map(|byte_size| super::superblock::SubBlockSequenceEmission {
-            byte_size,
+            byte_size: byte_size.byte_size,
             entropy_written: true,
         })
     } else {

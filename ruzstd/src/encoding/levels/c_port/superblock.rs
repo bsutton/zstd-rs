@@ -8,6 +8,9 @@ pub(super) use super::superblock_sequences::need_sequence_entropy_tables;
 pub(super) use super::superblock_sequences::{
     append_sub_block_sequences, append_supported_sub_block_sequences, select_sequence_entropy_modes,
 };
+pub(super) use super::superblock_sequences::{
+    append_supported_sub_block_sequences_with_tables, build_compressed_sequence_tables_for_modes,
+};
 use super::{block_policy::min_compression_gain, params::Strategy};
 use crate::{
     bit_io::BitWriter,

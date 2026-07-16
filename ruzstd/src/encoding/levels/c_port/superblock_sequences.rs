@@ -8,8 +8,8 @@ use crate::encoding::{
         append_compressed_sequence_section, append_predefined_sequence_section,
         append_repeat_sequence_section, append_rle_sequence_section,
         append_sequence_section_with_table_modes, build_compressed_sequence_tables,
-        literal_length_code, match_length_code, offset_code, PreparedSequence, SequenceTableMode,
-        SequenceTableModes,
+        literal_length_code, match_length_code, offset_code, CompressedSequenceTables,
+        PreparedSequence, SequenceTableMode, SequenceTableModes,
     },
     frame_compressor::{FseTables, OffsetHistory},
 };
@@ -42,6 +42,29 @@ pub(super) fn append_supported_sub_block_sequences(
     offset_history: &mut OffsetHistory,
     output: &mut Vec<u8>,
 ) -> Option<SubBlockSequenceEmission> {
+    let compressed_tables = write_entropy
+        .then(|| build_compressed_sequence_tables_for_modes(sequences, modes, *offset_history))
+        .flatten();
+    append_supported_sub_block_sequences_with_tables(
+        sequences,
+        modes,
+        compressed_tables.as_ref(),
+        write_entropy,
+        fse_tables,
+        offset_history,
+        output,
+    )
+}
+
+pub(super) fn append_supported_sub_block_sequences_with_tables(
+    sequences: &[PreparedSequence],
+    modes: SequenceEntropyModes,
+    compressed_tables: Option<&CompressedSequenceTables>,
+    write_entropy: bool,
+    fse_tables: &mut FseTables,
+    offset_history: &mut OffsetHistory,
+    output: &mut Vec<u8>,
+) -> Option<SubBlockSequenceEmission> {
     if sequences.is_empty() {
         return append_sub_block_sequences(sequences, modes, write_entropy, output);
     }
@@ -61,18 +84,26 @@ pub(super) fn append_supported_sub_block_sequences(
     } else if sequence_modes_are(modes, EntropyTableMode::Repeat) {
         append_repeat_sequence_section(sequences, fse_tables, offset_history, output)?
     } else if sequence_modes_are(modes, EntropyTableMode::Compressed) {
-        append_compressed_sequence_section(sequences, fse_tables, offset_history, output)?
+        if let Some(compressed_tables) = compressed_tables {
+            append_sequence_section_with_table_modes(
+                sequences,
+                sequence_table_modes(modes),
+                Some(compressed_tables),
+                fse_tables,
+                offset_history,
+                output,
+            )?
+        } else {
+            append_compressed_sequence_section(sequences, fse_tables, offset_history, output)?
+        }
     } else {
-        let compressed_tables = need_compressed_sequence_tables(modes)
-            .then(|| build_compressed_sequence_tables(sequences, *offset_history))
-            .flatten();
-        if need_compressed_sequence_tables(modes) && compressed_tables.is_none() {
+        if sequence_modes_need_compressed_tables(modes) && compressed_tables.is_none() {
             return None;
         }
         append_sequence_section_with_table_modes(
             sequences,
             sequence_table_modes(modes),
-            compressed_tables.as_ref(),
+            compressed_tables,
             fse_tables,
             offset_history,
             output,
@@ -82,6 +113,16 @@ pub(super) fn append_supported_sub_block_sequences(
         byte_size,
         entropy_written: true,
     })
+}
+
+pub(super) fn build_compressed_sequence_tables_for_modes(
+    sequences: &[PreparedSequence],
+    modes: SequenceEntropyModes,
+    offset_history: OffsetHistory,
+) -> Option<CompressedSequenceTables> {
+    sequence_modes_need_compressed_tables(modes)
+        .then(|| build_compressed_sequence_tables(sequences, offset_history))
+        .flatten()
 }
 
 pub(super) fn need_sequence_entropy_tables(modes: SequenceEntropyModes) -> bool {
@@ -164,7 +205,7 @@ fn sequence_modes_are(modes: SequenceEntropyModes, mode: EntropyTableMode) -> bo
     modes.ll == mode && modes.ml == mode && modes.of == mode
 }
 
-fn need_compressed_sequence_tables(modes: SequenceEntropyModes) -> bool {
+pub(super) fn sequence_modes_need_compressed_tables(modes: SequenceEntropyModes) -> bool {
     [modes.ll, modes.ml, modes.of]
         .iter()
         .any(|mode| matches!(mode, EntropyTableMode::Compressed))
