@@ -15,12 +15,11 @@ with all-RLE, all-repeat, or all-compressed sequence metadata before falling
 back to raw blocks. The resolved `targetCBlockSize` value is consumed by the
 multi-sub-block path, which can write a full-superblock Huffman literal table
 once, use treeless literal sections later, write full-superblock FSE sequence
-tables once on that Huffman-literal path, and use repeat sequence metadata for
-later sub-blocks.
+tables once on the Huffman-literal and basic-literal paths, and use repeat
+sequence metadata for later sub-blocks.
 
-Next implementation step: extend the basic-literal multi-sub-block fallback to
-use full-superblock FSE tables too, then port C's raw-tail fallback for cases
-where only part of the target superblock compresses.
+Next implementation step: port C's raw-tail fallback for cases where only part
+of the target superblock compresses.
 
 ## Operating Principle
 

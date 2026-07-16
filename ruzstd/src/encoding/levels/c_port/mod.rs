@@ -54,6 +54,7 @@ mod strategy_frame;
 mod superblock;
 mod target_block;
 mod target_multi;
+mod target_multi_basic;
 
 pub(crate) use strategy_frame::encode_frame_no_dict;
 pub(crate) use strategy_frame::encode_frame_with_dictionary;

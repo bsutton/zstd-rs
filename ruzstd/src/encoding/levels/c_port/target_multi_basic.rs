@@ -1,15 +1,13 @@
-//! Multi-sub-block target-compressed-size adapter.
+//! Basic-literal multi-sub-block target-compressed-size adapter.
 
 use alloc::vec::Vec;
-
-pub(super) use super::target_multi_basic::try_basic_literal_multi_sub_blocks;
 
 use super::{
     greedy_block::{GreedyEncodedBlock, GreedyPreparedBlock},
     superblock::{
-        append_supported_sub_block_sequences, count_literals, decompressed_size,
-        should_commit_sub_block, size_block_sequences, sub_block_budget_plan, EntropyTableMode,
-        EstimatedSubBlockSize, SequenceEntropyModes,
+        append_sub_block_literals, append_supported_sub_block_sequences, count_literals,
+        decompressed_size, should_commit_sub_block, size_block_sequences, sub_block_budget_plan,
+        EntropyTableMode, EstimatedSubBlockSize, SequenceEntropyModes,
     },
 };
 use crate::{
@@ -17,26 +15,22 @@ use crate::{
     encoding::{
         block_header::BlockHeader,
         blocks::{
-            append_compressed_sequence_section_with_tables,
-            append_huffman_literal_section_with_table, build_compressed_sequence_tables,
-            build_huffman_literal_table, CompressedSequenceTables, HuffmanLiteralMode,
-            PreparedSequence,
+            append_compressed_sequence_section_with_tables, build_compressed_sequence_tables,
+            CompressedSequenceTables, PreparedSequence,
         },
         frame_compressor::{FseTables, OffsetHistory},
     },
-    huff0::huff0_encoder::HuffmanTable,
 };
 
 const BLOCK_HEADER_SIZE: usize = 3;
 
 #[derive(Clone, Copy)]
-struct TargetSubBlockEmission {
+struct TargetBasicSubBlockEmission {
     byte_size: usize,
-    literal_entropy_written: bool,
     sequence_entropy_written: bool,
 }
 
-pub(super) fn try_huffman_literal_multi_sub_blocks(
+pub(super) fn try_basic_literal_multi_sub_blocks(
     block: &[u8],
     last_block: bool,
     target_c_block_size: usize,
@@ -45,12 +39,10 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
     offset_history: &mut OffsetHistory,
     bytes: &[u8],
 ) -> Option<GreedyEncodedBlock> {
-    let huffman_table = build_huffman_literal_table(prepared.prepared.literals.as_slice())?;
     let sequence_tables =
         build_compressed_sequence_tables(prepared.prepared.sequences.as_slice(), *offset_history)?;
-    let estimate = estimate_huffman_literal_sequence_block(
+    let estimate = estimate_basic_literal_sequence_block(
         prepared,
-        &huffman_table,
         &sequence_tables,
         fse_tables,
         *offset_history,
@@ -72,7 +64,6 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
     let mut literal_pos = 0usize;
     let mut start_sequence = 0usize;
     let mut decompressed_pos = 0usize;
-    let mut literal_entropy_written = false;
     let mut sequence_entropy_written = false;
 
     for block_idx in 0..plan.nb_sub_blocks.saturating_sub(1) {
@@ -103,11 +94,6 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
         else {
             break;
         };
-        let literal_mode = if literal_entropy_written {
-            HuffmanLiteralMode::Repeat
-        } else {
-            HuffmanLiteralMode::Compressed
-        };
         let write_sequence_entropy = !sequence_entropy_written;
         let sequence_modes = if write_sequence_entropy {
             compressed_sequence_modes()
@@ -117,12 +103,10 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
         let output_start = candidate.len();
         let offsets_before_sub_block = *offset_history;
         let fse_before_sub_block = fse_tables.snapshot_previous();
-        let Some(emission) = append_huffman_sequence_sub_block(
+        let Some(emission) = append_basic_sequence_sub_block(
             literals,
             sequences,
             false,
-            &huffman_table,
-            literal_mode,
             &sequence_tables,
             sequence_modes,
             write_sequence_entropy,
@@ -139,9 +123,6 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
             literal_pos += literal_size;
             start_sequence = end_sequence;
             decompressed_pos += decompressed_size;
-            if emission.literal_entropy_written {
-                literal_entropy_written = true;
-            }
             if emission.sequence_entropy_written {
                 sequence_entropy_written = true;
             }
@@ -161,11 +142,6 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
     let remaining_sequences = &prepared.prepared.sequences[start_sequence..];
     let remaining_literals = prepared.prepared.literals.get(literal_pos..)?;
     let remaining_decompressed = block.len().checked_sub(decompressed_pos)?;
-    let literal_mode = if literal_entropy_written {
-        HuffmanLiteralMode::Repeat
-    } else {
-        HuffmanLiteralMode::Compressed
-    };
     let write_sequence_entropy = !sequence_entropy_written;
     let sequence_modes = if write_sequence_entropy {
         compressed_sequence_modes()
@@ -173,12 +149,10 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
         repeat_sequence_modes()
     };
     let output_start = candidate.len();
-    let Some(emission) = append_huffman_sequence_sub_block(
+    let Some(emission) = append_basic_sequence_sub_block(
         remaining_literals,
         remaining_sequences,
         last_block,
-        &huffman_table,
-        literal_mode,
         &sequence_tables,
         sequence_modes,
         write_sequence_entropy,
@@ -201,13 +175,12 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
     Some(GreedyEncodedBlock {
         bytes: candidate,
         repeat_offsets: prepared.repeat_offsets,
-        new_huffman_table: Some(huffman_table),
+        new_huffman_table: None,
     })
 }
 
-fn estimate_huffman_literal_sequence_block(
+fn estimate_basic_literal_sequence_block(
     prepared: &GreedyPreparedBlock,
-    huffman_table: &HuffmanTable,
     sequence_tables: &CompressedSequenceTables,
     fse_tables: &FseTables,
     offset_history: OffsetHistory,
@@ -215,45 +188,41 @@ fn estimate_huffman_literal_sequence_block(
     let mut fse_tables = fse_tables.clone();
     let mut offset_history = offset_history;
     let mut output = Vec::new();
-    let literal_emission = append_huffman_literal_section_with_table(
+    let emission = append_basic_sequence_sub_block(
         prepared.prepared.literals.as_slice(),
-        huffman_table,
-        HuffmanLiteralMode::Compressed,
-        &mut output,
-    )?;
-    let sequence_emission = append_compressed_sequence_section_with_tables(
         prepared.prepared.sequences.as_slice(),
+        true,
         sequence_tables,
+        compressed_sequence_modes(),
+        true,
         &mut fse_tables,
         &mut offset_history,
         &mut output,
     )?;
     Some(EstimatedSubBlockSize {
-        literal_size: literal_emission.byte_size,
-        block_size: BLOCK_HEADER_SIZE + literal_emission.byte_size + sequence_emission,
+        literal_size: prepared.prepared.literals.len(),
+        block_size: emission.byte_size,
     })
 }
 
 #[allow(clippy::too_many_arguments)]
-fn append_huffman_sequence_sub_block(
+fn append_basic_sequence_sub_block(
     literals: &[u8],
     sequences: &[PreparedSequence],
     last_block: bool,
-    huffman_table: &HuffmanTable,
-    literal_mode: HuffmanLiteralMode,
     sequence_tables: &CompressedSequenceTables,
     sequence_modes: SequenceEntropyModes,
     write_sequence_entropy: bool,
     fse_tables: &mut FseTables,
     offset_history: &mut OffsetHistory,
     output: &mut Vec<u8>,
-) -> Option<TargetSubBlockEmission> {
+) -> Option<TargetBasicSubBlockEmission> {
     let previous_offsets = *offset_history;
     let block_start = output.len();
     output.extend_from_slice(&[0; BLOCK_HEADER_SIZE]);
     let content_start = output.len();
     let Some(literal_emission) =
-        append_huffman_literal_section_with_table(literals, huffman_table, literal_mode, output)
+        append_sub_block_literals(literals, EntropyTableMode::Basic, false, output)
     else {
         output.truncate(block_start);
         return None;
@@ -298,9 +267,8 @@ fn append_huffman_sequence_sub_block(
     };
     output[block_start..content_start].copy_from_slice(&header.serialize_to_bytes());
 
-    Some(TargetSubBlockEmission {
+    Some(TargetBasicSubBlockEmission {
         byte_size: BLOCK_HEADER_SIZE + content_size,
-        literal_entropy_written: matches!(literal_mode, HuffmanLiteralMode::Compressed),
         sequence_entropy_written: sequence_emission.entropy_written,
     })
 }
