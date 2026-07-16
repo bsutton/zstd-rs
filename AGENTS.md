@@ -16,8 +16,8 @@ back to raw blocks. The resolved `targetCBlockSize` value is consumed by the
 multi-sub-block path, which can write a full-superblock Huffman literal table
 once, use treeless literal sections later, write full-superblock FSE sequence
 tables once on the Huffman-literal and basic-literal paths, use repeat
-sequence metadata for later sub-blocks, and emit mixed LL/ML/OF sequence
-entropy modes where C selects different modes per stream.
+sequence metadata for later sub-blocks, and fall back to a single-subblock
+path that can select mixed LL/ML/OF sequence entropy modes.
 
 The target multi-sub-block paths now include raw-tail fallback for cases where
 only part of the target superblock compresses. After at least one compressed
@@ -28,8 +28,8 @@ source bytes.
 
 Next implementation step: continue the C superblock parity audit from
 `zstd_compress_superblock.c`, with particular attention to entropy metadata
-selection and estimate parity now that raw-tail fallback and mixed sequence
-mode emission are in place.
+selection and estimate parity for the multi-subblock paths now that raw-tail
+fallback and single-subblock mixed sequence mode emission are in place.
 If resuming after a context reset, first inspect these files and the worktree
 status:
 

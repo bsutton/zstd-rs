@@ -8,8 +8,8 @@ use super::{
     sequence_store::RepeatOffsets,
     superblock::{
         append_literal_only_sub_block, append_sequence_sub_block,
-        append_supported_sub_block_sequences, should_commit_sub_block, EntropyTableMode,
-        SequenceEntropyModes,
+        append_supported_sub_block_sequences, select_sequence_entropy_modes,
+        should_commit_sub_block, EntropyTableMode, SequenceEntropyModes,
     },
     target_multi::{
         try_basic_literal_multi_sub_blocks, try_huffman_literal_multi_sub_blocks, TargetMultiBlock,
@@ -106,6 +106,26 @@ pub(super) fn encode_target_block_with_superblock_fallback(
         ) {
             return encoded;
         }
+        let selected_sequence_modes = select_sequence_entropy_modes(
+            prepared.prepared.sequences.as_slice(),
+            fse_tables,
+            *offset_history,
+        );
+        if sequence_modes_are_mixed(selected_sequence_modes) {
+            if let Some(encoded) = try_huffman_sequence_sub_block(
+                block,
+                last_block,
+                prepared,
+                previous_huff_table,
+                fse_tables,
+                offset_history,
+                &bytes,
+                HuffmanLiteralMode::Compressed,
+                selected_sequence_modes,
+            ) {
+                return encoded;
+            }
+        }
         if let Some(encoded) = try_sequence_sub_block(
             block,
             last_block,
@@ -116,6 +136,19 @@ pub(super) fn encode_target_block_with_superblock_fallback(
             repeat_sequence_modes(),
         ) {
             return encoded;
+        }
+        if sequence_modes_are_mixed(selected_sequence_modes) {
+            if let Some(encoded) = try_sequence_sub_block(
+                block,
+                last_block,
+                prepared,
+                fse_tables,
+                offset_history,
+                &bytes,
+                selected_sequence_modes,
+            ) {
+                return encoded;
+            }
         }
         if let Some(encoded) = try_sequence_sub_block(
             block,
@@ -323,4 +356,15 @@ fn sequence_modes_clear_previous(modes: SequenceEntropyModes) -> bool {
     matches!(modes.ll, EntropyTableMode::Basic | EntropyTableMode::Rle)
         && matches!(modes.ml, EntropyTableMode::Basic | EntropyTableMode::Rle)
         && matches!(modes.of, EntropyTableMode::Basic | EntropyTableMode::Rle)
+}
+
+fn sequence_modes_are(modes: SequenceEntropyModes, mode: EntropyTableMode) -> bool {
+    modes.ll == mode && modes.ml == mode && modes.of == mode
+}
+
+fn sequence_modes_are_mixed(modes: SequenceEntropyModes) -> bool {
+    !sequence_modes_are(modes, EntropyTableMode::Basic)
+        && !sequence_modes_are(modes, EntropyTableMode::Rle)
+        && !sequence_modes_are(modes, EntropyTableMode::Repeat)
+        && !sequence_modes_are(modes, EntropyTableMode::Compressed)
 }

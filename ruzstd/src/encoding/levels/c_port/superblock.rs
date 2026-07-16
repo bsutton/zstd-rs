@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 #[cfg(test)]
 pub(super) use super::superblock_sequences::need_sequence_entropy_tables;
 pub(super) use super::superblock_sequences::{
-    append_sub_block_sequences, append_supported_sub_block_sequences,
+    append_sub_block_sequences, append_supported_sub_block_sequences, select_sequence_entropy_modes,
 };
 use super::{block_policy::min_compression_gain, params::Strategy};
 use crate::{

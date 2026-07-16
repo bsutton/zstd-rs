@@ -63,15 +63,16 @@ Current parity notes:
   which can write a full-superblock Huffman literal table once, use treeless
   literal sections for later sub-blocks, write full-superblock FSE sequence
   tables once on the Huffman-literal and basic-literal paths, use repeat
-  sequence metadata for later sub-blocks, and emit mixed LL/ML/OF sequence
-  entropy modes where C selects different modes per stream.
+  sequence metadata for later sub-blocks, and fall back to a single-subblock
+  path that can select mixed LL/ML/OF sequence entropy modes.
 - Ported superblock pieces from `zstd_compress_superblock.c` now include the
   planning helpers, target acceptance gate, literal header sizing, basic and
   RLE literal emission, Huffman compressed and treeless literal emission,
   zero-sequence emission, literal-only compressed block assembly, non-empty
   single-sub-block assembly, and a predefined/basic all-RLE, all-repeat, and
   all-compressed sequence-section writer. Mixed per-stream LL/ML/OF sequence
-  entropy mode emission is split into `superblock_sequences.rs`.
+  entropy mode emission and the conservative single-subblock selector are split
+  into `superblock_sequences.rs`.
 - Ported target multi-sub-block paths now include raw-tail fallback when only
   part of the target superblock can be compressed. After a compressed prefix
   has been committed, the final sub-block attempt snapshots FSE and
@@ -80,8 +81,8 @@ Current parity notes:
   bytes.
 - Next implementation step: continue the C superblock parity audit from
   `zstd_compress_superblock.c`, with particular attention to entropy metadata
-  selection and estimate parity now that raw-tail fallback and mixed sequence
-  mode emission are in place.
+  selection and estimate parity for the multi-subblock paths now that raw-tail
+  fallback and single-subblock mixed sequence mode emission are in place.
 - Validation at this checkpoint: `cargo test -p ruzstd --quiet`,
   `cargo test -p ruzstd superblock --quiet`,
   `cargo test -p ruzstd greedy --quiet`,
