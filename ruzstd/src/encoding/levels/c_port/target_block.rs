@@ -11,6 +11,7 @@ use super::{
         append_supported_sub_block_sequences, should_commit_sub_block, EntropyTableMode,
         SequenceEntropyModes,
     },
+    target_multi::try_basic_literal_multi_sub_blocks,
 };
 use crate::{
     blocks::block::BlockType,
@@ -27,7 +28,7 @@ const BLOCK_HEADER_SIZE: usize = 3;
 pub(super) fn encode_target_block_with_superblock_fallback(
     block: &[u8],
     last_block: bool,
-    _target_c_block_size: usize,
+    target_c_block_size: usize,
     repeat_offsets: RepeatOffsets,
     prepared: &GreedyPreparedBlock,
     context: GreedyBlockEncodeContext<'_, '_>,
@@ -60,6 +61,17 @@ pub(super) fn encode_target_block_with_superblock_fallback(
         let previous_huff_table = context.previous_huff_table;
         let fse_tables = context.fse_tables;
         let offset_history = context.offset_history;
+        if let Some(encoded) = try_basic_literal_multi_sub_blocks(
+            block,
+            last_block,
+            target_c_block_size,
+            prepared,
+            fse_tables,
+            offset_history,
+            &bytes,
+        ) {
+            return encoded;
+        }
         if let Some(encoded) = try_huffman_sequence_sub_block(
             block,
             last_block,

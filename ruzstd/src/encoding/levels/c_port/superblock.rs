@@ -191,7 +191,12 @@ pub(super) fn append_supported_sub_block_sequences(
         return append_sub_block_sequences(sequences, modes, write_entropy, output);
     }
     if !write_entropy {
-        return None;
+        return append_repeat_sequence_section(sequences, fse_tables, offset_history, output).map(
+            |byte_size| SubBlockSequenceEmission {
+                byte_size,
+                entropy_written: true,
+            },
+        );
     }
 
     let byte_size = if sequence_modes_are(modes, EntropyTableMode::Basic) {

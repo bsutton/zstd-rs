@@ -53,6 +53,7 @@ mod sequence_store;
 mod strategy_frame;
 mod superblock;
 mod target_block;
+mod target_multi;
 
 pub(crate) use strategy_frame::encode_frame_no_dict;
 pub(crate) use strategy_frame::encode_frame_with_dictionary;

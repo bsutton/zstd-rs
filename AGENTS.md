@@ -12,12 +12,13 @@ state, optimal frame path, and hash-chain frame path. The active target encoder
 tries literal-only RLE superblocks, non-empty sequence sub-blocks with
 Huffman compressed or treeless literal metadata, and basic literal sub-blocks
 with all-RLE, all-repeat, or all-compressed sequence metadata before falling
-back to raw blocks. The resolved `targetCBlockSize` value is passed into the
-target encoder but is not yet consumed by a multi-sub-block loop.
+back to raw blocks. The resolved `targetCBlockSize` value is consumed by the
+basic-literal multi-sub-block path, which writes sequence entropy once and uses
+repeat sequence metadata for later sub-blocks.
 
-Next implementation step: port the full `ZSTD_compressSubBlock_multi()` loop
-so target mode can split into multiple sub-blocks and reuse literal and
-sequence entropy across those sub-blocks.
+Next implementation step: extend the multi-sub-block path to use the full
+superblock Huffman and FSE entropy tables, so Huffman literals and compressed
+sequence metadata match `ZSTD_compressSubBlock_multi()` across sub-blocks.
 
 ## Operating Principle
 
