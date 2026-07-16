@@ -56,14 +56,15 @@ Current parity notes:
   is threaded through the CCtx, frame state, optimal frame path, and hash-chain
   frame path. The active target-mode encoder lives in `target_block.rs`; it
   currently tries a literal-only RLE superblock, then a non-empty basic-mode
-  sequence sub-block, and then falls back to a raw block.
+  sequence sub-block or all-RLE sequence metadata sub-block, and then falls
+  back to a raw block.
 - Ported superblock pieces from `zstd_compress_superblock.c` now include the
   planning helpers, target acceptance gate, literal header sizing, basic and
   RLE literal emission, zero-sequence emission, literal-only compressed block
   assembly, non-empty basic-mode sub-block assembly, and a predefined/basic
-  sequence-section writer.
+  and all-RLE sequence-section writer.
 - Remaining superblock gaps: Huffman compressed/treeless literal metadata, FSE
-  RLE/repeat/compressed sequence table metadata, the full
+  repeat/compressed sequence table metadata, the full
   `ZSTD_compressSubBlock_multi()` loop, entropy reuse across sub-blocks, and
   the general target superblock success path for normal sequence-bearing data.
 - Validation at this checkpoint: `cargo test -p ruzstd --quiet`,

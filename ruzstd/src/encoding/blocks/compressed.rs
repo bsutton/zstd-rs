@@ -29,10 +29,11 @@ use sequence_bitstream::{
 use sequence_codes::{encode_literal_length, encode_match_len, encode_offset};
 pub(crate) use sequence_codes::{literal_length_code, match_length_code, offset_code};
 use sequence_tables::{
-    choose_sequence_table_modes, encode_fse_table_modes, FseTableMode, SequenceModeSearchConfig,
+    choose_sequence_table_modes, encode_fse_table_modes, encode_table, FseTableMode,
+    SequenceModeSearchConfig,
 };
 #[cfg(test)]
-use sequence_tables::{choose_table, encode_table, exact_sequence_section_size};
+use sequence_tables::{choose_table, exact_sequence_section_size};
 
 #[cfg(test)]
 mod tests;
@@ -350,4 +351,70 @@ pub(crate) fn append_predefined_sequence_section(
         return None;
     }
     Some(byte_size)
+}
+
+pub(crate) fn append_rle_sequence_section(
+    sequences: &[PreparedSequence],
+    offset_history: &mut OffsetHistory,
+    output: &mut Vec<u8>,
+) -> Option<usize> {
+    if sequences.is_empty() {
+        output.push(0);
+        return Some(1);
+    }
+
+    let previous_offsets = *offset_history;
+    let mut encoded_sequences = Vec::with_capacity(sequences.len());
+    encode_sequences_for_history_into(sequences, offset_history, &mut encoded_sequences);
+    let Some((ll_symbol, ml_symbol, of_symbol)) = rle_sequence_symbols(&encoded_sequences) else {
+        *offset_history = previous_offsets;
+        return None;
+    };
+
+    let start = output.len();
+    let mut writer = BitWriter::from(output);
+    encode_seqnum(encoded_sequences.len(), &mut writer);
+    let sequence_head_index = writer.index() / 8;
+    let ll_mode = FseTableMode::Rle(ll_symbol);
+    let ml_mode = FseTableMode::Rle(ml_symbol);
+    let of_mode = FseTableMode::Rle(of_symbol);
+    writer.write_bits(encode_fse_table_modes(&ll_mode, &ml_mode, &of_mode), 8);
+    encode_table(&ll_mode, &mut writer);
+    encode_table(&of_mode, &mut writer);
+    encode_table(&ml_mode, &mut writer);
+    encode_sequences(
+        &encoded_sequences,
+        &mut writer,
+        &ll_mode,
+        &ml_mode,
+        &of_mode,
+    );
+    writer.flush();
+
+    let byte_size = writer.index() / 8 - start;
+    if writer.index() / 8 - sequence_head_index < 4 {
+        writer.reset_to(start * 8);
+        *offset_history = previous_offsets;
+        return None;
+    }
+    Some(byte_size)
+}
+
+fn rle_sequence_symbols(
+    sequences: &[crate::blocks::sequence_section::Sequence],
+) -> Option<(u8, u8, u8)> {
+    let first = *sequences.first()?;
+    let symbols = sequence_symbols(first);
+    sequences
+        .iter()
+        .all(|sequence| sequence_symbols(*sequence) == symbols)
+        .then_some(symbols)
+}
+
+fn sequence_symbols(sequence: crate::blocks::sequence_section::Sequence) -> (u8, u8, u8) {
+    (
+        encode_literal_length(sequence.ll).0,
+        encode_match_len(sequence.ml).0,
+        encode_offset(sequence.of).0,
+    )
 }

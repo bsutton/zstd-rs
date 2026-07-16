@@ -7,10 +7,11 @@ use super::{
     greedy_block::{GreedyBlockEncodeContext, GreedyEncodedBlock, GreedyPreparedBlock},
     sequence_store::RepeatOffsets,
     superblock::{
-        append_basic_sub_block, append_literal_only_sub_block, should_commit_sub_block,
+        append_literal_only_sub_block, append_sequence_sub_block, should_commit_sub_block,
         EntropyTableMode, SequenceEntropyModes,
     },
 };
+use crate::encoding::frame_compressor::{FseTables, OffsetHistory};
 
 pub(super) fn encode_target_block_with_superblock_fallback(
     block: &[u8],
@@ -44,33 +45,69 @@ pub(super) fn encode_target_block_with_superblock_fallback(
     }
 
     if !prepared.prepared.sequences.is_empty() {
-        let previous_offsets = *context.offset_history;
-        let mut candidate = bytes.clone();
-        if let Some(emission) = append_basic_sub_block(
-            prepared.prepared.literals.as_slice(),
-            prepared.prepared.sequences.as_slice(),
+        let fse_tables = context.fse_tables;
+        let offset_history = context.offset_history;
+        if let Some(encoded) = try_sequence_sub_block(
+            block,
             last_block,
-            EntropyTableMode::Basic,
-            basic_sequence_modes(),
-            true,
-            true,
-            context.fse_tables,
-            context.offset_history,
-            &mut candidate,
+            prepared,
+            fse_tables,
+            offset_history,
+            &bytes,
+            rle_sequence_modes(),
         ) {
-            if should_commit_sub_block(emission.byte_size, block.len()) {
-                context.fse_tables.reset();
-                return GreedyEncodedBlock {
-                    bytes: candidate,
-                    repeat_offsets: prepared.repeat_offsets,
-                    new_huffman_table: None,
-                };
-            }
+            return encoded;
         }
-        *context.offset_history = previous_offsets;
+        if let Some(encoded) = try_sequence_sub_block(
+            block,
+            last_block,
+            prepared,
+            fse_tables,
+            offset_history,
+            &bytes,
+            basic_sequence_modes(),
+        ) {
+            return encoded;
+        }
     }
 
     encode_target_block_raw_fallback(block, last_block, repeat_offsets, bytes)
+}
+
+fn try_sequence_sub_block(
+    block: &[u8],
+    last_block: bool,
+    prepared: &GreedyPreparedBlock,
+    fse_tables: &mut FseTables,
+    offset_history: &mut OffsetHistory,
+    bytes: &[u8],
+    sequence_modes: SequenceEntropyModes,
+) -> Option<GreedyEncodedBlock> {
+    let previous_offsets = *offset_history;
+    let mut candidate = bytes.to_vec();
+    let emission = append_sequence_sub_block(
+        prepared.prepared.literals.as_slice(),
+        prepared.prepared.sequences.as_slice(),
+        last_block,
+        EntropyTableMode::Basic,
+        sequence_modes,
+        true,
+        true,
+        fse_tables,
+        offset_history,
+        &mut candidate,
+    )?;
+    if should_commit_sub_block(emission.byte_size, block.len()) {
+        fse_tables.reset();
+        Some(GreedyEncodedBlock {
+            bytes: candidate,
+            repeat_offsets: prepared.repeat_offsets,
+            new_huffman_table: None,
+        })
+    } else {
+        *offset_history = previous_offsets;
+        None
+    }
 }
 
 fn encode_target_block_raw_fallback(
@@ -97,5 +134,13 @@ fn basic_sequence_modes() -> SequenceEntropyModes {
         ll: EntropyTableMode::Basic,
         ml: EntropyTableMode::Basic,
         of: EntropyTableMode::Basic,
+    }
+}
+
+fn rle_sequence_modes() -> SequenceEntropyModes {
+    SequenceEntropyModes {
+        ll: EntropyTableMode::Rle,
+        ml: EntropyTableMode::Rle,
+        of: EntropyTableMode::Rle,
     }
 }

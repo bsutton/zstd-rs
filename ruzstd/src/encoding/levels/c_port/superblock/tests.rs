@@ -329,7 +329,7 @@ fn append_sub_block_sequences_defers_non_empty_sequences_until_fse_tables_are_po
 }
 
 #[test]
-fn append_basic_sub_block_sequences_emits_decodable_predefined_sequences() {
+fn append_supported_sub_block_sequences_emits_decodable_predefined_sequences() {
     let literals = b"abc";
     let sequences = [
         PreparedSequence {
@@ -361,7 +361,7 @@ fn append_basic_sub_block_sequences_emits_decodable_predefined_sequences() {
     append_sub_block_literals(literals, EntropyTableMode::Basic, true, &mut encoded)
         .expect("basic literals");
     let mut offset_history = OffsetHistory::new();
-    let emission = append_basic_sub_block_sequences(
+    let emission = append_supported_sub_block_sequences(
         &sequences,
         basic_sequence_modes(),
         true,
@@ -385,12 +385,12 @@ fn append_basic_sub_block_sequences_emits_decodable_predefined_sequences() {
 }
 
 #[test]
-fn append_basic_sub_block_sequences_defers_repeat_mode_until_metadata_is_ported() {
+fn append_supported_sub_block_sequences_defers_repeat_mode_until_metadata_is_ported() {
     let mut encoded = alloc::vec![0xAA];
     let mut offset_history = OffsetHistory::new();
 
     assert_eq!(
-        append_basic_sub_block_sequences(
+        append_supported_sub_block_sequences(
             &[sequence(1, 3)],
             SequenceEntropyModes {
                 ll: EntropyTableMode::Repeat,
@@ -485,7 +485,7 @@ fn append_literal_only_sub_block_defers_unsupported_literal_modes() {
 }
 
 #[test]
-fn append_basic_sub_block_builds_decodable_sequence_block() {
+fn append_sequence_sub_block_builds_decodable_basic_sequence_block() {
     let literals = b"abc";
     let sequences = [
         PreparedSequence {
@@ -516,7 +516,7 @@ fn append_basic_sub_block_builds_decodable_sequence_block() {
     let mut encoded = Vec::new();
     let mut offset_history = OffsetHistory::new();
 
-    let emission = append_basic_sub_block(
+    let emission = append_sequence_sub_block(
         literals,
         &sequences,
         true,
@@ -535,6 +535,51 @@ fn append_basic_sub_block_builds_decodable_sequence_block() {
     assert!(emission.sequence_entropy_written);
     assert_eq!(offset_history.as_offsets(), (3, 3, 1));
     assert_eq!(decode_compressed_block(&encoded), b"abcabcabcabcabc");
+}
+
+#[test]
+fn append_sequence_sub_block_builds_decodable_rle_sequence_block() {
+    let mut literals = Vec::new();
+    let mut sequences = Vec::new();
+    let mut expected = Vec::new();
+    for idx in 0..24 {
+        let chunk = [
+            b'a' + (idx % 20) as u8,
+            b'A' + (idx % 20) as u8,
+            b'0' + (idx % 10) as u8,
+        ];
+        literals.extend_from_slice(&chunk);
+        expected.extend_from_slice(&chunk);
+        expected.extend_from_slice(&chunk);
+        sequences.push(PreparedSequence {
+            ll: 3,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: Some(6),
+        });
+    }
+    let mut encoded = Vec::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let emission = append_sequence_sub_block(
+        &literals,
+        &sequences,
+        true,
+        EntropyTableMode::Basic,
+        rle_sequence_modes(),
+        true,
+        true,
+        &FseTables::new(),
+        &mut offset_history,
+        &mut encoded,
+    )
+    .expect("uniform sequence codes should encode with RLE metadata");
+
+    assert_eq!(emission.byte_size, encoded.len());
+    assert!(!emission.literal_entropy_written);
+    assert!(emission.sequence_entropy_written);
+    assert_eq!(offset_history.as_offsets(), (3, 3, 3));
+    assert_eq!(decode_compressed_block(&encoded), expected);
 }
 
 #[test]
@@ -565,6 +610,14 @@ fn basic_sequence_modes() -> SequenceEntropyModes {
         ll: EntropyTableMode::Basic,
         ml: EntropyTableMode::Basic,
         of: EntropyTableMode::Basic,
+    }
+}
+
+fn rle_sequence_modes() -> SequenceEntropyModes {
+    SequenceEntropyModes {
+        ll: EntropyTableMode::Rle,
+        ml: EntropyTableMode::Rle,
+        of: EntropyTableMode::Rle,
     }
 }
 

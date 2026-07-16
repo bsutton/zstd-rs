@@ -10,12 +10,12 @@ the target compressed block size / superblock port.
 As of July 16, 2026, target mode dispatch is threaded through the CCtx, frame
 state, optimal frame path, and hash-chain frame path. The active target encoder
 tries literal-only RLE superblocks and non-empty basic-mode sequence sub-blocks
-before falling back to raw blocks.
+or all-RLE sequence metadata sub-blocks before falling back to raw blocks.
 
 Next implementation step: port the remaining superblock metadata paths:
-Huffman compressed/treeless literal metadata, FSE RLE/repeat/compressed
-sequence table metadata, then the full `ZSTD_compressSubBlock_multi()` loop
-with entropy reuse across sub-blocks.
+Huffman compressed/treeless literal metadata, FSE repeat/compressed sequence
+table metadata, then the full `ZSTD_compressSubBlock_multi()` loop with entropy
+reuse across sub-blocks.
 
 ## Operating Principle
 

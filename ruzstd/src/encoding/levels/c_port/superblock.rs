@@ -9,7 +9,9 @@ use crate::{
     blocks::block::BlockType,
     encoding::{
         block_header::BlockHeader,
-        blocks::{append_predefined_sequence_section, PreparedSequence},
+        blocks::{
+            append_predefined_sequence_section, append_rle_sequence_section, PreparedSequence,
+        },
         frame_compressor::{FseTables, OffsetHistory},
     },
 };
@@ -176,7 +178,7 @@ pub(super) fn append_sub_block_sequences(
     })
 }
 
-pub(super) fn append_basic_sub_block_sequences(
+pub(super) fn append_supported_sub_block_sequences(
     sequences: &[PreparedSequence],
     modes: SequenceEntropyModes,
     write_entropy: bool,
@@ -187,12 +189,17 @@ pub(super) fn append_basic_sub_block_sequences(
     if sequences.is_empty() {
         return append_sub_block_sequences(sequences, modes, write_entropy, output);
     }
-    if !write_entropy || !all_sequence_modes_basic(modes) {
+    if !write_entropy {
         return None;
     }
 
-    let byte_size =
-        append_predefined_sequence_section(sequences, fse_tables, offset_history, output)?;
+    let byte_size = if all_sequence_modes_basic(modes) {
+        append_predefined_sequence_section(sequences, fse_tables, offset_history, output)?
+    } else if all_sequence_modes_rle(modes) {
+        append_rle_sequence_section(sequences, offset_history, output)?
+    } else {
+        return None;
+    };
     Some(SubBlockSequenceEmission {
         byte_size,
         entropy_written: true,
@@ -240,7 +247,7 @@ pub(super) fn append_literal_only_sub_block(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn append_basic_sub_block(
+pub(super) fn append_sequence_sub_block(
     literals: &[u8],
     sequences: &[PreparedSequence],
     last_block: bool,
@@ -262,7 +269,7 @@ pub(super) fn append_basic_sub_block(
         output.truncate(block_start);
         return None;
     };
-    let Some(sequence_emission) = append_basic_sub_block_sequences(
+    let Some(sequence_emission) = append_supported_sub_block_sequences(
         sequences,
         sequence_modes,
         write_sequence_entropy,
@@ -303,6 +310,17 @@ fn all_sequence_modes_basic(modes: SequenceEntropyModes) -> bool {
             ll: EntropyTableMode::Basic,
             ml: EntropyTableMode::Basic,
             of: EntropyTableMode::Basic,
+        }
+    )
+}
+
+fn all_sequence_modes_rle(modes: SequenceEntropyModes) -> bool {
+    matches!(
+        modes,
+        SequenceEntropyModes {
+            ll: EntropyTableMode::Rle,
+            ml: EntropyTableMode::Rle,
+            of: EntropyTableMode::Rle,
         }
     )
 }

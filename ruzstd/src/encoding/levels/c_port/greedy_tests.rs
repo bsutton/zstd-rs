@@ -553,6 +553,58 @@ fn target_block_uses_basic_superblock_for_sequence_block() {
 }
 
 #[test]
+fn target_block_accepts_uniform_sequence_code_superblock() {
+    let mut data = Vec::new();
+    let mut literals = Vec::new();
+    let mut sequences = Vec::new();
+    for idx in 0..80 {
+        let chunk = [
+            b'a' + (idx % 20) as u8,
+            b'A' + (idx % 20) as u8,
+            b'0' + (idx % 10) as u8,
+        ];
+        literals.extend_from_slice(&chunk);
+        data.extend_from_slice(&chunk);
+        data.extend_from_slice(&chunk);
+        sequences.push(PreparedSequence {
+            ll: 3,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: Some(6),
+        });
+    }
+    let prepared = GreedyPreparedBlock {
+        prepared: PreparedBlock {
+            literals,
+            sequences,
+        },
+        repeat_offsets: RepeatOffsets::new(),
+    };
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_target_block_with_superblock_fallback(
+        &data,
+        false,
+        RepeatOffsets::new(),
+        &prepared,
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        Vec::new(),
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(!last_block);
+    assert_eq!(block_type, BlockType::Compressed);
+    assert_eq!(block_size as usize, encoded.bytes.len() - 3);
+    assert_eq!(decode_compressed_block(&encoded.bytes), data);
+    assert_eq!(offset_history.as_offsets(), (3, 3, 3));
+}
+
+#[test]
 fn greedy_hidden_tiny_rle_candidate_stays_raw_like_c() {
     let data = [0x6D; 6];
     let mut fse_tables = FseTables::new();
