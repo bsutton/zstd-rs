@@ -76,6 +76,17 @@ pub(super) fn encode_target_block_with_superblock_fallback(
             fse_tables,
             offset_history,
             &bytes,
+            compressed_sequence_modes(),
+        ) {
+            return encoded;
+        }
+        if let Some(encoded) = try_sequence_sub_block(
+            block,
+            last_block,
+            prepared,
+            fse_tables,
+            offset_history,
+            &bytes,
             basic_sequence_modes(),
         ) {
             return encoded;
@@ -95,8 +106,9 @@ fn try_sequence_sub_block(
     sequence_modes: SequenceEntropyModes,
 ) -> Option<GreedyEncodedBlock> {
     let previous_offsets = *offset_history;
+    let previous_fse = fse_tables.snapshot_previous();
     let mut candidate = bytes.to_vec();
-    let emission = append_sequence_sub_block(
+    let Some(emission) = append_sequence_sub_block(
         prepared.prepared.literals.as_slice(),
         prepared.prepared.sequences.as_slice(),
         last_block,
@@ -107,7 +119,11 @@ fn try_sequence_sub_block(
         fse_tables,
         offset_history,
         &mut candidate,
-    )?;
+    ) else {
+        fse_tables.restore_previous(previous_fse);
+        *offset_history = previous_offsets;
+        return None;
+    };
     if should_commit_sub_block(emission.byte_size, block.len()) {
         if sequence_modes_clear_previous(sequence_modes) {
             fse_tables.reset();
@@ -118,6 +134,7 @@ fn try_sequence_sub_block(
             new_huffman_table: None,
         })
     } else {
+        fse_tables.restore_previous(previous_fse);
         *offset_history = previous_offsets;
         None
     }
@@ -163,6 +180,14 @@ fn repeat_sequence_modes() -> SequenceEntropyModes {
         ll: EntropyTableMode::Repeat,
         ml: EntropyTableMode::Repeat,
         of: EntropyTableMode::Repeat,
+    }
+}
+
+fn compressed_sequence_modes() -> SequenceEntropyModes {
+    SequenceEntropyModes {
+        ll: EntropyTableMode::Compressed,
+        ml: EntropyTableMode::Compressed,
+        of: EntropyTableMode::Compressed,
     }
 }
 

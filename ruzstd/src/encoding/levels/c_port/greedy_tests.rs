@@ -502,7 +502,7 @@ fn target_block_keeps_raw_fallback_for_literal_only_non_rle_literals() {
 }
 
 #[test]
-fn target_block_uses_basic_superblock_for_sequence_block() {
+fn target_block_uses_compressed_sequence_metadata_for_sequence_block() {
     let mut data = Vec::new();
     for _ in 0..100 {
         data.extend_from_slice(b"abc");
@@ -550,6 +550,9 @@ fn target_block_uses_basic_superblock_for_sequence_block() {
     assert_eq!(block_type, BlockType::Compressed);
     assert_eq!(block_size as usize, encoded.bytes.len() - 3);
     assert_eq!(decode_compressed_block(&encoded.bytes), data);
+    assert!(fse_tables.ll_previous.is_some());
+    assert!(fse_tables.ml_previous.is_some());
+    assert!(fse_tables.of_previous.is_some());
     assert_eq!(offset_history.as_offsets(), (3, 3, 1));
 }
 

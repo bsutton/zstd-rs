@@ -10,8 +10,8 @@ use crate::{
     encoding::{
         block_header::BlockHeader,
         blocks::{
-            append_predefined_sequence_section, append_repeat_sequence_section,
-            append_rle_sequence_section, PreparedSequence,
+            append_compressed_sequence_section, append_predefined_sequence_section,
+            append_repeat_sequence_section, append_rle_sequence_section, PreparedSequence,
         },
         frame_compressor::{FseTables, OffsetHistory},
     },
@@ -183,7 +183,7 @@ pub(super) fn append_supported_sub_block_sequences(
     sequences: &[PreparedSequence],
     modes: SequenceEntropyModes,
     write_entropy: bool,
-    fse_tables: &FseTables,
+    fse_tables: &mut FseTables,
     offset_history: &mut OffsetHistory,
     output: &mut Vec<u8>,
 ) -> Option<SubBlockSequenceEmission> {
@@ -200,6 +200,8 @@ pub(super) fn append_supported_sub_block_sequences(
         append_rle_sequence_section(sequences, offset_history, output)?
     } else if sequence_modes_are(modes, EntropyTableMode::Repeat) {
         append_repeat_sequence_section(sequences, fse_tables, offset_history, output)?
+    } else if sequence_modes_are(modes, EntropyTableMode::Compressed) {
+        append_compressed_sequence_section(sequences, fse_tables, offset_history, output)?
     } else {
         return None;
     };
@@ -258,7 +260,7 @@ pub(super) fn append_sequence_sub_block(
     sequence_modes: SequenceEntropyModes,
     write_literal_entropy: bool,
     write_sequence_entropy: bool,
-    fse_tables: &FseTables,
+    fse_tables: &mut FseTables,
     offset_history: &mut OffsetHistory,
     output: &mut Vec<u8>,
 ) -> Option<SubBlockEmission> {

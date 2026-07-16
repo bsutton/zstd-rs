@@ -4,8 +4,10 @@ use crate::{bit_io::BitWriter, blocks::sequence_section::Sequence, fse::fse_enco
 
 use super::encode_sequences;
 
+mod builder;
 mod selection;
 
+pub(in crate::encoding::blocks::compressed) use builder::{build_sequence_table, TableBuilder};
 #[cfg(test)]
 pub(super) use selection::choose_table;
 pub(super) use selection::{choose_sequence_table_modes, choose_sequence_table_modes_for_estimate};
