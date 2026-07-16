@@ -6,6 +6,7 @@ use crate::{
         blocks::PreparedSequence,
         frame_compressor::{FseTables, OffsetHistory},
     },
+    fse::fse_encoder::FSETable,
 };
 
 use super::{
@@ -19,6 +20,46 @@ use super::{
         build_sequence_table, encode_fse_table_modes, encode_table, FseTableMode, TableBuilder,
     },
 };
+
+#[derive(Clone)]
+pub(crate) struct CompressedSequenceTables {
+    ll: FSETable,
+    ml: FSETable,
+    of: FSETable,
+}
+
+pub(crate) fn build_compressed_sequence_tables(
+    sequences: &[PreparedSequence],
+    offset_history: OffsetHistory,
+) -> Option<CompressedSequenceTables> {
+    if sequences.len() <= 1 {
+        return None;
+    }
+
+    let mut offset_history = offset_history;
+    let mut encoded_sequences = Vec::with_capacity(sequences.len());
+    encode_sequences_for_history_into(sequences, &mut offset_history, &mut encoded_sequences);
+    Some(CompressedSequenceTables {
+        ll: build_sequence_table(
+            &encoded_sequences,
+            |seq| encode_literal_length(seq.ll).0,
+            9,
+            TableBuilder::Full,
+        ),
+        ml: build_sequence_table(
+            &encoded_sequences,
+            |seq| encode_match_len(seq.ml).0,
+            9,
+            TableBuilder::Full,
+        ),
+        of: build_sequence_table(
+            &encoded_sequences,
+            |seq| encode_offset(seq.of).0,
+            8,
+            TableBuilder::Full,
+        ),
+    })
+}
 
 pub(crate) fn append_predefined_sequence_section(
     sequences: &[PreparedSequence],
@@ -166,6 +207,28 @@ pub(crate) fn append_compressed_sequence_section(
         return None;
     }
 
+    let tables = build_compressed_sequence_tables(sequences, *offset_history)?;
+    append_compressed_sequence_section_with_tables(
+        sequences,
+        &tables,
+        fse_tables,
+        offset_history,
+        output,
+    )
+}
+
+pub(crate) fn append_compressed_sequence_section_with_tables(
+    sequences: &[PreparedSequence],
+    tables: &CompressedSequenceTables,
+    fse_tables: &mut FseTables,
+    offset_history: &mut OffsetHistory,
+    output: &mut Vec<u8>,
+) -> Option<usize> {
+    if sequences.is_empty() {
+        output.push(0);
+        return Some(1);
+    }
+
     let previous_offsets = *offset_history;
     let previous_fse = fse_tables.snapshot_previous();
     let mut encoded_sequences = Vec::with_capacity(sequences.len());
@@ -174,24 +237,9 @@ pub(crate) fn append_compressed_sequence_section(
     let mut writer = BitWriter::from(output);
     encode_seqnum(encoded_sequences.len(), &mut writer);
     let sequence_head_index = writer.index() / 8;
-    let ll_mode = FseTableMode::Encoded(build_sequence_table(
-        &encoded_sequences,
-        |seq| encode_literal_length(seq.ll).0,
-        9,
-        TableBuilder::Full,
-    ));
-    let ml_mode = FseTableMode::Encoded(build_sequence_table(
-        &encoded_sequences,
-        |seq| encode_match_len(seq.ml).0,
-        9,
-        TableBuilder::Full,
-    ));
-    let of_mode = FseTableMode::Encoded(build_sequence_table(
-        &encoded_sequences,
-        |seq| encode_offset(seq.of).0,
-        8,
-        TableBuilder::Full,
-    ));
+    let ll_mode = FseTableMode::Encoded(tables.ll.clone());
+    let ml_mode = FseTableMode::Encoded(tables.ml.clone());
+    let of_mode = FseTableMode::Encoded(tables.of.clone());
     writer.write_bits(encode_fse_table_modes(&ll_mode, &ml_mode, &of_mode), 8);
 
     let mut last_count_size = encode_table_count_size(&ll_mode, &mut writer);

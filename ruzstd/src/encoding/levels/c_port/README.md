@@ -61,17 +61,18 @@ Current parity notes:
   all-compressed sequence metadata, and then falls back to a raw block. The
   resolved `targetCBlockSize` value is consumed by the multi-sub-block path,
   which can write a full-superblock Huffman literal table once, use treeless
-  literal sections for later sub-blocks, write sequence entropy once, and use
-  repeat sequence metadata for later sub-blocks.
+  literal sections for later sub-blocks, write full-superblock FSE sequence
+  tables once on that Huffman-literal path, and use repeat sequence metadata
+  for later sub-blocks.
 - Ported superblock pieces from `zstd_compress_superblock.c` now include the
   planning helpers, target acceptance gate, literal header sizing, basic and
   RLE literal emission, Huffman compressed and treeless literal emission,
   zero-sequence emission, literal-only compressed block assembly, non-empty
   single-sub-block assembly, and a predefined/basic all-RLE, all-repeat, and
   all-compressed sequence-section writer.
-- Remaining superblock gaps: full-superblock FSE entropy tables across
-  multiple sub-blocks, and raw-tail fallback when only part of the target
-  superblock can be compressed.
+- Remaining superblock gaps: full-superblock FSE entropy tables in the
+  basic-literal multi-sub-block fallback, and raw-tail fallback when only part
+  of the target superblock can be compressed.
 - Validation at this checkpoint: `cargo test -p ruzstd --quiet`,
   `cargo test -p ruzstd superblock --quiet`,
   `cargo test -p ruzstd greedy --quiet`,

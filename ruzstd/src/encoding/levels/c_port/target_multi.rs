@@ -15,8 +15,10 @@ use crate::{
     encoding::{
         block_header::BlockHeader,
         blocks::{
-            append_huffman_literal_section_with_table, build_huffman_literal_table,
-            HuffmanLiteralMode, PreparedSequence,
+            append_compressed_sequence_section_with_tables,
+            append_huffman_literal_section_with_table, build_compressed_sequence_tables,
+            build_huffman_literal_table, CompressedSequenceTables, HuffmanLiteralMode,
+            PreparedSequence,
         },
         frame_compressor::{FseTables, OffsetHistory},
     },
@@ -42,12 +44,14 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
     bytes: &[u8],
 ) -> Option<GreedyEncodedBlock> {
     let huffman_table = build_huffman_literal_table(prepared.prepared.literals.as_slice())?;
+    let sequence_tables =
+        build_compressed_sequence_tables(prepared.prepared.sequences.as_slice(), *offset_history)?;
     let estimate = estimate_huffman_literal_sequence_block(
         prepared,
         &huffman_table,
+        &sequence_tables,
         fse_tables,
         *offset_history,
-        compressed_sequence_modes(),
     )?;
     let plan = sub_block_budget_plan(
         estimate,
@@ -117,6 +121,7 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
             false,
             &huffman_table,
             literal_mode,
+            &sequence_tables,
             sequence_modes,
             write_sequence_entropy,
             fse_tables,
@@ -172,6 +177,7 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
         last_block,
         &huffman_table,
         literal_mode,
+        &sequence_tables,
         sequence_modes,
         write_sequence_entropy,
         fse_tables,
@@ -349,9 +355,9 @@ pub(super) fn try_basic_literal_multi_sub_blocks(
 fn estimate_huffman_literal_sequence_block(
     prepared: &GreedyPreparedBlock,
     huffman_table: &HuffmanTable,
+    sequence_tables: &CompressedSequenceTables,
     fse_tables: &FseTables,
     offset_history: OffsetHistory,
-    sequence_modes: SequenceEntropyModes,
 ) -> Option<EstimatedSubBlockSize> {
     let mut fse_tables = fse_tables.clone();
     let mut offset_history = offset_history;
@@ -362,17 +368,16 @@ fn estimate_huffman_literal_sequence_block(
         HuffmanLiteralMode::Compressed,
         &mut output,
     )?;
-    let sequence_emission = append_supported_sub_block_sequences(
+    let sequence_emission = append_compressed_sequence_section_with_tables(
         prepared.prepared.sequences.as_slice(),
-        sequence_modes,
-        true,
+        sequence_tables,
         &mut fse_tables,
         &mut offset_history,
         &mut output,
     )?;
     Some(EstimatedSubBlockSize {
         literal_size: literal_emission.byte_size,
-        block_size: BLOCK_HEADER_SIZE + literal_emission.byte_size + sequence_emission.byte_size,
+        block_size: BLOCK_HEADER_SIZE + literal_emission.byte_size + sequence_emission,
     })
 }
 
@@ -383,6 +388,7 @@ fn append_huffman_sequence_sub_block(
     last_block: bool,
     huffman_table: &HuffmanTable,
     literal_mode: HuffmanLiteralMode,
+    sequence_tables: &CompressedSequenceTables,
     sequence_modes: SequenceEntropyModes,
     write_sequence_entropy: bool,
     fse_tables: &mut FseTables,
@@ -399,14 +405,29 @@ fn append_huffman_sequence_sub_block(
         output.truncate(block_start);
         return None;
     };
-    let Some(sequence_emission) = append_supported_sub_block_sequences(
-        sequences,
-        sequence_modes,
-        write_sequence_entropy,
-        fse_tables,
-        offset_history,
-        output,
-    ) else {
+    let sequence_emission = if write_sequence_entropy {
+        append_compressed_sequence_section_with_tables(
+            sequences,
+            sequence_tables,
+            fse_tables,
+            offset_history,
+            output,
+        )
+        .map(|byte_size| super::superblock::SubBlockSequenceEmission {
+            byte_size,
+            entropy_written: true,
+        })
+    } else {
+        append_supported_sub_block_sequences(
+            sequences,
+            sequence_modes,
+            false,
+            fse_tables,
+            offset_history,
+            output,
+        )
+    };
+    let Some(sequence_emission) = sequence_emission else {
         *offset_history = previous_offsets;
         output.truncate(block_start);
         return None;
