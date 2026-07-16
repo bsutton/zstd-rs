@@ -5,7 +5,9 @@ use alloc::vec::Vec;
 pub(super) use super::target_multi_basic::try_basic_literal_multi_sub_blocks;
 
 use super::{
+    block_emit::append_raw_block,
     greedy_block::{GreedyEncodedBlock, GreedyPreparedBlock},
+    sequence_store::{OffBase, RepeatOffsets},
     superblock::{
         append_supported_sub_block_sequences, count_literals, decompressed_size,
         should_commit_sub_block, size_block_sequences, sub_block_budget_plan, EntropyTableMode,
@@ -36,14 +38,20 @@ struct TargetSubBlockEmission {
     sequence_entropy_written: bool,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct TargetMultiBlock<'a> {
+    pub(super) block: &'a [u8],
+    pub(super) last_block: bool,
+    pub(super) target_c_block_size: usize,
+    pub(super) initial_repeat_offsets: RepeatOffsets,
+    pub(super) bytes: &'a [u8],
+}
+
 pub(super) fn try_huffman_literal_multi_sub_blocks(
-    block: &[u8],
-    last_block: bool,
-    target_c_block_size: usize,
+    target: TargetMultiBlock<'_>,
     prepared: &GreedyPreparedBlock,
     fse_tables: &mut FseTables,
     offset_history: &mut OffsetHistory,
-    bytes: &[u8],
 ) -> Option<GreedyEncodedBlock> {
     let huffman_table = build_huffman_literal_table(prepared.prepared.literals.as_slice())?;
     let sequence_tables =
@@ -59,8 +67,8 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
         estimate,
         prepared.prepared.literals.len(),
         prepared.prepared.sequences.len(),
-        target_c_block_size,
-        block.len(),
+        target.target_c_block_size,
+        target.block.len(),
     )?;
     if plan.nb_sub_blocks <= 1 {
         return None;
@@ -68,7 +76,7 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
 
     let previous_offsets = *offset_history;
     let previous_fse = fse_tables.snapshot_previous();
-    let mut candidate = bytes.to_vec();
+    let mut candidate = target.bytes.to_vec();
     let mut literal_pos = 0usize;
     let mut start_sequence = 0usize;
     let mut decompressed_pos = 0usize;
@@ -160,7 +168,7 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
 
     let remaining_sequences = &prepared.prepared.sequences[start_sequence..];
     let remaining_literals = prepared.prepared.literals.get(literal_pos..)?;
-    let remaining_decompressed = block.len().checked_sub(decompressed_pos)?;
+    let remaining_decompressed = target.block.len().checked_sub(decompressed_pos)?;
     let literal_mode = if literal_entropy_written {
         HuffmanLiteralMode::Repeat
     } else {
@@ -173,10 +181,12 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
         repeat_sequence_modes()
     };
     let output_start = candidate.len();
+    let offsets_before_final = *offset_history;
+    let fse_before_final = fse_tables.snapshot_previous();
     let Some(emission) = append_huffman_sequence_sub_block(
         remaining_literals,
         remaining_sequences,
-        last_block,
+        target.last_block,
         &huffman_table,
         literal_mode,
         &sequence_tables,
@@ -187,15 +197,39 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
         &mut candidate,
     ) else {
         candidate.truncate(output_start);
-        fse_tables.restore_previous(previous_fse);
-        *offset_history = previous_offsets;
-        return None;
+        fse_tables.restore_previous(fse_before_final);
+        *offset_history = offsets_before_final;
+        append_raw_block(
+            target.block.get(decompressed_pos..)?,
+            target.last_block,
+            &mut candidate,
+        );
+        return Some(GreedyEncodedBlock {
+            bytes: candidate,
+            repeat_offsets: repeat_offsets_after_sequences(
+                target.initial_repeat_offsets,
+                &prepared.prepared.sequences[..start_sequence],
+            ),
+            new_huffman_table: Some(huffman_table),
+        });
     };
     if !should_commit_sub_block(emission.byte_size, remaining_decompressed) {
         candidate.truncate(output_start);
-        fse_tables.restore_previous(previous_fse);
-        *offset_history = previous_offsets;
-        return None;
+        fse_tables.restore_previous(fse_before_final);
+        *offset_history = offsets_before_final;
+        append_raw_block(
+            target.block.get(decompressed_pos..)?,
+            target.last_block,
+            &mut candidate,
+        );
+        return Some(GreedyEncodedBlock {
+            bytes: candidate,
+            repeat_offsets: repeat_offsets_after_sequences(
+                target.initial_repeat_offsets,
+                &prepared.prepared.sequences[..start_sequence],
+            ),
+            new_huffman_table: Some(huffman_table),
+        });
     }
 
     Some(GreedyEncodedBlock {
@@ -203,6 +237,20 @@ pub(super) fn try_huffman_literal_multi_sub_blocks(
         repeat_offsets: prepared.repeat_offsets,
         new_huffman_table: Some(huffman_table),
     })
+}
+
+pub(super) fn repeat_offsets_after_sequences(
+    mut repeat_offsets: RepeatOffsets,
+    sequences: &[PreparedSequence],
+) -> RepeatOffsets {
+    for sequence in sequences {
+        let off_base = sequence
+            .encoded_offset_value
+            .and_then(OffBase::from_c_value)
+            .unwrap_or(OffBase::Offset(sequence.raw_offset));
+        repeat_offsets.update(off_base, sequence.ll);
+    }
+    repeat_offsets
 }
 
 fn estimate_huffman_literal_sequence_block(

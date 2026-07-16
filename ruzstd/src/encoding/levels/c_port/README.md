@@ -70,8 +70,15 @@ Current parity notes:
   zero-sequence emission, literal-only compressed block assembly, non-empty
   single-sub-block assembly, and a predefined/basic all-RLE, all-repeat, and
   all-compressed sequence-section writer.
-- Remaining superblock gap: raw-tail fallback when only part of the target
-  superblock can be compressed.
+- Ported target multi-sub-block paths now include raw-tail fallback when only
+  part of the target superblock can be compressed. After a compressed prefix
+  has been committed, the final sub-block attempt snapshots FSE and
+  repeat-offset state, restores to the committed prefix if the final sub-block
+  is not worth committing, and appends a raw block for the remaining source
+  bytes.
+- Next implementation step: run full validation for the raw-tail fallback and
+  then continue the C superblock parity audit from
+  `zstd_compress_superblock.c`.
 - Validation at this checkpoint: `cargo test -p ruzstd --quiet`,
   `cargo test -p ruzstd superblock --quiet`,
   `cargo test -p ruzstd greedy --quiet`,

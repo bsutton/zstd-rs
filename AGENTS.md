@@ -18,8 +18,23 @@ once, use treeless literal sections later, write full-superblock FSE sequence
 tables once on the Huffman-literal and basic-literal paths, and use repeat
 sequence metadata for later sub-blocks.
 
-Next implementation step: port C's raw-tail fallback for cases where only part
-of the target superblock compresses.
+The target multi-sub-block paths now include raw-tail fallback for cases where
+only part of the target superblock compresses. After at least one compressed
+sub-block has been committed, the final sub-block attempt snapshots FSE and
+repeat-offset state, and if the final sub-block is not worth committing it
+restores to the committed prefix and appends a raw block for the remaining
+source bytes.
+
+Next implementation step: run full validation for the raw-tail fallback and
+then continue the C superblock parity audit from `zstd_compress_superblock.c`.
+If resuming after a context reset, first inspect these files and the worktree
+status:
+
+```sh
+git status --short --branch
+rg "raw_tail_sequence_block|target_block_emits_raw_tail|append_raw_block" -n ruzstd/src/encoding/levels/c_port
+cargo test -p ruzstd target_block_emits_raw_tail_when_final_subblock_is_not_worthwhile --quiet
+```
 
 ## Operating Principle
 
