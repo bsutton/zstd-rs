@@ -45,7 +45,7 @@ fn target_block_uses_huffman_literals_for_sequence_block() {
 }
 
 #[test]
-fn target_block_splits_basic_literal_sequence_block_by_target_size() {
+fn target_block_splits_huffman_literal_sequence_block_by_target_size() {
     let (data, prepared) = split_friendly_sequence_block();
     let mut fse_tables = FseTables::new();
     let mut offset_history = OffsetHistory::new();
@@ -71,6 +71,40 @@ fn target_block_splits_basic_literal_sequence_block_by_target_size() {
         .all(|header| header.0 == BlockType::Compressed));
     assert!(headers.last().is_some_and(|header| header.2));
     assert_eq!(decode_blocks(&encoded.bytes), data);
+    assert!(encoded.new_huffman_table.is_some());
+    assert!(fse_tables.ll_previous.is_some());
+    assert!(fse_tables.ml_previous.is_some());
+    assert!(fse_tables.of_previous.is_some());
+}
+
+#[test]
+fn target_block_splits_basic_literal_sequence_block_by_target_size() {
+    let (data, prepared) = high_entropy_literal_sequence_block();
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_target_block_with_superblock_fallback(
+        &data,
+        true,
+        1340,
+        RepeatOffsets::new(),
+        &prepared,
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        Vec::new(),
+    );
+    let headers = parse_block_headers(&encoded.bytes);
+
+    assert!(headers.len() > 1);
+    assert!(headers
+        .iter()
+        .all(|header| header.0 == BlockType::Compressed));
+    assert!(headers.last().is_some_and(|header| header.2));
+    assert_eq!(decode_blocks(&encoded.bytes), data);
+    assert!(encoded.new_huffman_table.is_none());
     assert!(fse_tables.ll_previous.is_some());
     assert!(fse_tables.ml_previous.is_some());
     assert!(fse_tables.of_previous.is_some());
@@ -120,6 +154,43 @@ fn split_friendly_sequence_block() -> (Vec<u8>, GreedyPreparedBlock) {
         let mut chunk = [0u8; 16];
         for (byte_idx, byte) in chunk.iter_mut().enumerate() {
             *byte = b'A' + ((idx + byte_idx) % 26) as u8;
+        }
+        literals.extend_from_slice(&chunk);
+        data.extend_from_slice(&chunk);
+        data.extend_from_slice(&chunk);
+        sequences.push(PreparedSequence {
+            ll: chunk.len() as u32,
+            ml: chunk.len() as u32,
+            raw_offset: chunk.len() as u32,
+            encoded_offset_value: None,
+        });
+    }
+
+    (
+        data,
+        GreedyPreparedBlock {
+            prepared: PreparedBlock {
+                literals,
+                sequences,
+            },
+            repeat_offsets: RepeatOffsets::new(),
+        },
+    )
+}
+
+fn high_entropy_literal_sequence_block() -> (Vec<u8>, GreedyPreparedBlock) {
+    let mut data = Vec::new();
+    let mut literals = Vec::new();
+    let mut sequences = Vec::new();
+    let mut state = 0xA511_E9B3_u32;
+
+    for _ in 0..240 {
+        let mut chunk = [0u8; 16];
+        for byte in &mut chunk {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            *byte = state as u8;
         }
         literals.extend_from_slice(&chunk);
         data.extend_from_slice(&chunk);

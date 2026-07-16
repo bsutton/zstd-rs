@@ -15,6 +15,18 @@ pub(crate) struct HuffmanLiteralSectionEmission {
     pub(crate) new_huffman_table: Option<HuffmanTable>,
 }
 
+pub(crate) fn build_huffman_literal_table(literals: &[u8]) -> Option<HuffmanTable> {
+    if literals.is_empty() {
+        return None;
+    }
+
+    let (stats, _) = LiteralStats::from_literals_with_stream_counts(literals, false);
+    if stats.largest() == literals.len() || stats.likely_incompressible(literals.len()) {
+        return None;
+    }
+    Some(HuffmanTable::build_from_counts(stats.counts()))
+}
+
 pub(crate) fn append_huffman_literal_section(
     literals: &[u8],
     previous_table: Option<&HuffmanTable>,
@@ -25,20 +37,8 @@ pub(crate) fn append_huffman_literal_section(
         return None;
     }
 
-    let start = output.len();
-    let mut writer = BitWriter::from(output);
-    let (size_format, size_bits) = sub_block_huffman_size_format(
-        literals.len(),
-        matches!(mode, HuffmanLiteralMode::Compressed),
-    );
     let table = match mode {
-        HuffmanLiteralMode::Compressed => {
-            let (stats, _) = LiteralStats::from_literals_with_stream_counts(literals, false);
-            if stats.largest() == literals.len() || stats.likely_incompressible(literals.len()) {
-                return None;
-            }
-            HuffmanTable::build_from_counts(stats.counts())
-        }
+        HuffmanLiteralMode::Compressed => build_huffman_literal_table(literals)?,
         HuffmanLiteralMode::Repeat => previous_table
             .filter(|table| {
                 let (stats, _) = LiteralStats::from_literals_with_stream_counts(literals, false);
@@ -47,9 +47,35 @@ pub(crate) fn append_huffman_literal_section(
             .clone(),
     };
 
+    append_huffman_literal_section_with_table(literals, &table, mode, output)
+}
+
+pub(crate) fn append_huffman_literal_section_with_table(
+    literals: &[u8],
+    table: &HuffmanTable,
+    mode: HuffmanLiteralMode,
+    output: &mut Vec<u8>,
+) -> Option<HuffmanLiteralSectionEmission> {
+    if literals.is_empty() {
+        return None;
+    }
+    if matches!(mode, HuffmanLiteralMode::Repeat) {
+        let (stats, _) = LiteralStats::from_literals_with_stream_counts(literals, false);
+        if !table.can_encode_counts(stats.counts()) {
+            return None;
+        }
+    }
+
+    let start = output.len();
+    let mut writer = BitWriter::from(output);
+    let (size_format, size_bits) = sub_block_huffman_size_format(
+        literals.len(),
+        matches!(mode, HuffmanLiteralMode::Compressed),
+    );
+
     write_compressed_literals(
         literals,
-        &table,
+        table,
         matches!(mode, HuffmanLiteralMode::Compressed),
         size_format,
         size_bits,
@@ -69,7 +95,7 @@ pub(crate) fn append_huffman_literal_section(
 
     Some(HuffmanLiteralSectionEmission {
         byte_size,
-        new_huffman_table: matches!(mode, HuffmanLiteralMode::Compressed).then_some(table),
+        new_huffman_table: matches!(mode, HuffmanLiteralMode::Compressed).then_some(table.clone()),
     })
 }
 

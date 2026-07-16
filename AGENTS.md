@@ -13,12 +13,13 @@ tries literal-only RLE superblocks, non-empty sequence sub-blocks with
 Huffman compressed or treeless literal metadata, and basic literal sub-blocks
 with all-RLE, all-repeat, or all-compressed sequence metadata before falling
 back to raw blocks. The resolved `targetCBlockSize` value is consumed by the
-basic-literal multi-sub-block path, which writes sequence entropy once and uses
+multi-sub-block path, which can write a full-superblock Huffman literal table
+once, use treeless literal sections later, write sequence entropy once, and use
 repeat sequence metadata for later sub-blocks.
 
 Next implementation step: extend the multi-sub-block path to use the full
-superblock Huffman and FSE entropy tables, so Huffman literals and compressed
-sequence metadata match `ZSTD_compressSubBlock_multi()` across sub-blocks.
+superblock FSE entropy tables, so compressed sequence metadata matches
+`ZSTD_compressSubBlock_multi()` across sub-blocks.
 
 ## Operating Principle
 
