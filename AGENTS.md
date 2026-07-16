@@ -7,13 +7,15 @@ When resuming the zstd C compressor port on branch
 `ruzstd/src/encoding/levels/c_port/README.md` first. The current checkpoint is
 the target compressed block size / superblock port.
 
-As of July 7, 2026, target mode dispatch is threaded through the CCtx, frame
+As of July 16, 2026, target mode dispatch is threaded through the CCtx, frame
 state, optimal frame path, and hash-chain frame path. The active target encoder
-tries a literal-only RLE superblock and otherwise falls back to raw blocks.
+tries literal-only RLE superblocks and non-empty basic-mode sequence sub-blocks
+before falling back to raw blocks.
 
-Next implementation step: assemble non-empty basic-mode sub-blocks from the
-existing superblock literal and predefined/basic sequence helpers, then call
-that path from target mode before the raw fallback.
+Next implementation step: port the remaining superblock metadata paths:
+Huffman compressed/treeless literal metadata, FSE RLE/repeat/compressed
+sequence table metadata, then the full `ZSTD_compressSubBlock_multi()` loop
+with entropy reuse across sub-blocks.
 
 ## Operating Principle
 

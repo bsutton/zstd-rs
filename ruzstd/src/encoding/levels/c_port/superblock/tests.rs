@@ -485,6 +485,59 @@ fn append_literal_only_sub_block_defers_unsupported_literal_modes() {
 }
 
 #[test]
+fn append_basic_sub_block_builds_decodable_sequence_block() {
+    let literals = b"abc";
+    let sequences = [
+        PreparedSequence {
+            ll: 3,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        },
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        },
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        },
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        },
+    ];
+    let mut encoded = Vec::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let emission = append_basic_sub_block(
+        literals,
+        &sequences,
+        true,
+        EntropyTableMode::Basic,
+        basic_sequence_modes(),
+        true,
+        true,
+        &FseTables::new(),
+        &mut offset_history,
+        &mut encoded,
+    )
+    .expect("basic sequence sub-block should encode");
+
+    assert_eq!(emission.byte_size, encoded.len());
+    assert!(!emission.literal_entropy_written);
+    assert!(emission.sequence_entropy_written);
+    assert_eq!(offset_history.as_offsets(), (3, 3, 1));
+    assert_eq!(decode_compressed_block(&encoded), b"abcabcabcabcabc");
+}
+
+#[test]
 fn need_sequence_entropy_tables_matches_c_metadata_gate() {
     let no_tables = SequenceEntropyModes {
         ll: EntropyTableMode::Basic,

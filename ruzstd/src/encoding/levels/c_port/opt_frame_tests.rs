@@ -50,7 +50,7 @@ fn btultra2_dictionary_path_uses_btultra_block_compressor_like_c() {
 }
 
 #[test]
-fn target_c_block_size_uses_raw_fallback_until_superblock_is_wired() {
+fn target_c_block_size_uses_basic_superblock_when_sequence_block_fits() {
     let data = repeated_no_dict_payload();
     let mut target_cctx = CctxParameters::for_level(16, data.len() as u64, 0);
     target_cctx.post_block_splitter = ParamSwitch::Enable;
@@ -58,7 +58,10 @@ fn target_c_block_size_uses_raw_fallback_until_superblock_is_wired() {
 
     let target_encoded = encode_frame_opt_no_dict_with_cctx(&data, target_cctx);
 
-    assert_eq!(first_frame_block_type(&target_encoded), BlockType::Raw);
+    assert_eq!(
+        first_frame_block_type(&target_encoded),
+        BlockType::Compressed
+    );
     assert_round_trips(&target_encoded, &data);
 }
 

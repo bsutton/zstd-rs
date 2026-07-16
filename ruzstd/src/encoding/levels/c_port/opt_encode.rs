@@ -6,9 +6,8 @@ use super::{
     block_policy::BlockEncodingPolicy,
     frame_state::BlockEncodeMode,
     greedy_block::{
-        encode_prepared_block, encode_special_block, encode_target_block_with_superblock_fallback,
-        prepare_from_greedy_output, GreedyBlockEncodeContext, GreedyBlockSource,
-        GreedyEncodedBlock, GreedyPreparedBlock,
+        encode_prepared_block, encode_special_block, prepare_from_greedy_output,
+        GreedyBlockEncodeContext, GreedyBlockSource, GreedyEncodedBlock, GreedyPreparedBlock,
     },
     greedy_ext_block::GreedyExtDictBlockSource,
     ldm::opt::LdmOptCursor,
@@ -20,6 +19,7 @@ use super::{
     params::CompressionParameters,
     post_split::encode_split_block,
     sequence_store::RepeatOffsets,
+    target_block::encode_target_block_with_superblock_fallback,
 };
 use crate::encoding::blocks::BlockCompressionConfig;
 
@@ -251,6 +251,7 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode(
             last_block,
             repeat_offsets,
             &prepared,
+            context,
             bytes,
         );
     }
@@ -359,6 +360,7 @@ pub(crate) fn encode_block_opt_ext_dict_with_state_and_policy_and_ldm_in_mode(
             last_block,
             repeat_offsets,
             &prepared,
+            context,
             bytes,
         );
     }

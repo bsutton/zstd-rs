@@ -239,6 +239,57 @@ pub(super) fn append_literal_only_sub_block(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn append_basic_sub_block(
+    literals: &[u8],
+    sequences: &[PreparedSequence],
+    last_block: bool,
+    literal_mode: EntropyTableMode,
+    sequence_modes: SequenceEntropyModes,
+    write_literal_entropy: bool,
+    write_sequence_entropy: bool,
+    fse_tables: &FseTables,
+    offset_history: &mut OffsetHistory,
+    output: &mut Vec<u8>,
+) -> Option<SubBlockEmission> {
+    let previous_offsets = *offset_history;
+    let block_start = output.len();
+    output.extend_from_slice(&[0; BLOCK_HEADER_SIZE]);
+    let content_start = output.len();
+    let Some(literal_emission) =
+        append_sub_block_literals(literals, literal_mode, write_literal_entropy, output)
+    else {
+        output.truncate(block_start);
+        return None;
+    };
+    let Some(sequence_emission) = append_basic_sub_block_sequences(
+        sequences,
+        sequence_modes,
+        write_sequence_entropy,
+        fse_tables,
+        offset_history,
+        output,
+    ) else {
+        *offset_history = previous_offsets;
+        output.truncate(block_start);
+        return None;
+    };
+
+    let content_size = output.len() - content_start;
+    let header = BlockHeader {
+        last_block,
+        block_type: BlockType::Compressed,
+        block_size: content_size as u32,
+    };
+    output[block_start..content_start].copy_from_slice(&header.serialize_to_bytes());
+
+    Some(SubBlockEmission {
+        byte_size: BLOCK_HEADER_SIZE + content_size,
+        literal_entropy_written: literal_emission.entropy_written,
+        sequence_entropy_written: sequence_emission.entropy_written,
+    })
+}
+
 pub(super) fn need_sequence_entropy_tables(modes: SequenceEntropyModes) -> bool {
     [modes.ll, modes.ml, modes.of]
         .iter()

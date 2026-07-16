@@ -9,14 +9,15 @@ use super::greedy::{
     GreedyBlockOutput, GreedyMatchState,
 };
 use super::greedy_block::{
-    encode_block_hash_chain_no_dict, encode_target_block_with_superblock_fallback,
-    prepare_block_greedy_no_dict, GreedyBlockEncodeContext, GreedyPreparedBlock, LazyBlockStrategy,
+    encode_block_hash_chain_no_dict, prepare_block_greedy_no_dict, GreedyBlockEncodeContext,
+    GreedyPreparedBlock, LazyBlockStrategy,
 };
 use super::params::{CompressionParameters, Strategy};
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
+use super::target_block::encode_target_block_with_superblock_fallback;
 use crate::blocks::block::BlockType;
 use crate::common::MAX_BLOCK_SIZE;
-use crate::encoding::blocks::{BlockCompressionConfig, PreparedBlock};
+use crate::encoding::blocks::{BlockCompressionConfig, PreparedBlock, PreparedSequence};
 use crate::encoding::frame_compressor::{FseTables, OffsetHistory};
 use crate::encoding::CompressionLevel;
 
@@ -433,6 +434,8 @@ fn greedy_hidden_block_emits_rle_for_single_byte_run() {
 #[test]
 fn target_block_uses_literal_only_superblock_for_rle_literals() {
     let data = [0x5A; 64];
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
     let prepared = GreedyPreparedBlock {
         prepared: PreparedBlock {
             literals: data.to_vec(),
@@ -446,6 +449,11 @@ fn target_block_uses_literal_only_superblock_for_rle_literals() {
         true,
         RepeatOffsets::new(),
         &prepared,
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
         Vec::new(),
     );
     let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
@@ -462,6 +470,8 @@ fn target_block_keeps_raw_fallback_for_literal_only_non_rle_literals() {
     for idx in 0..64 {
         data.push(idx);
     }
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
     let prepared = GreedyPreparedBlock {
         prepared: PreparedBlock {
             literals: data.clone(),
@@ -475,6 +485,11 @@ fn target_block_keeps_raw_fallback_for_literal_only_non_rle_literals() {
         false,
         RepeatOffsets::new(),
         &prepared,
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
         Vec::new(),
     );
     let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
@@ -483,6 +498,58 @@ fn target_block_keeps_raw_fallback_for_literal_only_non_rle_literals() {
     assert_eq!(block_type, BlockType::Raw);
     assert_eq!(block_size as usize, data.len());
     assert_eq!(&encoded.bytes[3..], data);
+}
+
+#[test]
+fn target_block_uses_basic_superblock_for_sequence_block() {
+    let mut data = Vec::new();
+    for _ in 0..100 {
+        data.extend_from_slice(b"abc");
+    }
+    let mut sequences = Vec::new();
+    sequences.push(PreparedSequence {
+        ll: 3,
+        ml: 3,
+        raw_offset: 3,
+        encoded_offset_value: None,
+    });
+    for _ in 1..99 {
+        sequences.push(PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        });
+    }
+    let prepared = GreedyPreparedBlock {
+        prepared: PreparedBlock {
+            literals: b"abc".to_vec(),
+            sequences,
+        },
+        repeat_offsets: RepeatOffsets::new(),
+    };
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_target_block_with_superblock_fallback(
+        &data,
+        true,
+        RepeatOffsets::new(),
+        &prepared,
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        Vec::new(),
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(last_block);
+    assert_eq!(block_type, BlockType::Compressed);
+    assert_eq!(block_size as usize, encoded.bytes.len() - 3);
+    assert_eq!(decode_compressed_block(&encoded.bytes), data);
+    assert_eq!(offset_history.as_offsets(), (3, 3, 1));
 }
 
 #[test]
@@ -522,6 +589,24 @@ fn parse_block_header(bytes: &[u8]) -> (bool, BlockType, u32) {
         _ => BlockType::Reserved,
     };
     (raw & 1 != 0, block_type, raw >> 3)
+}
+
+fn decode_compressed_block(encoded: &[u8]) -> Vec<u8> {
+    let mut block_decoder = crate::decoding::block_decoder::new();
+    let (header, header_size) = block_decoder
+        .read_block_header(encoded)
+        .expect("block header should parse");
+    assert_eq!(header.block_type, BlockType::Compressed);
+    assert_eq!(
+        header.content_size as usize,
+        encoded.len() - header_size as usize
+    );
+
+    let mut scratch = crate::decoding::scratch::DecoderScratch::new(128 * 1024);
+    block_decoder
+        .decode_block_content(&header, &mut scratch, &encoded[header_size as usize..])
+        .expect("block content should decode");
+    scratch.buffer.drain()
 }
 
 fn lazy_output(data: &[u8]) -> GreedyBlockOutput {

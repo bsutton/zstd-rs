@@ -17,6 +17,7 @@ use super::{
     },
     params::CompressionParameters,
     sequence_store::RepeatOffsets,
+    target_block::encode_target_block_with_superblock_fallback,
 };
 use crate::encoding::blocks::BlockCompressionConfig;
 
@@ -160,11 +161,12 @@ pub(crate) fn encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode(
         depth,
     );
     if let Some(_target_size) = block_encode_mode.target_c_block_size() {
-        return super::greedy_block::encode_target_block_with_superblock_fallback(
+        return encode_target_block_with_superblock_fallback(
             block,
             last_block,
             repeat_offsets,
             &prepared,
+            context,
             bytes,
         );
     }

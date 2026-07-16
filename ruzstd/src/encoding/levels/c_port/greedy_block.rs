@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use super::block_emit::{append_prepared_block_or_raw, append_raw_block, PreparedBlockEmission};
+use super::block_emit::{append_prepared_block_or_raw, PreparedBlockEmission};
 use super::block_policy::{should_skip_sequence_build, BlockEncodingPolicy};
 use super::frame_state::BlockEncodeMode;
 use super::greedy::{
@@ -14,9 +14,7 @@ use super::greedy::{
 };
 use super::params::CompressionParameters;
 use super::sequence_store::RepeatOffsets;
-use super::superblock::{
-    append_literal_only_sub_block, should_commit_sub_block, EntropyTableMode, SequenceEntropyModes,
-};
+use super::target_block::encode_target_block_with_superblock_fallback;
 use crate::{
     encoding::{
         block_header::BlockHeader,
@@ -345,6 +343,7 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy_in_mode(
             last_block,
             repeat_offsets,
             &prepared,
+            context,
             bytes,
         );
     }
@@ -402,66 +401,6 @@ pub(super) fn encode_prepared_block(
             repeat_offsets: compressed_repeat_offsets,
             new_huffman_table,
         },
-    }
-}
-
-pub(super) fn encode_target_block_raw_fallback(
-    block: &[u8],
-    last_block: bool,
-    repeat_offsets: RepeatOffsets,
-    mut bytes: Vec<u8>,
-) -> GreedyEncodedBlock {
-    append_raw_block(block, last_block, &mut bytes);
-    GreedyEncodedBlock {
-        bytes,
-        repeat_offsets,
-        new_huffman_table: None,
-    }
-}
-
-pub(super) fn encode_target_block_with_superblock_fallback(
-    block: &[u8],
-    last_block: bool,
-    repeat_offsets: RepeatOffsets,
-    prepared: &GreedyPreparedBlock,
-    bytes: Vec<u8>,
-) -> GreedyEncodedBlock {
-    if prepared.prepared.sequences.is_empty()
-        && literal_rle_byte(prepared.prepared.literals.as_slice()).is_some()
-    {
-        let mut candidate = bytes.clone();
-        if let Some(emission) = append_literal_only_sub_block(
-            prepared.prepared.literals.as_slice(),
-            last_block,
-            EntropyTableMode::Rle,
-            basic_sequence_modes(),
-            false,
-            false,
-            &mut candidate,
-        ) {
-            if should_commit_sub_block(emission.byte_size, block.len()) {
-                return GreedyEncodedBlock {
-                    bytes: candidate,
-                    repeat_offsets,
-                    new_huffman_table: None,
-                };
-            }
-        }
-    }
-
-    encode_target_block_raw_fallback(block, last_block, repeat_offsets, bytes)
-}
-
-fn literal_rle_byte(literals: &[u8]) -> Option<u8> {
-    let first = *literals.first()?;
-    literals.iter().all(|byte| *byte == first).then_some(first)
-}
-
-fn basic_sequence_modes() -> SequenceEntropyModes {
-    SequenceEntropyModes {
-        ll: EntropyTableMode::Basic,
-        ml: EntropyTableMode::Basic,
-        of: EntropyTableMode::Basic,
     }
 }
 
