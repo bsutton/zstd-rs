@@ -37,7 +37,9 @@ pub(crate) use sequence_codes::{literal_length_code, match_length_code, offset_c
 pub(crate) use sequence_sections::{
     append_compressed_sequence_section, append_compressed_sequence_section_with_tables,
     append_predefined_sequence_section, append_repeat_sequence_section,
-    append_rle_sequence_section, build_compressed_sequence_tables, CompressedSequenceTables,
+    append_rle_sequence_section, append_sequence_section_with_table_modes,
+    build_compressed_sequence_tables, CompressedSequenceTables, SequenceTableMode,
+    SequenceTableModes,
 };
 use sequence_tables::{
     choose_sequence_table_modes, encode_fse_table_modes, SequenceModeSearchConfig,

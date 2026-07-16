@@ -3,16 +3,18 @@
 
 use alloc::vec::Vec;
 
+#[cfg(test)]
+pub(super) use super::superblock_sequences::need_sequence_entropy_tables;
+pub(super) use super::superblock_sequences::{
+    append_sub_block_sequences, append_supported_sub_block_sequences,
+};
 use super::{block_policy::min_compression_gain, params::Strategy};
 use crate::{
     bit_io::BitWriter,
     blocks::block::BlockType,
     encoding::{
         block_header::BlockHeader,
-        blocks::{
-            append_compressed_sequence_section, append_predefined_sequence_section,
-            append_repeat_sequence_section, append_rle_sequence_section, PreparedSequence,
-        },
+        blocks::PreparedSequence,
         frame_compressor::{FseTables, OffsetHistory},
     },
 };
@@ -162,60 +164,6 @@ pub(super) fn append_sub_block_literals(
     })
 }
 
-pub(super) fn append_sub_block_sequences(
-    sequences: &[PreparedSequence],
-    _modes: SequenceEntropyModes,
-    _write_entropy: bool,
-    output: &mut Vec<u8>,
-) -> Option<SubBlockSequenceEmission> {
-    if !sequences.is_empty() {
-        return None;
-    }
-
-    output.push(0);
-    Some(SubBlockSequenceEmission {
-        byte_size: 1,
-        entropy_written: false,
-    })
-}
-
-pub(super) fn append_supported_sub_block_sequences(
-    sequences: &[PreparedSequence],
-    modes: SequenceEntropyModes,
-    write_entropy: bool,
-    fse_tables: &mut FseTables,
-    offset_history: &mut OffsetHistory,
-    output: &mut Vec<u8>,
-) -> Option<SubBlockSequenceEmission> {
-    if sequences.is_empty() {
-        return append_sub_block_sequences(sequences, modes, write_entropy, output);
-    }
-    if !write_entropy {
-        return append_repeat_sequence_section(sequences, fse_tables, offset_history, output).map(
-            |byte_size| SubBlockSequenceEmission {
-                byte_size,
-                entropy_written: true,
-            },
-        );
-    }
-
-    let byte_size = if sequence_modes_are(modes, EntropyTableMode::Basic) {
-        append_predefined_sequence_section(sequences, fse_tables, offset_history, output)?
-    } else if sequence_modes_are(modes, EntropyTableMode::Rle) {
-        append_rle_sequence_section(sequences, offset_history, output)?
-    } else if sequence_modes_are(modes, EntropyTableMode::Repeat) {
-        append_repeat_sequence_section(sequences, fse_tables, offset_history, output)?
-    } else if sequence_modes_are(modes, EntropyTableMode::Compressed) {
-        append_compressed_sequence_section(sequences, fse_tables, offset_history, output)?
-    } else {
-        return None;
-    };
-    Some(SubBlockSequenceEmission {
-        byte_size,
-        entropy_written: true,
-    })
-}
-
 pub(super) fn append_literal_only_sub_block(
     literals: &[u8],
     last_block: bool,
@@ -305,16 +253,6 @@ pub(super) fn append_sequence_sub_block(
         literal_entropy_written: literal_emission.entropy_written,
         sequence_entropy_written: sequence_emission.entropy_written,
     })
-}
-
-pub(super) fn need_sequence_entropy_tables(modes: SequenceEntropyModes) -> bool {
-    [modes.ll, modes.ml, modes.of]
-        .iter()
-        .any(|mode| matches!(mode, EntropyTableMode::Compressed | EntropyTableMode::Rle))
-}
-
-fn sequence_modes_are(modes: SequenceEntropyModes, mode: EntropyTableMode) -> bool {
-    modes.ll == mode && modes.ml == mode && modes.of == mode
 }
 
 fn write_raw_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>) {

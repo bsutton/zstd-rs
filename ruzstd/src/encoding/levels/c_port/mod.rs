@@ -52,6 +52,7 @@ mod row_match;
 mod sequence_store;
 mod strategy_frame;
 mod superblock;
+mod superblock_sequences;
 mod target_block;
 mod target_multi;
 mod target_multi_basic;

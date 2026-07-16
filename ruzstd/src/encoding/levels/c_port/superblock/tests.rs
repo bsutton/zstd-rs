@@ -756,6 +756,72 @@ fn append_sequence_sub_block_builds_decodable_compressed_sequence_block() {
 }
 
 #[test]
+fn append_sequence_sub_block_builds_decodable_mixed_sequence_modes() {
+    let mut literals = Vec::new();
+    let mut sequences = Vec::new();
+    let mut expected = Vec::new();
+    for idx in 0..36 {
+        let lit_len = 3usize;
+        let match_len = idx % 5 + 3;
+        let raw_offset = idx % 4 + 3;
+        let start = literals.len();
+        for lit_idx in 0..lit_len {
+            literals.push(b'a' + ((idx + lit_idx) % 26) as u8);
+        }
+        expected.extend_from_slice(&literals[start..]);
+        for _ in 0..match_len {
+            let byte = expected[expected.len() - raw_offset];
+            expected.push(byte);
+        }
+        sequences.push(PreparedSequence {
+            ll: lit_len as u32,
+            ml: match_len as u32,
+            raw_offset: raw_offset as u32,
+            encoded_offset_value: Some(raw_offset as u32 + 3),
+        });
+    }
+    let mut encoded = Vec::new();
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let emission = append_sequence_sub_block(
+        &literals,
+        &sequences,
+        true,
+        EntropyTableMode::Basic,
+        SequenceEntropyModes {
+            ll: EntropyTableMode::Rle,
+            ml: EntropyTableMode::Basic,
+            of: EntropyTableMode::Compressed,
+        },
+        true,
+        true,
+        &mut fse_tables,
+        &mut offset_history,
+        &mut encoded,
+    )
+    .expect("mixed sequence modes should encode");
+
+    assert_eq!(emission.byte_size, encoded.len());
+    assert!(!emission.literal_entropy_written);
+    assert!(emission.sequence_entropy_written);
+    assert!(fse_tables.ll_previous.is_none());
+    assert!(fse_tables.ml_previous.is_none());
+    assert!(fse_tables.of_previous.is_some());
+    assert_eq!(decode_compressed_block(&encoded), expected);
+
+    let sequence_section = sequence_section_bytes(&encoded);
+    let mut sequence_header = SequencesHeader::new();
+    sequence_header
+        .parse_from_header(sequence_section)
+        .expect("sequence header should parse");
+    let modes = sequence_header.modes.expect("mixed section has sequences");
+    assert!(matches!(modes.ll_mode(), ModeType::RLE));
+    assert!(matches!(modes.ml_mode(), ModeType::Predefined));
+    assert!(matches!(modes.of_mode(), ModeType::FSECompressed));
+}
+
+#[test]
 fn need_sequence_entropy_tables_matches_c_metadata_gate() {
     let no_tables = SequenceEntropyModes {
         ll: EntropyTableMode::Basic,

@@ -28,6 +28,21 @@ pub(crate) struct CompressedSequenceTables {
     of: FSETable,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SequenceTableMode {
+    Predefined,
+    Rle,
+    Compressed,
+    Repeat,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SequenceTableModes {
+    pub(crate) ll: SequenceTableMode,
+    pub(crate) ml: SequenceTableMode,
+    pub(crate) of: SequenceTableMode,
+}
+
 pub(crate) fn build_compressed_sequence_tables(
     sequences: &[PreparedSequence],
     offset_history: OffsetHistory,
@@ -277,6 +292,141 @@ pub(crate) fn append_compressed_sequence_section_with_tables(
     apply_fse_table_update(&mut fse_tables.ml_previous, fse_table_update(ml_mode));
     apply_fse_table_update(&mut fse_tables.of_previous, fse_table_update(of_mode));
     Some(byte_size)
+}
+
+pub(crate) fn append_sequence_section_with_table_modes(
+    sequences: &[PreparedSequence],
+    modes: SequenceTableModes,
+    compressed_tables: Option<&CompressedSequenceTables>,
+    fse_tables: &mut FseTables,
+    offset_history: &mut OffsetHistory,
+    output: &mut Vec<u8>,
+) -> Option<usize> {
+    if sequences.is_empty() {
+        output.push(0);
+        return Some(1);
+    }
+
+    let previous_offsets = *offset_history;
+    let previous_fse = fse_tables.snapshot_previous();
+    let mut encoded_sequences = Vec::with_capacity(sequences.len());
+    encode_sequences_for_history_into(sequences, offset_history, &mut encoded_sequences);
+
+    let ll_mode = literal_length_mode(modes.ll, &encoded_sequences, compressed_tables, fse_tables)?;
+    let ml_mode = match_length_mode(modes.ml, &encoded_sequences, compressed_tables, fse_tables)?;
+    let of_mode = offset_mode(modes.of, &encoded_sequences, compressed_tables, fse_tables)?;
+
+    let start = output.len();
+    let mut writer = BitWriter::from(output);
+    encode_seqnum(encoded_sequences.len(), &mut writer);
+    let sequence_head_index = writer.index() / 8;
+    writer.write_bits(encode_fse_table_modes(&ll_mode, &ml_mode, &of_mode), 8);
+
+    let mut last_count_size = encode_table_count_size(&ll_mode, &mut writer);
+    let off_count_size = encode_table_count_size(&of_mode, &mut writer);
+    if off_count_size != 0 {
+        last_count_size = off_count_size;
+    }
+    let ml_count_size = encode_table_count_size(&ml_mode, &mut writer);
+    if ml_count_size != 0 {
+        last_count_size = ml_count_size;
+    }
+
+    let bitstream_start = writer.index();
+    encode_sequences(
+        &encoded_sequences,
+        &mut writer,
+        &ll_mode,
+        &ml_mode,
+        &of_mode,
+    );
+    let bitstream_size = byte_size_between(bitstream_start, writer.index());
+    writer.flush();
+
+    if should_emit_raw_for_legacy_decoder(last_count_size, bitstream_size)
+        || writer.index() / 8 - sequence_head_index < 4
+    {
+        writer.reset_to(start * 8);
+        *offset_history = previous_offsets;
+        fse_tables.restore_previous(previous_fse);
+        return None;
+    }
+
+    let byte_size = writer.index() / 8 - start;
+    let ll_update = fse_table_update(ll_mode);
+    let ml_update = fse_table_update(ml_mode);
+    let of_update = fse_table_update(of_mode);
+    apply_fse_table_update(&mut fse_tables.ll_previous, ll_update);
+    apply_fse_table_update(&mut fse_tables.ml_previous, ml_update);
+    apply_fse_table_update(&mut fse_tables.of_previous, of_update);
+    Some(byte_size)
+}
+
+fn literal_length_mode<'a>(
+    mode: SequenceTableMode,
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    compressed_tables: Option<&CompressedSequenceTables>,
+    fse_tables: &'a FseTables,
+) -> Option<FseTableMode<'a>> {
+    match mode {
+        SequenceTableMode::Predefined => Some(FseTableMode::Predefined(&fse_tables.ll_default)),
+        SequenceTableMode::Rle => {
+            uniform_code(sequences, |sequence| encode_literal_length(sequence.ll).0)
+                .map(FseTableMode::Rle)
+        }
+        SequenceTableMode::Compressed => Some(FseTableMode::Encoded(compressed_tables?.ll.clone())),
+        SequenceTableMode::Repeat => {
+            Some(FseTableMode::RepeatLast(fse_tables.ll_previous.as_deref()?))
+        }
+    }
+}
+
+fn match_length_mode<'a>(
+    mode: SequenceTableMode,
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    compressed_tables: Option<&CompressedSequenceTables>,
+    fse_tables: &'a FseTables,
+) -> Option<FseTableMode<'a>> {
+    match mode {
+        SequenceTableMode::Predefined => Some(FseTableMode::Predefined(&fse_tables.ml_default)),
+        SequenceTableMode::Rle => {
+            uniform_code(sequences, |sequence| encode_match_len(sequence.ml).0)
+                .map(FseTableMode::Rle)
+        }
+        SequenceTableMode::Compressed => Some(FseTableMode::Encoded(compressed_tables?.ml.clone())),
+        SequenceTableMode::Repeat => {
+            Some(FseTableMode::RepeatLast(fse_tables.ml_previous.as_deref()?))
+        }
+    }
+}
+
+fn offset_mode<'a>(
+    mode: SequenceTableMode,
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    compressed_tables: Option<&CompressedSequenceTables>,
+    fse_tables: &'a FseTables,
+) -> Option<FseTableMode<'a>> {
+    match mode {
+        SequenceTableMode::Predefined => Some(FseTableMode::Predefined(&fse_tables.of_default)),
+        SequenceTableMode::Rle => {
+            uniform_code(sequences, |sequence| encode_offset(sequence.of).0).map(FseTableMode::Rle)
+        }
+        SequenceTableMode::Compressed => Some(FseTableMode::Encoded(compressed_tables?.of.clone())),
+        SequenceTableMode::Repeat => {
+            Some(FseTableMode::RepeatLast(fse_tables.of_previous.as_deref()?))
+        }
+    }
+}
+
+fn uniform_code(
+    sequences: &[crate::blocks::sequence_section::Sequence],
+    code: impl Fn(crate::blocks::sequence_section::Sequence) -> u8,
+) -> Option<u8> {
+    let first = code(*sequences.first()?);
+    sequences
+        .iter()
+        .all(|sequence| code(*sequence) == first)
+        .then_some(first)
 }
 
 fn rle_sequence_symbols(

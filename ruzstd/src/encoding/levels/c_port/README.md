@@ -62,23 +62,26 @@ Current parity notes:
   resolved `targetCBlockSize` value is consumed by the multi-sub-block path,
   which can write a full-superblock Huffman literal table once, use treeless
   literal sections for later sub-blocks, write full-superblock FSE sequence
-  tables once on the Huffman-literal and basic-literal paths, and use repeat
-  sequence metadata for later sub-blocks.
+  tables once on the Huffman-literal and basic-literal paths, use repeat
+  sequence metadata for later sub-blocks, and emit mixed LL/ML/OF sequence
+  entropy modes where C selects different modes per stream.
 - Ported superblock pieces from `zstd_compress_superblock.c` now include the
   planning helpers, target acceptance gate, literal header sizing, basic and
   RLE literal emission, Huffman compressed and treeless literal emission,
   zero-sequence emission, literal-only compressed block assembly, non-empty
   single-sub-block assembly, and a predefined/basic all-RLE, all-repeat, and
-  all-compressed sequence-section writer.
+  all-compressed sequence-section writer. Mixed per-stream LL/ML/OF sequence
+  entropy mode emission is split into `superblock_sequences.rs`.
 - Ported target multi-sub-block paths now include raw-tail fallback when only
   part of the target superblock can be compressed. After a compressed prefix
   has been committed, the final sub-block attempt snapshots FSE and
   repeat-offset state, restores to the committed prefix if the final sub-block
   is not worth committing, and appends a raw block for the remaining source
   bytes.
-- Next implementation step: run full validation for the raw-tail fallback and
-  then continue the C superblock parity audit from
-  `zstd_compress_superblock.c`.
+- Next implementation step: continue the C superblock parity audit from
+  `zstd_compress_superblock.c`, with particular attention to entropy metadata
+  selection and estimate parity now that raw-tail fallback and mixed sequence
+  mode emission are in place.
 - Validation at this checkpoint: `cargo test -p ruzstd --quiet`,
   `cargo test -p ruzstd superblock --quiet`,
   `cargo test -p ruzstd greedy --quiet`,
