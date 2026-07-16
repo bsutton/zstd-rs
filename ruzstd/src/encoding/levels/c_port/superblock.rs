@@ -10,7 +10,8 @@ use crate::{
     encoding::{
         block_header::BlockHeader,
         blocks::{
-            append_predefined_sequence_section, append_rle_sequence_section, PreparedSequence,
+            append_predefined_sequence_section, append_repeat_sequence_section,
+            append_rle_sequence_section, PreparedSequence,
         },
         frame_compressor::{FseTables, OffsetHistory},
     },
@@ -193,10 +194,12 @@ pub(super) fn append_supported_sub_block_sequences(
         return None;
     }
 
-    let byte_size = if all_sequence_modes_basic(modes) {
+    let byte_size = if sequence_modes_are(modes, EntropyTableMode::Basic) {
         append_predefined_sequence_section(sequences, fse_tables, offset_history, output)?
-    } else if all_sequence_modes_rle(modes) {
+    } else if sequence_modes_are(modes, EntropyTableMode::Rle) {
         append_rle_sequence_section(sequences, offset_history, output)?
+    } else if sequence_modes_are(modes, EntropyTableMode::Repeat) {
+        append_repeat_sequence_section(sequences, fse_tables, offset_history, output)?
     } else {
         return None;
     };
@@ -303,26 +306,8 @@ pub(super) fn need_sequence_entropy_tables(modes: SequenceEntropyModes) -> bool 
         .any(|mode| matches!(mode, EntropyTableMode::Compressed | EntropyTableMode::Rle))
 }
 
-fn all_sequence_modes_basic(modes: SequenceEntropyModes) -> bool {
-    matches!(
-        modes,
-        SequenceEntropyModes {
-            ll: EntropyTableMode::Basic,
-            ml: EntropyTableMode::Basic,
-            of: EntropyTableMode::Basic,
-        }
-    )
-}
-
-fn all_sequence_modes_rle(modes: SequenceEntropyModes) -> bool {
-    matches!(
-        modes,
-        SequenceEntropyModes {
-            ll: EntropyTableMode::Rle,
-            ml: EntropyTableMode::Rle,
-            of: EntropyTableMode::Rle,
-        }
-    )
+fn sequence_modes_are(modes: SequenceEntropyModes, mode: EntropyTableMode) -> bool {
+    modes.ll == mode && modes.ml == mode && modes.of == mode
 }
 
 fn write_raw_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>) {

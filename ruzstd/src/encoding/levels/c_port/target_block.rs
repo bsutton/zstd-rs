@@ -54,6 +54,17 @@ pub(super) fn encode_target_block_with_superblock_fallback(
             fse_tables,
             offset_history,
             &bytes,
+            repeat_sequence_modes(),
+        ) {
+            return encoded;
+        }
+        if let Some(encoded) = try_sequence_sub_block(
+            block,
+            last_block,
+            prepared,
+            fse_tables,
+            offset_history,
+            &bytes,
             rle_sequence_modes(),
         ) {
             return encoded;
@@ -98,7 +109,9 @@ fn try_sequence_sub_block(
         &mut candidate,
     )?;
     if should_commit_sub_block(emission.byte_size, block.len()) {
-        fse_tables.reset();
+        if sequence_modes_clear_previous(sequence_modes) {
+            fse_tables.reset();
+        }
         Some(GreedyEncodedBlock {
             bytes: candidate,
             repeat_offsets: prepared.repeat_offsets,
@@ -143,4 +156,18 @@ fn rle_sequence_modes() -> SequenceEntropyModes {
         ml: EntropyTableMode::Rle,
         of: EntropyTableMode::Rle,
     }
+}
+
+fn repeat_sequence_modes() -> SequenceEntropyModes {
+    SequenceEntropyModes {
+        ll: EntropyTableMode::Repeat,
+        ml: EntropyTableMode::Repeat,
+        of: EntropyTableMode::Repeat,
+    }
+}
+
+fn sequence_modes_clear_previous(modes: SequenceEntropyModes) -> bool {
+    matches!(modes.ll, EntropyTableMode::Basic | EntropyTableMode::Rle)
+        && matches!(modes.ml, EntropyTableMode::Basic | EntropyTableMode::Rle)
+        && matches!(modes.of, EntropyTableMode::Basic | EntropyTableMode::Rle)
 }

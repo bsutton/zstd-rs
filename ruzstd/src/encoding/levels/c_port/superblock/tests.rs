@@ -1,8 +1,13 @@
 use super::*;
+use crate::blocks::{
+    literals_section::{LiteralsSection, LiteralsSectionType},
+    sequence_section::{ModeType, SequencesHeader},
+};
 use crate::encoding::{
     block_header::BlockHeader,
     frame_compressor::{FseTables, OffsetHistory},
 };
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 
 fn sequence(ll: u32, ml: u32) -> PreparedSequence {
@@ -52,6 +57,32 @@ fn decode_compressed_block(encoded: &[u8]) -> Vec<u8> {
         .decode_block_content(&header, &mut scratch, &encoded[header_size as usize..])
         .expect("block content should decode");
     scratch.buffer.drain()
+}
+
+fn sequence_section_bytes(encoded: &[u8]) -> &[u8] {
+    let mut block_decoder = crate::decoding::block_decoder::new();
+    let (header, header_size) = block_decoder
+        .read_block_header(encoded)
+        .expect("block header should parse");
+    assert_eq!(
+        header.block_type,
+        crate::blocks::block::BlockType::Compressed
+    );
+
+    let content = &encoded[header_size as usize..];
+    let mut literals = LiteralsSection::new();
+    let literals_header_size = literals
+        .parse_from_header(content)
+        .expect("literal header should parse") as usize;
+    let literals_payload_size = match literals.ls_type {
+        LiteralsSectionType::Raw => literals.regenerated_size as usize,
+        LiteralsSectionType::RLE => usize::from(literals.regenerated_size > 0),
+        LiteralsSectionType::Compressed | LiteralsSectionType::Treeless => literals
+            .compressed_size
+            .expect("compressed literal payload size")
+            as usize,
+    };
+    &content[literals_header_size + literals_payload_size..]
 }
 
 #[test]
@@ -385,7 +416,7 @@ fn append_supported_sub_block_sequences_emits_decodable_predefined_sequences() {
 }
 
 #[test]
-fn append_supported_sub_block_sequences_defers_repeat_mode_until_metadata_is_ported() {
+fn append_supported_sub_block_sequences_defers_repeat_when_entropy_write_is_disabled() {
     let mut encoded = alloc::vec![0xAA];
     let mut offset_history = OffsetHistory::new();
 
@@ -398,6 +429,26 @@ fn append_supported_sub_block_sequences_defers_repeat_mode_until_metadata_is_por
                 of: EntropyTableMode::Repeat,
             },
             false,
+            &FseTables::new(),
+            &mut offset_history,
+            &mut encoded,
+        ),
+        None
+    );
+    assert_eq!(encoded, [0xAA]);
+    assert_eq!(offset_history.as_offsets(), (1, 4, 8));
+}
+
+#[test]
+fn append_supported_sub_block_sequences_defers_repeat_without_previous_tables() {
+    let mut encoded = alloc::vec![0xAA];
+    let mut offset_history = OffsetHistory::new();
+
+    assert_eq!(
+        append_supported_sub_block_sequences(
+            &[sequence(1, 3)],
+            repeat_sequence_modes(),
+            true,
             &FseTables::new(),
             &mut offset_history,
             &mut encoded,
@@ -583,6 +634,71 @@ fn append_sequence_sub_block_builds_decodable_rle_sequence_block() {
 }
 
 #[test]
+fn append_sequence_sub_block_emits_repeat_sequence_metadata() {
+    let literals = b"abc";
+    let sequences = [
+        PreparedSequence {
+            ll: 3,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        },
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        },
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        },
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        },
+    ];
+    let mut encoded = Vec::new();
+    let mut fse_tables = FseTables::new();
+    fse_tables.ll_previous = Some(Rc::new(fse_tables.ll_default.clone()));
+    fse_tables.ml_previous = Some(Rc::new(fse_tables.ml_default.clone()));
+    fse_tables.of_previous = Some(Rc::new(fse_tables.of_default.clone()));
+    let mut offset_history = OffsetHistory::new();
+
+    let emission = append_sequence_sub_block(
+        literals,
+        &sequences,
+        true,
+        EntropyTableMode::Basic,
+        repeat_sequence_modes(),
+        true,
+        true,
+        &fse_tables,
+        &mut offset_history,
+        &mut encoded,
+    )
+    .expect("repeat sequence metadata should encode when previous tables exist");
+
+    assert_eq!(emission.byte_size, encoded.len());
+    assert!(!emission.literal_entropy_written);
+    assert!(emission.sequence_entropy_written);
+    assert_eq!(offset_history.as_offsets(), (3, 3, 1));
+    let sequence_section = sequence_section_bytes(&encoded);
+    let mut sequence_header = SequencesHeader::new();
+    sequence_header
+        .parse_from_header(sequence_section)
+        .expect("sequence header should parse");
+    let modes = sequence_header.modes.expect("repeat section has sequences");
+    assert!(matches!(modes.ll_mode(), ModeType::Repeat));
+    assert!(matches!(modes.ml_mode(), ModeType::Repeat));
+    assert!(matches!(modes.of_mode(), ModeType::Repeat));
+}
+
+#[test]
 fn need_sequence_entropy_tables_matches_c_metadata_gate() {
     let no_tables = SequenceEntropyModes {
         ll: EntropyTableMode::Basic,
@@ -618,6 +734,14 @@ fn rle_sequence_modes() -> SequenceEntropyModes {
         ll: EntropyTableMode::Rle,
         ml: EntropyTableMode::Rle,
         of: EntropyTableMode::Rle,
+    }
+}
+
+fn repeat_sequence_modes() -> SequenceEntropyModes {
+    SequenceEntropyModes {
+        ll: EntropyTableMode::Repeat,
+        ml: EntropyTableMode::Repeat,
+        of: EntropyTableMode::Repeat,
     }
 }
 

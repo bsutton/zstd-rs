@@ -400,6 +400,50 @@ pub(crate) fn append_rle_sequence_section(
     Some(byte_size)
 }
 
+pub(crate) fn append_repeat_sequence_section(
+    sequences: &[PreparedSequence],
+    fse_tables: &FseTables,
+    offset_history: &mut OffsetHistory,
+    output: &mut Vec<u8>,
+) -> Option<usize> {
+    if sequences.is_empty() {
+        output.push(0);
+        return Some(1);
+    }
+
+    let ll_previous = fse_tables.ll_previous.as_deref()?;
+    let ml_previous = fse_tables.ml_previous.as_deref()?;
+    let of_previous = fse_tables.of_previous.as_deref()?;
+    let previous_offsets = *offset_history;
+    let mut encoded_sequences = Vec::with_capacity(sequences.len());
+    encode_sequences_for_history_into(sequences, offset_history, &mut encoded_sequences);
+
+    let start = output.len();
+    let mut writer = BitWriter::from(output);
+    encode_seqnum(encoded_sequences.len(), &mut writer);
+    let sequence_head_index = writer.index() / 8;
+    let ll_mode = FseTableMode::RepeatLast(ll_previous);
+    let ml_mode = FseTableMode::RepeatLast(ml_previous);
+    let of_mode = FseTableMode::RepeatLast(of_previous);
+    writer.write_bits(encode_fse_table_modes(&ll_mode, &ml_mode, &of_mode), 8);
+    encode_sequences(
+        &encoded_sequences,
+        &mut writer,
+        &ll_mode,
+        &ml_mode,
+        &of_mode,
+    );
+    writer.flush();
+
+    let byte_size = writer.index() / 8 - start;
+    if writer.index() / 8 - sequence_head_index < 4 {
+        writer.reset_to(start * 8);
+        *offset_history = previous_offsets;
+        return None;
+    }
+    Some(byte_size)
+}
+
 fn rle_sequence_symbols(
     sequences: &[crate::blocks::sequence_section::Sequence],
 ) -> Option<(u8, u8, u8)> {

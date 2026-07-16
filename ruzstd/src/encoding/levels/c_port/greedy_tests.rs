@@ -20,6 +20,7 @@ use crate::common::MAX_BLOCK_SIZE;
 use crate::encoding::blocks::{BlockCompressionConfig, PreparedBlock, PreparedSequence};
 use crate::encoding::frame_compressor::{FseTables, OffsetHistory};
 use crate::encoding::CompressionLevel;
+use alloc::rc::Rc;
 
 fn greedy_params(src_len: usize) -> CompressionParameters {
     CompressionParameters::for_level(greedy_level(src_len), src_len as u64, 0)
@@ -602,6 +603,63 @@ fn target_block_accepts_uniform_sequence_code_superblock() {
     assert_eq!(block_size as usize, encoded.bytes.len() - 3);
     assert_eq!(decode_compressed_block(&encoded.bytes), data);
     assert_eq!(offset_history.as_offsets(), (3, 3, 3));
+}
+
+#[test]
+fn target_block_preserves_previous_fse_tables_for_repeat_sequence_metadata() {
+    let mut data = Vec::new();
+    for _ in 0..100 {
+        data.extend_from_slice(b"abc");
+    }
+    let mut sequences = Vec::new();
+    sequences.push(PreparedSequence {
+        ll: 3,
+        ml: 3,
+        raw_offset: 3,
+        encoded_offset_value: None,
+    });
+    for _ in 1..99 {
+        sequences.push(PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 3,
+            encoded_offset_value: None,
+        });
+    }
+    let prepared = GreedyPreparedBlock {
+        prepared: PreparedBlock {
+            literals: b"abc".to_vec(),
+            sequences,
+        },
+        repeat_offsets: RepeatOffsets::new(),
+    };
+    let mut fse_tables = FseTables::new();
+    fse_tables.ll_previous = Some(Rc::new(fse_tables.ll_default.clone()));
+    fse_tables.ml_previous = Some(Rc::new(fse_tables.ml_default.clone()));
+    fse_tables.of_previous = Some(Rc::new(fse_tables.of_default.clone()));
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_target_block_with_superblock_fallback(
+        &data,
+        true,
+        RepeatOffsets::new(),
+        &prepared,
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        Vec::new(),
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(last_block);
+    assert_eq!(block_type, BlockType::Compressed);
+    assert_eq!(block_size as usize, encoded.bytes.len() - 3);
+    assert!(fse_tables.ll_previous.is_some());
+    assert!(fse_tables.ml_previous.is_some());
+    assert!(fse_tables.of_previous.is_some());
+    assert_eq!(offset_history.as_offsets(), (3, 3, 1));
 }
 
 #[test]
