@@ -12,7 +12,8 @@ state, optimal frame path, and hash-chain frame path. The active target encoder
 tries literal-only RLE superblocks, non-empty sequence sub-blocks with
 Huffman compressed or treeless literal metadata, and basic literal sub-blocks
 with all-RLE, all-repeat, or all-compressed sequence metadata before falling
-back to raw blocks.
+back to raw blocks. The resolved `targetCBlockSize` value is passed into the
+target encoder but is not yet consumed by a multi-sub-block loop.
 
 Next implementation step: port the full `ZSTD_compressSubBlock_multi()` loop
 so target mode can split into multiple sub-blocks and reuse literal and

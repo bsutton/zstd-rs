@@ -58,7 +58,9 @@ Current parity notes:
   currently tries a literal-only RLE superblock, then non-empty sequence
   sub-blocks with Huffman compressed or treeless literal metadata, then
   basic-literal sequence sub-blocks with all-RLE, all-repeat, or
-  all-compressed sequence metadata, and then falls back to a raw block.
+  all-compressed sequence metadata, and then falls back to a raw block. The
+  resolved `targetCBlockSize` value is passed into `target_block.rs` but is not
+  yet consumed by a multi-sub-block loop.
 - Ported superblock pieces from `zstd_compress_superblock.c` now include the
   planning helpers, target acceptance gate, literal header sizing, basic and
   RLE literal emission, Huffman compressed and treeless literal emission,

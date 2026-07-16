@@ -27,6 +27,7 @@ const BLOCK_HEADER_SIZE: usize = 3;
 pub(super) fn encode_target_block_with_superblock_fallback(
     block: &[u8],
     last_block: bool,
+    _target_c_block_size: usize,
     repeat_offsets: RepeatOffsets,
     prepared: &GreedyPreparedBlock,
     context: GreedyBlockEncodeContext<'_, '_>,

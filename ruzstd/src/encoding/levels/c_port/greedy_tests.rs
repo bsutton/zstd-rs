@@ -448,6 +448,7 @@ fn target_block_uses_literal_only_superblock_for_rle_literals() {
     let encoded = encode_target_block_with_superblock_fallback(
         &data,
         true,
+        2048,
         RepeatOffsets::new(),
         &prepared,
         GreedyBlockEncodeContext {
@@ -484,6 +485,7 @@ fn target_block_keeps_raw_fallback_for_literal_only_non_rle_literals() {
     let encoded = encode_target_block_with_superblock_fallback(
         &data,
         false,
+        2048,
         RepeatOffsets::new(),
         &prepared,
         GreedyBlockEncodeContext {
@@ -535,6 +537,7 @@ fn target_block_uses_compressed_sequence_metadata_for_sequence_block() {
     let encoded = encode_target_block_with_superblock_fallback(
         &data,
         true,
+        2048,
         RepeatOffsets::new(),
         &prepared,
         GreedyBlockEncodeContext {
@@ -590,6 +593,7 @@ fn target_block_accepts_uniform_sequence_code_superblock() {
     let encoded = encode_target_block_with_superblock_fallback(
         &data,
         false,
+        2048,
         RepeatOffsets::new(),
         &prepared,
         GreedyBlockEncodeContext {
@@ -645,6 +649,7 @@ fn target_block_preserves_previous_fse_tables_for_repeat_sequence_metadata() {
     let encoded = encode_target_block_with_superblock_fallback(
         &data,
         true,
+        2048,
         RepeatOffsets::new(),
         &prepared,
         GreedyBlockEncodeContext {

@@ -245,10 +245,11 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode(
         prepared,
         repeat_offsets: output.repeat_offsets,
     };
-    if let Some(_target_size) = block_encode_mode.target_c_block_size() {
+    if let Some(target_size) = block_encode_mode.target_c_block_size() {
         return encode_target_block_with_superblock_fallback(
             block,
             last_block,
+            target_size,
             repeat_offsets,
             &prepared,
             context,
@@ -354,10 +355,11 @@ pub(crate) fn encode_block_opt_ext_dict_with_state_and_policy_and_ldm_in_mode(
         prepared,
         repeat_offsets: output.repeat_offsets,
     };
-    if let Some(_target_size) = block_encode_mode.target_c_block_size() {
+    if let Some(target_size) = block_encode_mode.target_c_block_size() {
         return encode_target_block_with_superblock_fallback(
             block,
             last_block,
+            target_size,
             repeat_offsets,
             &prepared,
             context,

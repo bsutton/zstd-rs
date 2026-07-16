@@ -22,6 +22,7 @@ fn target_block_uses_huffman_literals_for_sequence_block() {
     let encoded = encode_target_block_with_superblock_fallback(
         &data,
         true,
+        2048,
         RepeatOffsets::new(),
         &prepared,
         GreedyBlockEncodeContext {
