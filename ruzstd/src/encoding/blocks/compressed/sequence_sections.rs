@@ -162,6 +162,9 @@ pub(crate) fn append_compressed_sequence_section(
         output.push(0);
         return Some(1);
     }
+    if sequences.len() == 1 {
+        return None;
+    }
 
     let previous_offsets = *offset_history;
     let previous_fse = fse_tables.snapshot_previous();

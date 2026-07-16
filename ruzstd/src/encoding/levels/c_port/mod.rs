@@ -94,6 +94,8 @@ mod sequence_store_tests;
 #[cfg(test)]
 mod strategy_frame_tests;
 #[cfg(test)]
+mod target_block_tests;
+#[cfg(test)]
 mod test_dictionary;
 
 #[cfg(test)]

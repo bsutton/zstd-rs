@@ -55,21 +55,23 @@ Current parity notes:
 - Restart checkpoint from July 16, 2026: target compressed block size dispatch
   is threaded through the CCtx, frame state, optimal frame path, and hash-chain
   frame path. The active target-mode encoder lives in `target_block.rs`; it
-  currently tries a literal-only RLE superblock, then a non-empty basic-mode
-  sequence sub-block with all-RLE, all-repeat, or all-compressed sequence
-  metadata, and then falls back to a raw block.
+  currently tries a literal-only RLE superblock, then non-empty sequence
+  sub-blocks with Huffman compressed or treeless literal metadata, then
+  basic-literal sequence sub-blocks with all-RLE, all-repeat, or
+  all-compressed sequence metadata, and then falls back to a raw block.
 - Ported superblock pieces from `zstd_compress_superblock.c` now include the
   planning helpers, target acceptance gate, literal header sizing, basic and
-  RLE literal emission, zero-sequence emission, literal-only compressed block
-  assembly, non-empty basic-mode sub-block assembly, and a predefined/basic
-  all-RLE, all-repeat, and all-compressed sequence-section writer.
-- Remaining superblock gaps: Huffman compressed/treeless literal metadata, the
-  full `ZSTD_compressSubBlock_multi()` loop, entropy reuse across sub-blocks,
-  and the general target superblock success path for normal sequence-bearing
-  data.
+  RLE literal emission, Huffman compressed and treeless literal emission,
+  zero-sequence emission, literal-only compressed block assembly, non-empty
+  single-sub-block assembly, and a predefined/basic all-RLE, all-repeat, and
+  all-compressed sequence-section writer.
+- Remaining superblock gaps: the full `ZSTD_compressSubBlock_multi()` loop,
+  entropy reuse across multiple sub-blocks, and the general target superblock
+  success path for multi-sub-block sequence-bearing data.
 - Validation at this checkpoint: `cargo test -p ruzstd --quiet`,
   `cargo test -p ruzstd superblock --quiet`,
   `cargo test -p ruzstd greedy --quiet`,
+  `cargo test -p ruzstd target_block --quiet`,
   `cargo clippy -p ruzstd --all-targets -- -D warnings`, `cargo fmt --check`,
   and `git diff --check` passed.
 - `zstd_opt.c` seeds optimal-parser literal/LL/ML/offset frequencies from

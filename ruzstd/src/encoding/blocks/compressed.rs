@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 
 mod config;
 mod estimate;
+mod literal_sections;
 mod literals;
 mod sequence_bitstream;
 mod sequence_codes;
@@ -12,6 +13,7 @@ mod sequence_tables;
 pub(crate) use config::BlockCompressionConfig;
 use config::HuffmanTableSearch;
 pub(crate) use estimate::{estimate_prepared_block_size_with_sequences, EstimateScratch};
+pub(crate) use literal_sections::{append_huffman_literal_section, HuffmanLiteralMode};
 use literals::{
     compress_literals, raw_literals, should_compress_literals, suspect_uncompressible_literals,
     LiteralCompressionOptions, COMPRESS_LITERALS_SIZE_MIN,

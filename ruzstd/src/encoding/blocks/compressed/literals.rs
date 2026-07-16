@@ -342,7 +342,7 @@ pub(super) fn literal_estimate_has_enough_gain(
         && estimated_len + header_len < literal_len
 }
 
-fn write_compressed_literals(
+pub(in crate::encoding::blocks::compressed) fn write_compressed_literals(
     literals: &[u8],
     encoder_table: &huff0_encoder::HuffmanTable,
     new_table: bool,
