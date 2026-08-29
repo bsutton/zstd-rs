@@ -89,6 +89,8 @@ pub(super) fn cross_entropy_cost_up_to(
     let shift = 8usize.checked_sub(usize::from(table.acc_log()))?;
     let mut cost = 0usize;
 
+    // Keep the measured hot loop's direct indexed shape stable across Clippy releases.
+    #[allow(clippy::needless_range_loop)]
     for symbol in 0..=max_symbol {
         let count = counts.counts[symbol];
         if count == 0 {
@@ -126,6 +128,8 @@ pub(super) fn repeat_table_cost_up_to(
     let bad_cost = (usize::from(table.acc_log()) + 1) << accuracy_log;
     let mut cost = 0usize;
 
+    // Keep the measured hot loop's direct indexed shape stable across Clippy releases.
+    #[allow(clippy::needless_range_loop)]
     for symbol in 0..=max_symbol {
         let count = counts.counts[symbol];
         if count == 0 {

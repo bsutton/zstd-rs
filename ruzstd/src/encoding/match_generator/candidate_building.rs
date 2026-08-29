@@ -31,11 +31,7 @@ impl MatchGenerator {
             *candidate = Some(found);
         }
 
-        if found.start_idx + found.match_len == block_len {
-            return true;
-        }
-
-        false
+        found.start_idx + found.match_len == block_len
     }
 
     #[inline(always)]

@@ -88,6 +88,8 @@ pub(super) struct SubBlockEmission {
     pub(super) sequence_entropy_written: bool,
 }
 
+// Preserve the C-shaped guarded division used by this benchmark-sensitive path.
+#[allow(clippy::manual_checked_ops)]
 pub(super) fn sub_block_budget_plan(
     estimate: EstimatedSubBlockSize,
     nb_literals: usize,
