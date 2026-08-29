@@ -1,0 +1,7 @@
+# Test corpora and dictionary samples are byte-exact payloads even when their
+# contents happen to look like text. CRLF conversion invalidates their paired
+# compressed frames and platform-independent size regression tests.
+/ruzstd/decodecorpus_files/** -text
+/ruzstd/dict_tests/** -text
+/ruzstd/fuzz_decodecorpus/** -text
+*.zst -text
