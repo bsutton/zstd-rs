@@ -4,6 +4,9 @@ This document records the changes made between versions, starting with version 0
 
 # After 0.9.0 (Current)
 
+* Document the proposed high-performance compressor contribution, including
+  licensing, review disclosure, public API, portability, and benchmark gates.
+
 # After 0.8.3
 
 * Avoid emitting compressed blocks when the compressed payload is not smaller

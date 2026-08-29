@@ -39,6 +39,11 @@ On the compression side:
 - [x] Checksums
 - [ ] Dictionaries
 
+A documentation-only proposal for a substantially expanded high-performance
+compressor, including licensing, review disclosure, API, portability, and
+benchmark requirements, is available in
+[`docs/high-performance-compressor-proposal.md`](docs/high-performance-compressor-proposal.md).
+
 ## Dictionary Generation
 When the `dict_builder` feature is enabled, the `dictionary` module
 provides the ability to create new dictionaries. 
