@@ -1,8 +1,11 @@
-//! Faithful Rust port of the upstream C compressor.
+//! High-performance Rust compressor derived from the zstd 1.5.7 compressor.
 //!
-//! The existing encoder remains the active implementation while this module is
-//! built out and checked against the C reference. Keep C-derived behavior here
-//! until it has enough parity coverage to replace the current strategy code.
+//! C remains the disclosed provenance and a useful compatibility/performance
+//! oracle, not an ongoing structural or byte-parity contract. Prefer Rust-owned
+//! invariants and measured improvements while preserving Zstandard format
+//! interoperability.
+
+#![deny(unsafe_op_in_unsafe_fn)]
 
 mod block_compressor;
 mod block_emit;
@@ -17,6 +20,7 @@ mod dfast_dict;
 mod dfast_ext;
 mod dfast_frame;
 mod dfast_helpers;
+mod dfast_table;
 mod dictionary;
 mod dictionary_frame;
 mod fast;
@@ -36,6 +40,8 @@ mod greedy_state;
 mod hash_chain_match;
 mod ldm;
 mod match_count;
+#[cfg(feature = "std")]
+mod memory;
 mod opt_block;
 mod opt_dict;
 mod opt_encode;
@@ -49,18 +55,36 @@ mod params;
 mod post_split;
 mod pre_split;
 mod row_match;
-mod sequence_store;
+mod row_table;
+pub(crate) mod sequence_store;
 mod strategy_frame;
 mod superblock;
 mod superblock_sequences;
+mod target_acceptance;
 mod target_block;
+mod target_modes;
 mod target_multi;
 mod target_multi_basic;
+mod target_single;
+mod unaligned;
+#[cfg(target_arch = "x86_64")]
+mod x86;
 
+#[cfg(feature = "std")]
+pub(crate) use memory::estimated_frame_memory;
+#[cfg(any(feature = "std", feature = "c-port-validation", test))]
 pub(crate) use strategy_frame::encode_frame_no_dict;
+#[cfg(any(feature = "c-port-validation", test))]
+pub(crate) use strategy_frame::encode_frame_no_dict_with_target_c_block_size;
+#[cfg(any(feature = "c-port-validation", test))]
 pub(crate) use strategy_frame::encode_frame_with_dictionary;
+#[cfg(any(feature = "c-port-validation", test))]
+pub(crate) use strategy_frame::encode_frame_with_dictionary_and_target_c_block_size;
+#[cfg(any(feature = "std", feature = "c-port-validation", test))]
+pub(crate) use strategy_frame::encode_frame_with_prepared_dictionary;
 
-pub(crate) use dictionary::DictionaryParseError;
+#[cfg(any(feature = "std", feature = "c-port-validation", test))]
+pub(crate) use dictionary::{DictionaryParseError, PreparedDictionary};
 
 #[cfg(test)]
 mod cctx_params_tests;
@@ -96,6 +120,8 @@ mod params_tests;
 mod sequence_store_tests;
 #[cfg(test)]
 mod strategy_frame_tests;
+#[cfg(test)]
+mod target_block_fixtures;
 #[cfg(test)]
 mod target_block_tests;
 #[cfg(test)]

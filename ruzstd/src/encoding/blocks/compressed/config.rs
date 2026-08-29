@@ -20,8 +20,11 @@ pub(crate) struct BlockCompressionConfig {
     pub(super) file_type_small_sequence_predefined_llml_max_sequences: Option<usize>,
     pub(super) file_type_single_stream_huffman_max_literals: Option<usize>,
     pub(super) c_fast_sequence_table_heuristics: bool,
+    pub(super) c_fast_sequence_emission: bool,
+    pub(super) c_dfast_compact_sequence_statistics: bool,
     pub(super) c_cost_sequence_table_selection: bool,
     pub(super) c_literal_cost_model: bool,
+    pub(super) prefer_valid_repeat_huffman: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,6 +49,15 @@ struct BlockCompressionTuningOverrides {
 #[cfg(feature = "std")]
 static BLOCK_COMPRESSION_TUNING_OVERRIDES: OnceLock<BlockCompressionTuningOverrides> =
     OnceLock::new();
+
+#[cfg(feature = "std")]
+static C_NATIVE_SEQUENCE_STORE: OnceLock<bool> = OnceLock::new();
+
+#[cfg(feature = "std")]
+static C_GREEDY_NATIVE_SEQUENCE_STORE: OnceLock<bool> = OnceLock::new();
+
+#[cfg(feature = "std")]
+static C_OPT_NATIVE_SEQUENCE_STORE: OnceLock<bool> = OnceLock::new();
 
 #[cfg(feature = "std")]
 fn block_compression_tuning_overrides() -> &'static BlockCompressionTuningOverrides {
@@ -110,12 +122,112 @@ impl BlockCompressionTuningOverrides {
 }
 
 impl BlockCompressionConfig {
+    pub(crate) fn uses_c_fast_entropy_path(self) -> bool {
+        self.c_fast_sequence_emission
+    }
+
+    /// Enables Fast/DFast's direct C `SeqStore` entropy transaction. The
+    /// environment override exists solely for same-binary A/B measurement;
+    /// normal builds retain the native path.
+    pub(crate) fn uses_c_native_sequence_store(self) -> bool {
+        if !self.c_fast_sequence_emission {
+            return false;
+        }
+
+        #[cfg(feature = "std")]
+        {
+            *C_NATIVE_SEQUENCE_STORE.get_or_init(|| {
+                std::env::var("RUZSTD_TUNE_C_NATIVE_SEQUENCE_STORE")
+                    .ok()
+                    .and_then(|value| BlockCompressionTuningOverrides::parse_bool_value(&value))
+                    .unwrap_or(true)
+            })
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            true
+        }
+    }
+
+    /// Enables Greedy/Lazy's direct C `SeqStore` entropy transaction. Keep
+    /// this control separate from Fast/DFast so same-binary measurements can
+    /// attribute the higher-strategy handoff without removing the retained
+    /// low-level path.
+    pub(crate) fn uses_c_greedy_native_sequence_store(self) -> bool {
+        if self.c_fast_sequence_emission || !self.c_literal_cost_model {
+            return false;
+        }
+
+        #[cfg(feature = "std")]
+        {
+            *C_GREEDY_NATIVE_SEQUENCE_STORE.get_or_init(|| {
+                std::env::var("RUZSTD_TUNE_C_GREEDY_NATIVE_SEQUENCE_STORE")
+                    .ok()
+                    .and_then(|value| BlockCompressionTuningOverrides::parse_bool_value(&value))
+                    .unwrap_or(true)
+            })
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            true
+        }
+    }
+
+    /// Enables the optimal parsers' direct C `SeqStore` entropy transaction.
+    /// Target-size and post-split callers retain their prepared representation
+    /// and therefore do not consult this gate.
+    pub(crate) fn uses_c_opt_native_sequence_store(self) -> bool {
+        if self.c_fast_sequence_emission || !self.c_literal_cost_model {
+            return false;
+        }
+
+        #[cfg(feature = "std")]
+        {
+            *C_OPT_NATIVE_SEQUENCE_STORE.get_or_init(|| {
+                std::env::var("RUZSTD_TUNE_C_OPT_NATIVE_SEQUENCE_STORE")
+                    .ok()
+                    .and_then(|value| BlockCompressionTuningOverrides::parse_bool_value(&value))
+                    .unwrap_or(true)
+            })
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            true
+        }
+    }
+
+    pub(super) fn search_smallest_huffman_table(
+        self,
+        literal_count: usize,
+        sequence_count: usize,
+    ) -> bool {
+        match self.huffman_table_search {
+            HuffmanTableSearch::Heuristic => {
+                !self.c_literal_cost_model
+                    && (sequence_count == 0
+                        || (sequence_count <= super::SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES
+                            && literal_count <= super::SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS))
+            }
+            HuffmanTableSearch::FileTypeSmall => {
+                literal_count <= super::FILE_TYPE_SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS
+                    || sequence_count == 0
+                    || (sequence_count <= super::SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES
+                        && literal_count <= super::SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS)
+            }
+            HuffmanTableSearch::AllSections => true,
+        }
+    }
+
     pub(crate) fn for_c_strategy(strategy: u8) -> Self {
         let literal_compression_min_size = c_min_literals_to_compress(strategy);
         let fastish = strategy < 4;
         if !fastish {
             return Self {
-                huffman_table_search: HuffmanTableSearch::FileTypeSmall,
+                huffman_table_search: if strategy >= 8 {
+                    HuffmanTableSearch::AllSections
+                } else {
+                    HuffmanTableSearch::Heuristic
+                },
                 literal_compression_disabled: false,
                 literal_compression_min_size,
                 repeat_table_max_sequences: 64,
@@ -125,8 +237,11 @@ impl BlockCompressionConfig {
                 file_type_small_sequence_predefined_llml_max_sequences: None,
                 file_type_single_stream_huffman_max_literals: None,
                 c_fast_sequence_table_heuristics: false,
+                c_fast_sequence_emission: false,
+                c_dfast_compact_sequence_statistics: false,
                 c_cost_sequence_table_selection: true,
                 c_literal_cost_model: true,
+                prefer_valid_repeat_huffman: false,
             };
         }
 
@@ -135,7 +250,7 @@ impl BlockCompressionConfig {
         let offset_predefined_max_sequences = ((1usize << 5) * multiplier) >> 3;
 
         Self {
-            huffman_table_search: HuffmanTableSearch::FileTypeSmall,
+            huffman_table_search: HuffmanTableSearch::Heuristic,
             literal_compression_disabled: false,
             literal_compression_min_size,
             repeat_table_max_sequences: 1000,
@@ -147,8 +262,11 @@ impl BlockCompressionConfig {
             ),
             file_type_single_stream_huffman_max_literals: None,
             c_fast_sequence_table_heuristics: true,
+            c_fast_sequence_emission: strategy <= 2,
+            c_dfast_compact_sequence_statistics: strategy == 2,
             c_cost_sequence_table_selection: false,
             c_literal_cost_model: true,
+            prefer_valid_repeat_huffman: false,
         }
     }
 
@@ -168,32 +286,26 @@ impl BlockCompressionConfig {
         file_type: CompressionFileType,
         file_profile: CompressionFileProfile,
     ) -> Self {
-        let huffman_table_search = match level {
-            CompressionLevel::Best => HuffmanTableSearch::Heuristic,
-            CompressionLevel::Uncompressed
-            | CompressionLevel::Fastest
-            | CompressionLevel::Default
-            | CompressionLevel::Better => {
-                if matches!(file_type, CompressionFileType::DictionaryText) {
-                    HuffmanTableSearch::AllSections
-                } else if matches!(
-                    file_type,
-                    CompressionFileType::CodeText
-                        | CompressionFileType::ConfigText
-                        | CompressionFileType::Unknown
-                ) {
-                    HuffmanTableSearch::FileTypeSmall
-                } else {
-                    HuffmanTableSearch::Heuristic
-                }
+        let huffman_table_search = if level.uses_best_legacy_profile() {
+            HuffmanTableSearch::Heuristic
+        } else {
+            if matches!(file_type, CompressionFileType::DictionaryText) {
+                HuffmanTableSearch::AllSections
+            } else if matches!(
+                file_type,
+                CompressionFileType::CodeText
+                    | CompressionFileType::ConfigText
+                    | CompressionFileType::Unknown
+            ) {
+                HuffmanTableSearch::FileTypeSmall
+            } else {
+                HuffmanTableSearch::Heuristic
             }
         };
-        let repeat_table_max_sequences = match level {
-            CompressionLevel::Best => 256,
-            CompressionLevel::Uncompressed
-            | CompressionLevel::Fastest
-            | CompressionLevel::Default
-            | CompressionLevel::Better => 64,
+        let repeat_table_max_sequences = if level.uses_best_legacy_profile() {
+            256
+        } else {
+            64
         };
         let mut config = Self {
             huffman_table_search,
@@ -202,40 +314,38 @@ impl BlockCompressionConfig {
             repeat_table_max_sequences,
             offset_table_max_log: if matches!(file_type, CompressionFileType::DictionaryText)
                 || (matches!(file_type, CompressionFileType::Unknown)
-                    && matches!(level, CompressionLevel::Fastest))
+                    && level.uses_fastest_legacy_profile())
             {
                 7
             } else {
                 8
             },
             offset_predefined_max_sequences: 16,
-            exact_sequence_mode_search: matches!(level, CompressionLevel::Fastest)
+            exact_sequence_mode_search: level.uses_fastest_legacy_profile()
                 && matches!(file_type, CompressionFileType::DictionaryText),
             file_type_small_sequence_predefined_llml_max_sequences: if matches!(
-                level,
-                CompressionLevel::Fastest
-            ) && matches!(
                 file_type,
                 CompressionFileType::Unknown | CompressionFileType::ConfigText
-            ) {
+            ) && level
+                .uses_fastest_legacy_profile()
+            {
                 Some(FILE_TYPE_SMALL_SEQUENCE_PREDEFINED_LLML_MAX_SEQUENCES)
             } else {
                 None
             },
-            file_type_single_stream_huffman_max_literals: if matches!(
-                level,
-                CompressionLevel::Fastest
-            ) && matches!(
-                file_type,
-                CompressionFileType::ConfigText
-            ) {
+            file_type_single_stream_huffman_max_literals: if level.uses_fastest_legacy_profile()
+                && matches!(file_type, CompressionFileType::ConfigText)
+            {
                 Some(FILE_TYPE_SINGLE_STREAM_HUFFMAN_MAX_LITERALS)
             } else {
                 None
             },
             c_fast_sequence_table_heuristics: false,
+            c_fast_sequence_emission: false,
+            c_dfast_compact_sequence_statistics: false,
             c_cost_sequence_table_selection: false,
             c_literal_cost_model: false,
+            prefer_valid_repeat_huffman: false,
         };
         #[cfg(feature = "std")]
         config.apply_tuning_overrides();
@@ -282,6 +392,17 @@ impl BlockCompressionConfig {
 
     pub(crate) fn disable_literal_compression(&mut self) {
         self.literal_compression_disabled = true;
+    }
+
+    pub(crate) fn set_prefer_valid_repeat_huffman(&mut self, enabled: bool) {
+        self.prefer_valid_repeat_huffman = enabled;
+    }
+
+    pub(crate) fn for_c_block_split_estimate(mut self) -> Self {
+        if !matches!(self.huffman_table_search, HuffmanTableSearch::AllSections) {
+            self.huffman_table_search = HuffmanTableSearch::Heuristic;
+        }
+        self
     }
 
     #[cfg(test)]

@@ -3,39 +3,66 @@
 use alloc::vec::Vec;
 
 use super::{
-    block_emit::append_raw_block,
+    block_emit::append_rle_block,
     greedy_block::{GreedyBlockEncodeContext, GreedyEncodedBlock, GreedyPreparedBlock},
+    params::Strategy,
     sequence_store::RepeatOffsets,
     superblock::{
-        append_literal_only_sub_block, append_sequence_sub_block,
-        append_supported_sub_block_sequences, select_sequence_entropy_modes,
-        should_commit_sub_block, EntropyTableMode, SequenceEntropyModes,
+        append_literal_only_sub_block, select_sequence_entropy_modes, should_commit_sub_block,
+        EntropyTableMode,
+    },
+    target_acceptance::{
+        accept_target_or_raw_fallback, encode_target_block_raw_fallback, TargetAcceptanceContext,
+    },
+    target_modes::{
+        basic_sequence_modes, compressed_sequence_modes, repeat_sequence_modes, rle_sequence_modes,
+        sequence_modes_are_mixed,
     },
     target_multi::{
         try_basic_literal_multi_sub_blocks, try_huffman_literal_multi_sub_blocks, TargetMultiBlock,
     },
+    target_single::{
+        try_huffman_literal_only_sub_block, try_huffman_sequence_sub_block, try_sequence_sub_block,
+    },
 };
 use crate::{
-    blocks::block::BlockType,
-    encoding::{
-        block_header::BlockHeader,
-        blocks::{append_huffman_literal_section, HuffmanLiteralMode},
-        frame_compressor::{FseTables, OffsetHistory},
-    },
+    encoding::blocks::{build_huffman_literal_table_with_optimal_depth, HuffmanLiteralMode},
     huff0::huff0_encoder::HuffmanTable,
 };
 
 const BLOCK_HEADER_SIZE: usize = 3;
 
+#[derive(Clone, Copy)]
+pub(super) struct TargetBlockOptions {
+    pub(super) target_c_block_size: usize,
+    pub(super) strategy: Strategy,
+    pub(super) allow_rle: bool,
+    pub(super) repeat_offsets: RepeatOffsets,
+}
+
 pub(super) fn encode_target_block_with_superblock_fallback(
     block: &[u8],
     last_block: bool,
-    target_c_block_size: usize,
-    repeat_offsets: RepeatOffsets,
+    options: TargetBlockOptions,
     prepared: &GreedyPreparedBlock,
     context: GreedyBlockEncodeContext<'_, '_>,
     bytes: Vec<u8>,
 ) -> GreedyEncodedBlock {
+    let repeat_offsets = options.repeat_offsets;
+    let previous_fse = context.fse_tables.snapshot_previous();
+    let previous_offsets = *context.offset_history;
+    if options.allow_rle && target_maybe_rle(prepared) && literal_rle_byte(block).is_some() {
+        let mut candidate = bytes;
+        if append_rle_block(block, last_block, &mut candidate) {
+            return GreedyEncodedBlock {
+                bytes: candidate,
+                repeat_offsets,
+                new_huffman_table: None,
+            };
+        }
+        unreachable!("literal_rle_byte and append_rle_block use the same predicate");
+    }
+
     if prepared.prepared.sequences.is_empty()
         && literal_rle_byte(prepared.prepared.literals.as_slice()).is_some()
     {
@@ -50,12 +77,55 @@ pub(super) fn encode_target_block_with_superblock_fallback(
             &mut candidate,
         ) {
             if should_commit_sub_block(emission.byte_size, block.len()) {
-                return GreedyEncodedBlock {
-                    bytes: candidate,
-                    repeat_offsets,
-                    new_huffman_table: None,
-                };
+                return accept_target_or_raw_fallback(
+                    GreedyEncodedBlock {
+                        bytes: candidate,
+                        repeat_offsets,
+                        new_huffman_table: None,
+                    },
+                    TargetAcceptanceContext {
+                        block,
+                        last_block,
+                        strategy: options.strategy,
+                        repeat_offsets,
+                        initial_bytes: &bytes,
+                        fse_tables: context.fse_tables,
+                        offset_history: context.offset_history,
+                        previous_fse,
+                        previous_offsets,
+                    },
+                );
             }
+        }
+    }
+
+    if prepared.prepared.sequences.is_empty() {
+        let previous_fse = context.fse_tables.snapshot_previous();
+        let previous_offsets = *context.offset_history;
+        if let Some(encoded) = try_huffman_literal_only_sub_block(
+            block,
+            last_block,
+            prepared,
+            context.fse_tables,
+            context.offset_history,
+            &bytes,
+            options.strategy,
+            repeat_offsets,
+        ) {
+            return accept_target_or_raw_fallback(
+                encoded,
+                TargetAcceptanceContext {
+                    block,
+                    last_block,
+                    strategy: options.strategy,
+                    repeat_offsets,
+                    initial_bytes: &bytes,
+                    fse_tables: context.fse_tables,
+                    offset_history: context.offset_history,
+                    previous_fse,
+                    previous_offsets,
+                },
+            );
         }
     }
 
@@ -63,35 +133,129 @@ pub(super) fn encode_target_block_with_superblock_fallback(
         let previous_huff_table = context.previous_huff_table;
         let fse_tables = context.fse_tables;
         let offset_history = context.offset_history;
+        let selected_sequence_modes = select_sequence_entropy_modes(
+            prepared.prepared.sequences.as_slice(),
+            fse_tables,
+            *offset_history,
+            options.strategy,
+        );
         let multi_target = TargetMultiBlock {
             block,
             last_block,
-            target_c_block_size,
+            target_c_block_size: options.target_c_block_size,
+            strategy: options.strategy,
             initial_repeat_offsets: repeat_offsets,
             bytes: &bytes,
         };
         if let Some(encoded) =
             try_huffman_literal_multi_sub_blocks(multi_target, prepared, fse_tables, offset_history)
         {
-            return encoded;
+            return accept_target_or_raw_fallback(
+                encoded,
+                TargetAcceptanceContext {
+                    block,
+                    last_block,
+                    strategy: options.strategy,
+                    repeat_offsets,
+                    initial_bytes: &bytes,
+                    fse_tables,
+                    offset_history,
+                    previous_fse: previous_fse.clone(),
+                    previous_offsets,
+                },
+            );
         }
-        if let Some(encoded) =
-            try_basic_literal_multi_sub_blocks(multi_target, prepared, fse_tables, offset_history)
-        {
-            return encoded;
-        }
-        if let Some(encoded) = try_huffman_sequence_sub_block(
-            block,
-            last_block,
-            prepared,
+        let prefer_repeat_literals = c_target_selects_repeat_huffman_literals(
+            options.strategy,
+            prepared.prepared.literals.as_slice(),
             previous_huff_table,
-            fse_tables,
-            offset_history,
-            &bytes,
-            HuffmanLiteralMode::Repeat,
-            repeat_sequence_modes(),
-        ) {
-            return encoded;
+        );
+        if prefer_repeat_literals {
+            if selected_sequence_modes != repeat_sequence_modes() {
+                if let Some(encoded) = try_huffman_sequence_sub_block(
+                    block,
+                    last_block,
+                    prepared,
+                    previous_huff_table,
+                    fse_tables,
+                    offset_history,
+                    &bytes,
+                    HuffmanLiteralMode::Repeat,
+                    options.strategy,
+                    selected_sequence_modes,
+                ) {
+                    return accept_target_or_raw_fallback(
+                        encoded,
+                        TargetAcceptanceContext {
+                            block,
+                            last_block,
+                            strategy: options.strategy,
+                            repeat_offsets,
+                            initial_bytes: &bytes,
+                            fse_tables,
+                            offset_history,
+                            previous_fse: previous_fse.clone(),
+                            previous_offsets,
+                        },
+                    );
+                }
+            }
+            if let Some(encoded) = try_huffman_sequence_sub_block(
+                block,
+                last_block,
+                prepared,
+                previous_huff_table,
+                fse_tables,
+                offset_history,
+                &bytes,
+                HuffmanLiteralMode::Repeat,
+                options.strategy,
+                repeat_sequence_modes(),
+            ) {
+                return accept_target_or_raw_fallback(
+                    encoded,
+                    TargetAcceptanceContext {
+                        block,
+                        last_block,
+                        strategy: options.strategy,
+                        repeat_offsets,
+                        initial_bytes: &bytes,
+                        fse_tables,
+                        offset_history,
+                        previous_fse: previous_fse.clone(),
+                        previous_offsets,
+                    },
+                );
+            }
+        }
+        if selected_sequence_modes != compressed_sequence_modes() {
+            if let Some(encoded) = try_huffman_sequence_sub_block(
+                block,
+                last_block,
+                prepared,
+                previous_huff_table,
+                fse_tables,
+                offset_history,
+                &bytes,
+                HuffmanLiteralMode::Compressed,
+                options.strategy,
+                selected_sequence_modes,
+            ) {
+                return accept_target_or_raw_fallback(
+                    encoded,
+                    TargetAcceptanceContext {
+                        block,
+                        last_block,
+                        strategy: options.strategy,
+                        repeat_offsets,
+                        initial_bytes: &bytes,
+                        fse_tables,
+                        offset_history,
+                        previous_fse: previous_fse.clone(),
+                        previous_offsets,
+                    },
+                );
+            }
         }
         if let Some(encoded) = try_huffman_sequence_sub_block(
             block,
@@ -102,16 +266,25 @@ pub(super) fn encode_target_block_with_superblock_fallback(
             offset_history,
             &bytes,
             HuffmanLiteralMode::Compressed,
+            options.strategy,
             compressed_sequence_modes(),
         ) {
-            return encoded;
+            return accept_target_or_raw_fallback(
+                encoded,
+                TargetAcceptanceContext {
+                    block,
+                    last_block,
+                    strategy: options.strategy,
+                    repeat_offsets,
+                    initial_bytes: &bytes,
+                    fse_tables,
+                    offset_history,
+                    previous_fse: previous_fse.clone(),
+                    previous_offsets,
+                },
+            );
         }
-        let selected_sequence_modes = select_sequence_entropy_modes(
-            prepared.prepared.sequences.as_slice(),
-            fse_tables,
-            *offset_history,
-        );
-        if sequence_modes_are_mixed(selected_sequence_modes) {
+        if !prefer_repeat_literals && selected_sequence_modes != repeat_sequence_modes() {
             if let Some(encoded) = try_huffman_sequence_sub_block(
                 block,
                 last_block,
@@ -120,10 +293,97 @@ pub(super) fn encode_target_block_with_superblock_fallback(
                 fse_tables,
                 offset_history,
                 &bytes,
-                HuffmanLiteralMode::Compressed,
+                HuffmanLiteralMode::Repeat,
+                options.strategy,
                 selected_sequence_modes,
             ) {
-                return encoded;
+                return accept_target_or_raw_fallback(
+                    encoded,
+                    TargetAcceptanceContext {
+                        block,
+                        last_block,
+                        strategy: options.strategy,
+                        repeat_offsets,
+                        initial_bytes: &bytes,
+                        fse_tables,
+                        offset_history,
+                        previous_fse: previous_fse.clone(),
+                        previous_offsets,
+                    },
+                );
+            }
+        }
+        if !prefer_repeat_literals {
+            if let Some(encoded) = try_huffman_sequence_sub_block(
+                block,
+                last_block,
+                prepared,
+                previous_huff_table,
+                fse_tables,
+                offset_history,
+                &bytes,
+                HuffmanLiteralMode::Repeat,
+                options.strategy,
+                repeat_sequence_modes(),
+            ) {
+                return accept_target_or_raw_fallback(
+                    encoded,
+                    TargetAcceptanceContext {
+                        block,
+                        last_block,
+                        strategy: options.strategy,
+                        repeat_offsets,
+                        initial_bytes: &bytes,
+                        fse_tables,
+                        offset_history,
+                        previous_fse: previous_fse.clone(),
+                        previous_offsets,
+                    },
+                );
+            }
+        }
+        if let Some(encoded) =
+            try_basic_literal_multi_sub_blocks(multi_target, prepared, fse_tables, offset_history)
+        {
+            return accept_target_or_raw_fallback(
+                encoded,
+                TargetAcceptanceContext {
+                    block,
+                    last_block,
+                    strategy: options.strategy,
+                    repeat_offsets,
+                    initial_bytes: &bytes,
+                    fse_tables,
+                    offset_history,
+                    previous_fse: previous_fse.clone(),
+                    previous_offsets,
+                },
+            );
+        }
+        if selected_sequence_modes == basic_sequence_modes() {
+            if let Some(encoded) = try_sequence_sub_block(
+                block,
+                last_block,
+                prepared,
+                fse_tables,
+                offset_history,
+                &bytes,
+                selected_sequence_modes,
+            ) {
+                return accept_target_or_raw_fallback(
+                    encoded,
+                    TargetAcceptanceContext {
+                        block,
+                        last_block,
+                        strategy: options.strategy,
+                        repeat_offsets,
+                        initial_bytes: &bytes,
+                        fse_tables,
+                        offset_history,
+                        previous_fse: previous_fse.clone(),
+                        previous_offsets,
+                    },
+                );
             }
         }
         if let Some(encoded) = try_sequence_sub_block(
@@ -135,7 +395,20 @@ pub(super) fn encode_target_block_with_superblock_fallback(
             &bytes,
             repeat_sequence_modes(),
         ) {
-            return encoded;
+            return accept_target_or_raw_fallback(
+                encoded,
+                TargetAcceptanceContext {
+                    block,
+                    last_block,
+                    strategy: options.strategy,
+                    repeat_offsets,
+                    initial_bytes: &bytes,
+                    fse_tables,
+                    offset_history,
+                    previous_fse: previous_fse.clone(),
+                    previous_offsets,
+                },
+            );
         }
         if sequence_modes_are_mixed(selected_sequence_modes) {
             if let Some(encoded) = try_sequence_sub_block(
@@ -147,7 +420,20 @@ pub(super) fn encode_target_block_with_superblock_fallback(
                 &bytes,
                 selected_sequence_modes,
             ) {
-                return encoded;
+                return accept_target_or_raw_fallback(
+                    encoded,
+                    TargetAcceptanceContext {
+                        block,
+                        last_block,
+                        strategy: options.strategy,
+                        repeat_offsets,
+                        initial_bytes: &bytes,
+                        fse_tables,
+                        offset_history,
+                        previous_fse: previous_fse.clone(),
+                        previous_offsets,
+                    },
+                );
             }
         }
         if let Some(encoded) = try_sequence_sub_block(
@@ -159,7 +445,20 @@ pub(super) fn encode_target_block_with_superblock_fallback(
             &bytes,
             rle_sequence_modes(),
         ) {
-            return encoded;
+            return accept_target_or_raw_fallback(
+                encoded,
+                TargetAcceptanceContext {
+                    block,
+                    last_block,
+                    strategy: options.strategy,
+                    repeat_offsets,
+                    initial_bytes: &bytes,
+                    fse_tables,
+                    offset_history,
+                    previous_fse: previous_fse.clone(),
+                    previous_offsets,
+                },
+            );
         }
         if let Some(encoded) = try_sequence_sub_block(
             block,
@@ -170,7 +469,20 @@ pub(super) fn encode_target_block_with_superblock_fallback(
             &bytes,
             compressed_sequence_modes(),
         ) {
-            return encoded;
+            return accept_target_or_raw_fallback(
+                encoded,
+                TargetAcceptanceContext {
+                    block,
+                    last_block,
+                    strategy: options.strategy,
+                    repeat_offsets,
+                    initial_bytes: &bytes,
+                    fse_tables,
+                    offset_history,
+                    previous_fse: previous_fse.clone(),
+                    previous_offsets,
+                },
+            );
         }
         if let Some(encoded) = try_sequence_sub_block(
             block,
@@ -181,138 +493,24 @@ pub(super) fn encode_target_block_with_superblock_fallback(
             &bytes,
             basic_sequence_modes(),
         ) {
-            return encoded;
+            return accept_target_or_raw_fallback(
+                encoded,
+                TargetAcceptanceContext {
+                    block,
+                    last_block,
+                    strategy: options.strategy,
+                    repeat_offsets,
+                    initial_bytes: &bytes,
+                    fse_tables,
+                    offset_history,
+                    previous_fse: previous_fse.clone(),
+                    previous_offsets,
+                },
+            );
         }
     }
 
     encode_target_block_raw_fallback(block, last_block, repeat_offsets, bytes)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn try_huffman_sequence_sub_block(
-    block: &[u8],
-    last_block: bool,
-    prepared: &GreedyPreparedBlock,
-    previous_huff_table: Option<&HuffmanTable>,
-    fse_tables: &mut FseTables,
-    offset_history: &mut OffsetHistory,
-    bytes: &[u8],
-    literal_mode: HuffmanLiteralMode,
-    sequence_modes: SequenceEntropyModes,
-) -> Option<GreedyEncodedBlock> {
-    let previous_offsets = *offset_history;
-    let previous_fse = fse_tables.snapshot_previous();
-    let mut candidate = bytes.to_vec();
-    let block_start = candidate.len();
-    candidate.extend_from_slice(&[0; BLOCK_HEADER_SIZE]);
-    let content_start = candidate.len();
-    let Some(literal_emission) = append_huffman_literal_section(
-        prepared.prepared.literals.as_slice(),
-        previous_huff_table,
-        literal_mode,
-        &mut candidate,
-    ) else {
-        fse_tables.restore_previous(previous_fse);
-        *offset_history = previous_offsets;
-        return None;
-    };
-    let Some(sequence_emission) = append_supported_sub_block_sequences(
-        prepared.prepared.sequences.as_slice(),
-        sequence_modes,
-        true,
-        fse_tables,
-        offset_history,
-        &mut candidate,
-    ) else {
-        fse_tables.restore_previous(previous_fse);
-        *offset_history = previous_offsets;
-        return None;
-    };
-
-    let content_size = candidate.len() - content_start;
-    debug_assert_eq!(
-        literal_emission.byte_size + sequence_emission.byte_size,
-        content_size
-    );
-    let header = BlockHeader {
-        last_block,
-        block_type: BlockType::Compressed,
-        block_size: content_size as u32,
-    };
-    candidate[block_start..content_start].copy_from_slice(&header.serialize_to_bytes());
-
-    if should_commit_sub_block(BLOCK_HEADER_SIZE + content_size, block.len()) {
-        if sequence_modes_clear_previous(sequence_modes) {
-            fse_tables.reset();
-        }
-        Some(GreedyEncodedBlock {
-            bytes: candidate,
-            repeat_offsets: prepared.repeat_offsets,
-            new_huffman_table: literal_emission.new_huffman_table,
-        })
-    } else {
-        fse_tables.restore_previous(previous_fse);
-        *offset_history = previous_offsets;
-        None
-    }
-}
-
-fn try_sequence_sub_block(
-    block: &[u8],
-    last_block: bool,
-    prepared: &GreedyPreparedBlock,
-    fse_tables: &mut FseTables,
-    offset_history: &mut OffsetHistory,
-    bytes: &[u8],
-    sequence_modes: SequenceEntropyModes,
-) -> Option<GreedyEncodedBlock> {
-    let previous_offsets = *offset_history;
-    let previous_fse = fse_tables.snapshot_previous();
-    let mut candidate = bytes.to_vec();
-    let Some(emission) = append_sequence_sub_block(
-        prepared.prepared.literals.as_slice(),
-        prepared.prepared.sequences.as_slice(),
-        last_block,
-        EntropyTableMode::Basic,
-        sequence_modes,
-        true,
-        true,
-        fse_tables,
-        offset_history,
-        &mut candidate,
-    ) else {
-        fse_tables.restore_previous(previous_fse);
-        *offset_history = previous_offsets;
-        return None;
-    };
-    if should_commit_sub_block(emission.byte_size, block.len()) {
-        if sequence_modes_clear_previous(sequence_modes) {
-            fse_tables.reset();
-        }
-        Some(GreedyEncodedBlock {
-            bytes: candidate,
-            repeat_offsets: prepared.repeat_offsets,
-            new_huffman_table: None,
-        })
-    } else {
-        fse_tables.restore_previous(previous_fse);
-        *offset_history = previous_offsets;
-        None
-    }
-}
-
-fn encode_target_block_raw_fallback(
-    block: &[u8],
-    last_block: bool,
-    repeat_offsets: RepeatOffsets,
-    mut bytes: Vec<u8>,
-) -> GreedyEncodedBlock {
-    append_raw_block(block, last_block, &mut bytes);
-    GreedyEncodedBlock {
-        bytes,
-        repeat_offsets,
-        new_huffman_table: None,
-    }
 }
 
 fn literal_rle_byte(literals: &[u8]) -> Option<u8> {
@@ -320,51 +518,40 @@ fn literal_rle_byte(literals: &[u8]) -> Option<u8> {
     literals.iter().all(|byte| *byte == first).then_some(first)
 }
 
-fn basic_sequence_modes() -> SequenceEntropyModes {
-    SequenceEntropyModes {
-        ll: EntropyTableMode::Basic,
-        ml: EntropyTableMode::Basic,
-        of: EntropyTableMode::Basic,
+fn c_target_selects_repeat_huffman_literals(
+    strategy: Strategy,
+    literals: &[u8],
+    previous_huffman_table: Option<&HuffmanTable>,
+) -> bool {
+    let Some(previous_table) = previous_huffman_table else {
+        return false;
+    };
+    let counts = literal_counts(literals);
+    if !previous_table.can_encode_counts(&counts) {
+        return false;
     }
+    let Some(new_table) =
+        build_huffman_literal_table_with_optimal_depth(literals, strategy >= Strategy::BtUltra)
+    else {
+        return false;
+    };
+
+    let old_size = previous_table.estimated_compressed_size_from_counts(&counts);
+    let new_size = new_table.estimated_compressed_size_from_counts(&counts);
+    let table_description_size = new_table.table_description_len();
+    old_size < literals.len()
+        && (old_size <= table_description_size + new_size
+            || table_description_size + 12 >= literals.len())
 }
 
-fn rle_sequence_modes() -> SequenceEntropyModes {
-    SequenceEntropyModes {
-        ll: EntropyTableMode::Rle,
-        ml: EntropyTableMode::Rle,
-        of: EntropyTableMode::Rle,
+fn literal_counts(literals: &[u8]) -> [usize; 256] {
+    let mut counts = [0; 256];
+    for &literal in literals {
+        counts[usize::from(literal)] += 1;
     }
+    counts
 }
 
-fn repeat_sequence_modes() -> SequenceEntropyModes {
-    SequenceEntropyModes {
-        ll: EntropyTableMode::Repeat,
-        ml: EntropyTableMode::Repeat,
-        of: EntropyTableMode::Repeat,
-    }
-}
-
-fn compressed_sequence_modes() -> SequenceEntropyModes {
-    SequenceEntropyModes {
-        ll: EntropyTableMode::Compressed,
-        ml: EntropyTableMode::Compressed,
-        of: EntropyTableMode::Compressed,
-    }
-}
-
-fn sequence_modes_clear_previous(modes: SequenceEntropyModes) -> bool {
-    matches!(modes.ll, EntropyTableMode::Basic | EntropyTableMode::Rle)
-        && matches!(modes.ml, EntropyTableMode::Basic | EntropyTableMode::Rle)
-        && matches!(modes.of, EntropyTableMode::Basic | EntropyTableMode::Rle)
-}
-
-fn sequence_modes_are(modes: SequenceEntropyModes, mode: EntropyTableMode) -> bool {
-    modes.ll == mode && modes.ml == mode && modes.of == mode
-}
-
-fn sequence_modes_are_mixed(modes: SequenceEntropyModes) -> bool {
-    !sequence_modes_are(modes, EntropyTableMode::Basic)
-        && !sequence_modes_are(modes, EntropyTableMode::Rle)
-        && !sequence_modes_are(modes, EntropyTableMode::Repeat)
-        && !sequence_modes_are(modes, EntropyTableMode::Compressed)
+fn target_maybe_rle(prepared: &GreedyPreparedBlock) -> bool {
+    prepared.prepared.sequences.len() < 4 && prepared.prepared.literals.len() < 10
 }

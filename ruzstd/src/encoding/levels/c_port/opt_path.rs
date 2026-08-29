@@ -29,9 +29,8 @@ pub(super) fn select_path(
     let mut stretch_pos = cur;
     loop {
         let next = state.opt[stretch_pos];
-        if let Some(last) = path.last_mut() {
-            last.litlen = next.litlen;
-        }
+        let last = path.len() - 1;
+        path[last].litlen = next.litlen;
         if next.mlen == 0 {
             break;
         }

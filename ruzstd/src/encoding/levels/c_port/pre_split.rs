@@ -161,12 +161,68 @@ impl Fingerprint {
         debug_assert!((8..=HASH_LOG_MAX).contains(&hash_log));
 
         let mut fp = Self::default();
+        match (sampling_rate, hash_log) {
+            (43, 8) => fp.record_hash8::<43>(src),
+            (11, 9) => fp.record_hash2::<11, 9>(src),
+            (5, 10) => fp.record_hash2::<5, 10>(src),
+            (1, 10) => fp.record_hash2::<1, 10>(src),
+            _ => fp.record_generic(src, sampling_rate, hash_log),
+        }
+        fp
+    }
+
+    fn record_hash8<const SAMPLING_RATE: usize>(&mut self, src: &[u8]) {
+        let limit = src.len() - HASH_LENGTH + 1;
+        let mut pos = 0;
+        while pos < limit {
+            self.events[usize::from(src[pos])] += 1;
+            pos += SAMPLING_RATE;
+        }
+        self.nb_events = limit / SAMPLING_RATE;
+    }
+
+    fn record_hash2<const SAMPLING_RATE: usize, const HASH_LOG: usize>(&mut self, src: &[u8]) {
+        debug_assert!((9..=HASH_LOG_MAX).contains(&HASH_LOG));
+
+        if SAMPLING_RATE == 1 {
+            self.record_hash2_rate1::<HASH_LOG>(src);
+            return;
+        }
+
+        let limit = src.len() - HASH_LENGTH + 1;
+        let mut pos = 0;
+        while pos < limit {
+            let value = u32::from(u16::from_le_bytes([src[pos], src[pos + 1]]));
+            let hash = (value.wrapping_mul(KNUTH) >> (32 - HASH_LOG)) as usize;
+            self.events[hash] += 1;
+            pos += SAMPLING_RATE;
+        }
+        self.nb_events = limit / SAMPLING_RATE;
+    }
+
+    fn record_hash2_rate1<const HASH_LOG: usize>(&mut self, src: &[u8]) {
+        debug_assert!((9..=HASH_LOG_MAX).contains(&HASH_LOG));
+
+        let limit = src.len() - HASH_LENGTH + 1;
+        let mut pos = 0;
+        let mut value = u32::from(u16::from_le_bytes([src[0], src[1]]));
+        while pos < limit {
+            let hash = (value.wrapping_mul(KNUTH) >> (32 - HASH_LOG)) as usize;
+            self.events[hash] += 1;
+            pos += 1;
+            if pos < limit {
+                value = (value >> 8) | (u32::from(src[pos + 1]) << 8);
+            }
+        }
+        self.nb_events = limit;
+    }
+
+    fn record_generic(&mut self, src: &[u8], sampling_rate: usize, hash_log: usize) {
         let limit = src.len() - HASH_LENGTH + 1;
         for pos in (0..limit).step_by(sampling_rate) {
-            fp.events[hash2(&src[pos..], hash_log)] += 1;
+            self.events[hash2(&src[pos..], hash_log)] += 1;
         }
-        fp.nb_events = limit / sampling_rate;
-        fp
+        self.nb_events = limit / sampling_rate;
     }
 
     fn histogram(src: &[u8]) -> Self {
@@ -179,7 +235,7 @@ impl Fingerprint {
     }
 
     fn merge(&mut self, other: &Self) {
-        for (acc, value) in self.events.iter_mut().zip(other.events) {
+        for (acc, value) in self.events.iter_mut().zip(other.events.iter().copied()) {
             *acc += value;
         }
         self.nb_events += other.nb_events;
@@ -272,6 +328,21 @@ mod tests {
         block[..CHUNK_SIZE].fill(b'a');
 
         assert_eq!(split_block_by_chunks(&block, 0), CHUNK_SIZE);
+    }
+
+    #[test]
+    fn rate1_hash2_record_matches_generic_hash_stream() {
+        let data = (0..8192)
+            .map(|idx| (idx * 37 + idx / 7) as u8)
+            .collect::<Vec<_>>();
+
+        let mut specialized = Fingerprint::default();
+        specialized.record_hash2::<1, 10>(&data);
+        let mut generic = Fingerprint::default();
+        generic.record_generic(&data, 1, 10);
+
+        assert_eq!(specialized.nb_events, generic.nb_events);
+        assert_eq!(specialized.events, generic.events);
     }
 
     #[test]

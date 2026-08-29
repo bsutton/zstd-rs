@@ -3,6 +3,7 @@
 use alloc::vec::Vec;
 
 use super::{
+    bt_match::load_attached_dictionary_binary_tree,
     c_frame_header::write_frame_header_no_dict,
     cctx_params::CctxParameters,
     compress_bound::compress_bound,
@@ -17,10 +18,16 @@ use super::{
     },
     greedy_dict::{load_binary_tree_prefix, load_prefix},
     greedy_ext_block::{
-        encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode, GreedyExtDictBlockSource,
+        encode_block_attached_dict_with_state_and_policy_in_mode,
+        encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode,
+        GreedyAttachedDictBlockSource, GreedyExtDictBlockSource,
     },
+    params::{should_attach_dict_by_default, CParamMode, CompressionParameters},
+    row_match::{load_dictionary_rows_at_index_base, row_log, row_match_finder_enabled},
 };
 use crate::common::MAX_BLOCK_SIZE;
+
+const C_WINDOW_START_INDEX: usize = 2;
 
 pub(crate) fn encode_single_block_frame_greedy_no_dict(src: &[u8], level: i32) -> Vec<u8> {
     debug_assert!(src.len() <= MAX_BLOCK_SIZE as usize);
@@ -88,6 +95,26 @@ pub(crate) fn encode_frame_btlazy2_with_dictionary(
     dictionary: ParsedDictionary<'_>,
 ) -> Vec<u8> {
     encode_frame_hash_chain_with_dictionary(src, level, dictionary, LazyBlockStrategy::BtLazy2)
+}
+
+pub(crate) fn encode_frame_hash_chain_with_dictionary_and_cctx(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+    cctx: CctxParameters,
+    depth: LazyBlockStrategy,
+) -> Vec<u8> {
+    encode_frame_hash_chain_with_dictionary_with_cctx(src, level, dictionary, depth, cctx, false)
+}
+
+pub(crate) fn encode_frame_hash_chain_with_prepared_dictionary_and_cctx(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+    cctx: CctxParameters,
+    depth: LazyBlockStrategy,
+) -> Vec<u8> {
+    encode_frame_hash_chain_with_dictionary_with_cctx(src, level, dictionary, depth, cctx, true)
 }
 
 fn encode_frame_hash_chain_no_dict(src: &[u8], level: i32, depth: LazyBlockStrategy) -> Vec<u8> {
@@ -198,13 +225,72 @@ fn encode_frame_hash_chain_with_dictionary(
     dictionary: ParsedDictionary<'_>,
     depth: LazyBlockStrategy,
 ) -> Vec<u8> {
-    let mut context = DictionaryFrameContext::new(src, level, dictionary);
+    let cctx = CctxParameters::for_level_with_mode(
+        level,
+        src.len() as u64,
+        dictionary.content.len(),
+        super::params::CParamMode::NoAttachDict,
+    );
+    encode_frame_hash_chain_with_dictionary_with_cctx(src, level, dictionary, depth, cctx, false)
+}
+
+fn encode_frame_hash_chain_with_dictionary_with_cctx(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+    depth: LazyBlockStrategy,
+    cctx: CctxParameters,
+    prepared_dictionary: bool,
+) -> Vec<u8> {
+    let attached_dict = prepared_dictionary
+        .then(|| attached_dict_cctx(level, src.len(), dictionary.raw_size, cctx, depth))
+        .flatten();
+    let dictionary_params =
+        attached_dict.map_or(cctx.compression, |attached| attached.dictionary_params);
+    let cctx = attached_dict.map_or(cctx, |attached| attached.active_cctx);
+    let mut context = DictionaryFrameContext::new_with_cctx_and_dictionary_params(
+        src,
+        dictionary,
+        cctx,
+        dictionary_params,
+    );
     let params = context.cctx.compression;
     let block_encode_mode = BlockEncodeMode::from_cctx(context.cctx);
 
     let mut match_state = GreedyMatchState::new();
     match_state.reset_for_frame(params);
-    if depth == LazyBlockStrategy::BtLazy2 {
+    let mut attached_dictionary_state = None;
+    if let Some(attached) = attached_dict {
+        let dictionary_src = &context.combined[..context.dict_len];
+        let mut dictionary_state = GreedyMatchState::new();
+        dictionary_state.ensure_tables(attached.dictionary_params);
+        dictionary_state.next_to_update = C_WINDOW_START_INDEX;
+        if depth == LazyBlockStrategy::BtLazy2 {
+            load_attached_dictionary_binary_tree(
+                dictionary_src,
+                context.dict_len.saturating_sub(8),
+                C_WINDOW_START_INDEX,
+                attached.dictionary_params,
+                attached.dictionary_params.min_match.clamp(4, 6),
+                &mut dictionary_state,
+            );
+        } else {
+            dictionary_state.tag_table.fill(0);
+            load_dictionary_rows_at_index_base(
+                dictionary_src,
+                context.dict_len.saturating_sub(8),
+                C_WINDOW_START_INDEX,
+                attached.dictionary_params,
+                attached.dictionary_params.min_match.clamp(4, 6),
+                &mut dictionary_state,
+            );
+        }
+        dictionary_state.next_to_update = context.dict_len + C_WINDOW_START_INDEX;
+        dictionary_state.next_to_update3 = dictionary_state.next_to_update;
+        match_state.next_to_update = context.dict_len;
+        match_state.next_to_update3 = context.dict_len;
+        attached_dictionary_state = Some((dictionary_state, attached.dictionary_params));
+    } else if depth == LazyBlockStrategy::BtLazy2 {
         load_binary_tree_prefix(
             &mut match_state,
             &context.combined,
@@ -254,7 +340,31 @@ fn encode_frame_hash_chain_with_dictionary(
             fse_tables: &mut context.frame_state.fse_tables,
             offset_history: &mut context.frame_state.offset_history,
         };
-        let encoded_block = if loaded_dict_end == 0 {
+        let encoded_block = if let Some((dictionary_state, dictionary_params)) =
+            attached_dictionary_state.as_ref()
+        {
+            encode_block_attached_dict_with_state_and_policy_in_mode(
+                GreedyAttachedDictBlockSource {
+                    src: &context.combined,
+                    block_range: block_start..block_end,
+                    active_dict_limit: context.dict_len + C_WINDOW_START_INDEX,
+                    active_prefix_start: context.dict_len,
+                    dictionary_src: &context.combined[..context.dict_len],
+                    dictionary_state,
+                    dictionary_params: *dictionary_params,
+                    dictionary_index_start: C_WINDOW_START_INDEX,
+                },
+                block_end == src_end,
+                params,
+                context.frame_state.block_config,
+                context.frame_state.repeat_offsets,
+                &mut match_state,
+                block_context,
+                depth,
+                policy,
+                block_encode_mode,
+            )
+        } else if loaded_dict_end == 0 {
             encode_block_hash_chain_no_dict_with_state_and_policy_in_mode(
                 GreedyBlockSource {
                     src: &context.combined,
@@ -302,3 +412,56 @@ fn encode_frame_hash_chain_with_dictionary(
 
     context.output
 }
+
+#[derive(Clone, Copy, Debug)]
+struct AttachedDictCctx {
+    active_cctx: CctxParameters,
+    dictionary_params: CompressionParameters,
+}
+
+fn attached_dict_cctx(
+    level: i32,
+    src_size: usize,
+    dictionary_size: usize,
+    active_cctx: CctxParameters,
+    depth: LazyBlockStrategy,
+) -> Option<AttachedDictCctx> {
+    let dictionary_params = CompressionParameters::for_level_with_mode(
+        level,
+        super::params::ZSTD_CONTENTSIZE_UNKNOWN,
+        dictionary_size,
+        CParamMode::CreateCDict,
+    );
+    if !should_attach_dict_by_default(dictionary_params.strategy, src_size as u64) {
+        return None;
+    }
+
+    let mut active_params = dictionary_params.adjusted_for_mode(
+        src_size as u64,
+        dictionary_size,
+        CParamMode::AttachDict,
+    );
+    active_params.window_log = active_cctx.compression.window_log;
+    let search_matches_dictionary = match depth {
+        LazyBlockStrategy::BtLazy2 => active_params.strategy == super::params::Strategy::BtLazy2,
+        LazyBlockStrategy::Greedy | LazyBlockStrategy::Lazy | LazyBlockStrategy::Lazy2 => {
+            row_match_finder_enabled(active_params)
+                && row_log(active_params) == row_log(dictionary_params)
+        }
+    };
+    if active_params.strategy != active_cctx.compression.strategy || !search_matches_dictionary {
+        return None;
+    }
+
+    let mut attached_cctx =
+        CctxParameters::from_compression_parameters(level, active_params, src_size as u64);
+    attached_cctx.target_c_block_size = active_cctx.target_c_block_size;
+    Some(AttachedDictCctx {
+        active_cctx: attached_cctx,
+        dictionary_params,
+    })
+}
+
+#[cfg(test)]
+#[path = "greedy_frame/attached_tests.rs"]
+mod attached_dict_tests;

@@ -268,7 +268,7 @@ fn btopt_ext_dict_rejects_overlap_repcode_like_c() {
     assert!(!output
         .sequences
         .first()
-        .is_some_and(|seq| matches!(seq.off_base, OffBase::Repeat(_))));
+        .is_some_and(|seq| matches!(seq.off_base(), OffBase::Repeat(_))));
 }
 
 #[test]
@@ -297,7 +297,7 @@ fn btopt_ext_dict_finds_dictionary_offset_match() {
     assert!(output
         .sequences
         .iter()
-        .any(|seq| matches!(seq.off_base, OffBase::Offset(_))));
+        .any(|seq| matches!(seq.off_base(), OffBase::Offset(_))));
 }
 
 fn btopt_params(src_size: usize) -> CompressionParameters {
@@ -324,7 +324,7 @@ fn has_loaded_dictionary_match(
 ) -> bool {
     output.sequences.iter().any(|sequence| {
         matches!(
-            sequence.off_base,
+            sequence.off_base(),
             OffBase::Offset(offset) if offset as usize > (1_usize << params.window_log)
         )
     })

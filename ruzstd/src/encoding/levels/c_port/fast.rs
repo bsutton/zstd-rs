@@ -1,16 +1,21 @@
 //! No-dictionary fast block compressor ported from `zstd_fast.c`.
 
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use core::ops::Range;
 
 use super::fast_helpers::{hash_ptr, hash_small_ptr, lowest_prefix_index_with_loaded_dict, read32};
 use super::match_count::count_match_behind as count_match;
 use super::params::CompressionParameters;
-use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
+use super::sequence_store::{
+    OffBase, PreparedStoreWords, RepeatCode, RepeatOffsets, StoredSequence,
+};
 
 const HASH_READ_SIZE: usize = 8;
 const SEARCH_STRENGTH: usize = 8;
 const INVALID_INDEX: u32 = u32::MAX;
+const SHORT_CACHE_TAG_BITS: u32 = 8;
+const SHORT_CACHE_TAG_MASK: usize = (1 << SHORT_CACHE_TAG_BITS) - 1;
+const FAST_HASH_FILL_STEP: usize = 3;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FastBlockOutput {
@@ -19,10 +24,12 @@ pub(crate) struct FastBlockOutput {
     pub(crate) repeat_offsets: RepeatOffsets,
 }
 
+#[repr(C)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FastMatchState {
     hash_table: Vec<u32>,
     hash_log: u32,
+    prepared_store: PreparedStoreWords,
 }
 
 impl FastMatchState {
@@ -30,7 +37,24 @@ impl FastMatchState {
         Self {
             hash_table: Vec::new(),
             hash_log: 0,
+            prepared_store: PreparedStoreWords::default(),
         }
+    }
+
+    pub(super) fn take_prepared_store(&mut self) -> PreparedStoreWords {
+        core::mem::take(&mut self.prepared_store)
+    }
+
+    pub(super) fn recycle_prepared_store(&mut self, mut prepared: PreparedStoreWords) {
+        prepared.clear();
+        self.prepared_store = prepared;
+    }
+
+    #[cfg(test)]
+    pub(super) fn prepared_store_allocation(
+        &self,
+    ) -> ((*const u8, usize), (*const [u32; 4], usize)) {
+        self.prepared_store.allocation()
     }
 
     pub(super) fn table_for(&mut self, hash_log: u32) -> &mut [u32] {
@@ -70,6 +94,56 @@ impl FastMatchState {
             ip += 3;
         }
     }
+
+    pub(crate) fn load_cdict_copy_prefix(
+        &mut self,
+        src: &[u8],
+        prefix_len: usize,
+        params: CompressionParameters,
+    ) {
+        debug_assert!(prefix_len <= src.len());
+        if prefix_len <= HASH_READ_SIZE {
+            return;
+        }
+
+        let hash_table = self.table_for(params.hash_log);
+        hash_table.fill(0);
+
+        let mut tagged_table = vec![0_u32; hash_table.len()];
+        let iend = prefix_len - HASH_READ_SIZE;
+        let mut ip = 0_usize;
+
+        while ip + FAST_HASH_FILL_STEP - 1 <= iend {
+            for step in 0..FAST_HASH_FILL_STEP {
+                let pos = ip + step;
+                let hash_and_tag = hash_ptr(
+                    src,
+                    pos,
+                    params.hash_log + SHORT_CACHE_TAG_BITS,
+                    params.min_match,
+                );
+                let slot = table_index(hash_and_tag);
+                if step == 0 || tagged_table[slot] == 0 {
+                    tagged_table[slot] = tagged_index(hash_and_tag, pos);
+                }
+            }
+            ip += FAST_HASH_FILL_STEP;
+        }
+
+        for (dst, tagged) in hash_table.iter_mut().zip(tagged_table) {
+            *dst = tagged >> SHORT_CACHE_TAG_BITS;
+        }
+    }
+}
+
+fn table_index(hash_and_tag: usize) -> usize {
+    hash_and_tag >> SHORT_CACHE_TAG_BITS
+}
+
+fn tagged_index(hash_and_tag: usize, index: usize) -> u32 {
+    debug_assert!(index <= (u32::MAX >> SHORT_CACHE_TAG_BITS) as usize);
+    let tag = hash_and_tag & SHORT_CACHE_TAG_MASK;
+    ((index as u32) << SHORT_CACHE_TAG_BITS) | tag as u32
 }
 
 pub(crate) fn compress_block_fast_no_dict(
@@ -99,6 +173,89 @@ pub(crate) fn compress_block_fast_no_dict_with_state(
 }
 
 pub(crate) fn compress_block_fast_no_dict_with_state_and_loaded_dict(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut FastMatchState,
+    loaded_dict_end: usize,
+) -> FastBlockOutput {
+    compress_block_fast_no_dict_codegen(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        loaded_dict_end,
+    )
+}
+
+fn compress_block_fast_no_dict_codegen(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut FastMatchState,
+    loaded_dict_end: usize,
+) -> FastBlockOutput {
+    debug_assert!(block_range.start <= block_range.end);
+    debug_assert!(block_range.end <= src.len());
+    let block_len = block_range.end - block_range.start;
+    if block_len <= HASH_READ_SIZE {
+        return FastBlockOutput {
+            sequences: Vec::new(),
+            last_literals: block_len as u32,
+            repeat_offsets,
+        };
+    }
+
+    let maximum_sequences = block_len / 4 + 1;
+    let mut sequences = Vec::<StoredSequence>::with_capacity(maximum_sequences);
+    let spare = sequences.spare_capacity_mut();
+    // SAFETY: `StoredSequence` has a compile-time-proven `[u32; 3]` layout;
+    // the leaf transaction initializes only the returned spare prefix.
+    let sequence_words = unsafe {
+        core::slice::from_raw_parts_mut(
+            spare
+                .as_mut_ptr()
+                .cast::<core::mem::MaybeUninit<[u32; 3]>>(),
+            spare.len(),
+        )
+    };
+    // SAFETY: the block bounds were checked above, the state owns the exact
+    // hash table selected by `hash_log`, and `sequence_words` is the complete
+    // maximum-size spare sequence prefix for this block.
+    let result = unsafe {
+        crate::kernel::fast::select_block(params.min_match)(
+            src,
+            block_range.start,
+            block_range.end,
+            loaded_dict_end,
+            params.window_log,
+            params.hash_log,
+            params.target_length,
+            repeat_offsets.as_offsets(),
+            state.table_for(params.hash_log),
+            sequence_words,
+        )
+    };
+    debug_assert!(result.sequence_count <= maximum_sequences);
+    // SAFETY: the returned count is exactly the initialized spare prefix.
+    unsafe { sequences.set_len(result.sequence_count) };
+
+    FastBlockOutput {
+        sequences,
+        last_literals: result.last_literals,
+        repeat_offsets: RepeatOffsets::from_offsets(
+            result.repeat_offsets[0],
+            result.repeat_offsets[1],
+            result.repeat_offsets[2],
+        ),
+    }
+}
+
+#[cfg(test)]
+fn compress_block_fast_no_dict_local(
     src: &[u8],
     block_range: Range<usize>,
     params: CompressionParameters,
@@ -166,7 +323,6 @@ fn compress_block_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
     let block_start = block_range.start;
     let block_end = block_range.end;
     let block_len = block_end - block_start;
-
     if block_len <= HASH_READ_SIZE {
         return FastBlockOutput {
             sequences,
@@ -261,7 +417,7 @@ fn compress_block_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
                 continue 'restart;
             }
 
-            if match4_found(src, ip0, match_idx, prefix_start_index, block_end) {
+            if match4_found(src, ip0, match_idx, prefix_start_index) {
                 hash_table[hash1] = ip1 as u32;
                 let mut match0 = match_idx;
                 rep_offset2 = rep_offset1;
@@ -309,7 +465,7 @@ fn compress_block_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
             let current0 = ip0;
             hash_table[hash0] = current0 as u32;
 
-            if match4_found(src, ip0, match_idx, prefix_start_index, block_end) {
+            if match4_found(src, ip0, match_idx, prefix_start_index) {
                 if step <= 4 {
                     hash_table[hash1] = ip1 as u32;
                 }
@@ -467,16 +623,96 @@ fn consume_immediate_repcodes<const MIN_MATCH: u32>(
     }
 }
 
-fn match4_found(
-    src: &[u8],
-    current: usize,
-    match_idx: usize,
-    prefix_start_index: usize,
-    match_limit: usize,
-) -> bool {
-    match_idx != INVALID_INDEX as usize
-        && match_idx >= prefix_start_index
-        && current + 4 <= match_limit
-        && match_idx.checked_add(4).is_some_and(|end| end <= src.len())
-        && read32(src, current) == read32(src, match_idx)
+fn match4_found(src: &[u8], current: usize, match_idx: usize, prefix_start_index: usize) -> bool {
+    if match_idx == INVALID_INDEX as usize || match_idx < prefix_start_index {
+        return false;
+    }
+    debug_assert!(current + 4 <= src.len());
+    debug_assert!(match_idx + 4 <= src.len());
+    read32(src, current) == read32(src, match_idx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::encoding::levels::c_port::params::Strategy;
+
+    #[test]
+    fn fast_cdict_copy_loader_uses_full_tagged_hash_like_c() {
+        let data = b"abcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxy";
+        let params = CompressionParameters {
+            window_log: 17,
+            chain_log: 12,
+            hash_log: 13,
+            search_log: 1,
+            min_match: 5,
+            target_length: 0,
+            strategy: Strategy::Fast,
+        };
+        let mut state = FastMatchState::new();
+
+        state.load_cdict_copy_prefix(data, data.len(), params);
+
+        let hash0 = hash_ptr(
+            data,
+            0,
+            params.hash_log + SHORT_CACHE_TAG_BITS,
+            params.min_match,
+        ) >> SHORT_CACHE_TAG_BITS;
+        let hash1 = hash_ptr(
+            data,
+            1,
+            params.hash_log + SHORT_CACHE_TAG_BITS,
+            params.min_match,
+        ) >> SHORT_CACHE_TAG_BITS;
+
+        assert_eq!(state.hash_table[hash0], 0);
+        assert_eq!(state.hash_table[hash1], 1);
+    }
+
+    #[test]
+    fn generated_transaction_matches_local_for_every_min_match() {
+        let mut source = Vec::new();
+        for index in 0..4096u32 {
+            source.extend_from_slice(&(index % 41).to_le_bytes());
+            source.extend_from_slice(b"fast-transaction-reference-pattern");
+            if index.is_multiple_of(9) {
+                source.extend_from_slice(b"fast-transaction-reference-pattern");
+            }
+        }
+
+        for min_match in 4..=7 {
+            let params = CompressionParameters {
+                window_log: 18,
+                chain_log: 12,
+                hash_log: 17,
+                search_log: 1,
+                min_match,
+                target_length: 1,
+                strategy: Strategy::Fast,
+            };
+            let block_range = 0..source.len();
+            let mut local_state = FastMatchState::new();
+            let mut codegen_state = local_state.clone();
+            let local = compress_block_fast_no_dict_local(
+                &source,
+                block_range.clone(),
+                params,
+                RepeatOffsets::new(),
+                &mut local_state,
+                0,
+            );
+            let codegen = compress_block_fast_no_dict_codegen(
+                &source,
+                block_range,
+                params,
+                RepeatOffsets::new(),
+                &mut codegen_state,
+                0,
+            );
+
+            assert_eq!(codegen, local, "min_match={min_match}");
+            assert_eq!(codegen_state, local_state, "min_match={min_match}");
+        }
+    }
 }

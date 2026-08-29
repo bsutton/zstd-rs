@@ -1,6 +1,10 @@
 use alloc::vec::Vec;
 
-use crate::{bit_io::BitWriter, huff0::huff0_encoder};
+use crate::{bit_io::BitWriter, fse::fse_encoder::FSETableBuildScratch, huff0::huff0_encoder};
+
+mod stats;
+
+pub(super) use stats::LiteralStats;
 
 pub(super) const COMPRESS_LITERALS_SIZE_MIN: usize = 64;
 pub(super) const REPEAT_LITERALS_SIZE_MIN: usize = 6;
@@ -39,7 +43,7 @@ pub(super) fn raw_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>
             writer.write_bits(0b11u8, 2);
             writer.write_bits(literals.len() as u32, 20);
         }
-        _ => unimplemented!("too many literals"),
+        _ => panic!("literal section exceeds zstd raw literals size limit"),
     }
     writer.append_bytes(literals);
 }
@@ -60,7 +64,7 @@ pub(super) fn rle_literals(literals: &[u8], writer: &mut BitWriter<&mut Vec<u8>>
             writer.write_bits(0b11u8, 2);
             writer.write_bits(literals.len() as u32, 20);
         }
-        _ => unimplemented!("too many literals"),
+        _ => panic!("literal section exceeds zstd RLE literals size limit"),
     }
     writer.write_bits(literals[0], 8);
 }
@@ -72,7 +76,42 @@ pub(super) fn compress_literals(
     options: LiteralCompressionOptions,
     writer: &mut BitWriter<&mut Vec<u8>>,
 ) -> Option<huff0_encoder::HuffmanTable> {
+    compress_literals_with_scratch(
+        literals,
+        last_table,
+        previous_table_is_valid,
+        options,
+        None,
+        None,
+        writer,
+    )
+}
+
+pub(super) fn compress_literals_with_scratch(
+    literals: &[u8],
+    last_table: Option<&huff0_encoder::HuffmanTable>,
+    previous_table_is_valid: bool,
+    options: LiteralCompressionOptions,
+    mut huffman_scratch: Option<&mut huff0_encoder::HuffmanBuildScratch>,
+    fse_build_scratch: Option<&mut FSETableBuildScratch>,
+    writer: &mut BitWriter<&mut Vec<u8>>,
+) -> Option<huff0_encoder::HuffmanTable> {
+    if huffman_scratch.is_some() && !huff0_encoder::reuses_fast_huffman_scratch() {
+        huffman_scratch = None;
+    }
     let reset_idx = writer.index();
+
+    if options.prefer_valid_repeat
+        && try_preferred_repeat_literals(
+            literals,
+            last_table,
+            previous_table_is_valid,
+            reset_idx,
+            writer,
+        )
+    {
+        return None;
+    }
 
     if options.suspect_uncompressible && sampled_literals_likely_incompressible(literals) {
         raw_literals(literals, writer);
@@ -85,12 +124,16 @@ pub(super) fn compress_literals(
     let (size_format, size_bits) =
         compressed_literals_size_format(literals.len(), force_single_stream);
     let four_streams = size_format != 0;
+    // C's size model uses the combined histogram. Per-stream counts are only
+    // needed by the small-table search or the legacy exact-stream estimator.
+    let collect_stream_counts =
+        four_streams && (options.search_smallest_table || !options.c_literal_cost_model);
     let (literal_stats, four_stream_counts) =
-        LiteralStats::from_literals_with_stream_counts(literals, four_streams);
-    if literal_stats.largest == literals.len()
+        LiteralStats::from_literals_with_stream_counts(literals, collect_stream_counts);
+    if literal_stats.largest() == literals.len()
         || literal_stats.likely_incompressible(literals.len())
     {
-        if !literals.is_empty() && literal_stats.largest == literals.len() {
+        if !literals.is_empty() && literal_stats.largest() == literals.len() {
             rle_literals(literals, writer);
         } else {
             raw_literals(literals, writer);
@@ -100,17 +143,56 @@ pub(super) fn compress_literals(
 
     let header_len = compressed_literals_header_len(size_format);
     let new_encoder_table = if options.search_smallest_table {
-        huff0_encoder::HuffmanTable::build_smallest_from_counts(
+        huff0_encoder::HuffmanTable::build_smallest_from_counts_with_stream_counts(
             literal_stats.counts(),
-            literals,
-            four_streams,
+            four_stream_counts.as_ref(),
         )
+    } else if options.c_literal_cost_model {
+        let table_log = huff0_encoder::HuffmanTable::c_fast_table_log(
+            literals.len(),
+            literal_stats.counts().len() - 1,
+        );
+        match (huffman_scratch.as_deref_mut(), fse_build_scratch) {
+            (Some(huffman_scratch), Some(fse_scratch)) => {
+                huff0_encoder::HuffmanTable::build_from_counts_with_max_bits_and_workspaces(
+                    literal_stats.counts(),
+                    table_log,
+                    huffman_scratch,
+                    fse_scratch,
+                )
+            }
+            (Some(scratch), None) => {
+                huff0_encoder::HuffmanTable::build_from_counts_with_max_bits_and_scratch(
+                    literal_stats.counts(),
+                    table_log,
+                    scratch,
+                )
+            }
+            (None, _) => huff0_encoder::HuffmanTable::build_from_counts_with_max_bits(
+                literal_stats.counts(),
+                table_log,
+            ),
+        }
     } else {
-        huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts())
+        match (huffman_scratch.as_deref_mut(), fse_build_scratch) {
+            (Some(huffman_scratch), Some(fse_scratch)) => {
+                huff0_encoder::HuffmanTable::build_from_counts_with_max_bits_and_workspaces(
+                    literal_stats.counts(),
+                    11,
+                    huffman_scratch,
+                    fse_scratch,
+                )
+            }
+            (Some(scratch), None) => huff0_encoder::HuffmanTable::build_from_counts_with_scratch(
+                literal_stats.counts(),
+                scratch,
+            ),
+            (None, _) => huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts()),
+        }
     };
     let new_len = if options.c_literal_cost_model {
         c_estimated_huffman_len(&new_encoder_table, literal_stats.counts(), four_streams)
-            + table_description_len(&new_encoder_table, literal_stats.counts())
+            + new_encoder_table.table_description_len()
     } else if let Some(four_stream_counts) = &four_stream_counts {
         new_encoder_table.encoded_len_from_stream_counts(four_stream_counts, true)
     } else {
@@ -144,6 +226,9 @@ pub(super) fn compress_literals(
         !literal_estimate_has_enough_gain(choice.estimated_len, choice.header_len, literals.len())
     } {
         raw_literals(literals, writer);
+        if let Some(scratch) = huffman_scratch.as_deref_mut() {
+            scratch.recycle_table(new_encoder_table);
+        }
         return None;
     }
 
@@ -161,12 +246,55 @@ pub(super) fn compress_literals(
     if total_len >= literals.len() {
         writer.reset_to(reset_idx);
         raw_literals(literals, writer);
+        if let Some(scratch) = huffman_scratch.as_deref_mut() {
+            scratch.recycle_table(new_encoder_table);
+        }
         None
     } else if choice.new_table {
         Some(new_encoder_table)
     } else {
+        if let Some(scratch) = huffman_scratch {
+            scratch.recycle_table(new_encoder_table);
+        }
         None
     }
+}
+
+#[inline(never)]
+fn try_preferred_repeat_literals(
+    literals: &[u8],
+    last_table: Option<&huff0_encoder::HuffmanTable>,
+    previous_table_is_valid: bool,
+    reset_idx: usize,
+    writer: &mut BitWriter<&mut Vec<u8>>,
+) -> bool {
+    if !previous_table_is_valid || literals.len() > REPEAT_SINGLE_STREAM_LITERALS_MAX {
+        return false;
+    }
+    if !literals.is_empty() && literals.iter().all(|literal| *literal == literals[0]) {
+        rle_literals(literals, writer);
+        return true;
+    }
+    let Some(previous_table) = last_table else {
+        return false;
+    };
+
+    let (size_format, size_bits) =
+        compressed_literals_repeat_size_format(literals.len(), false, true);
+    write_compressed_literals(
+        literals,
+        previous_table,
+        false,
+        size_format,
+        size_bits,
+        writer,
+    );
+    let total_len = (writer.index() - reset_idx) / 8;
+    if total_len >= literals.len() {
+        writer.reset_to(reset_idx);
+        raw_literals(literals, writer);
+    }
+    true
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -175,6 +303,7 @@ pub(super) struct LiteralCompressionOptions {
     pub(super) force_single_stream_max_literals: Option<usize>,
     pub(super) suspect_uncompressible: bool,
     pub(super) c_literal_cost_model: bool,
+    pub(super) prefer_valid_repeat: bool,
 }
 
 fn c_estimated_huffman_len(
@@ -183,10 +312,6 @@ fn c_estimated_huffman_len(
     four_streams: bool,
 ) -> usize {
     table.estimated_compressed_size_from_counts(counts) + if four_streams { 6 } else { 0 }
-}
-
-fn table_description_len(table: &huff0_encoder::HuffmanTable, counts: &[usize]) -> usize {
-    table.encoded_len_from_counts(counts, true) - table.encoded_len_from_counts(counts, false)
 }
 
 pub(super) fn suspect_uncompressible_literals(literal_len: usize, sequence_count: usize) -> bool {
@@ -268,8 +393,7 @@ fn repeat_huffman_choice<'table>(
     let use_previous = if options.c_literal_cost_model {
         estimated_len < literals.len()
             && (estimated_len <= new_choice.estimated_len
-                || table_description_len(new_choice.encoder_table, literal_stats.counts()) + 12
-                    >= literals.len())
+                || new_choice.encoder_table.table_description_len() + 12 >= literals.len())
     } else {
         estimated_len < literals.len()
             && estimated_len + header_len <= new_choice.total_estimated_len()
@@ -301,7 +425,7 @@ pub(super) fn compressed_literals_size_format(
         HUFFMAN_4_STREAMS_MIN..1024 => (0b01, 10),
         1024..16384 => (0b10, 14),
         16384..262144 => (0b11, 18),
-        _ => unimplemented!("too many literals"),
+        _ => panic!("literal section exceeds zstd compressed literals size limit"),
     }
 }
 
@@ -369,59 +493,4 @@ pub(in crate::encoding::blocks::compressed) fn write_compressed_literals(
     };
     let encoded_len = (writer.index() - index_before) / 8;
     writer.change_bits(size_index, encoded_len as u64, size_bits);
-}
-
-pub(super) struct LiteralStats {
-    counts: [usize; 256],
-    max_symbol: usize,
-    largest: usize,
-}
-
-impl LiteralStats {
-    #[cfg(test)]
-    pub(super) fn from_literals(literals: &[u8]) -> Self {
-        Self::from_literals_with_stream_counts(literals, false).0
-    }
-
-    pub(super) fn from_literals_with_stream_counts(
-        literals: &[u8],
-        collect_stream_counts: bool,
-    ) -> (Self, Option<[[usize; 256]; 4]>) {
-        let mut counts = [0; 256];
-        let mut max_symbol = 0usize;
-        let mut largest = 0usize;
-        let mut stream_counts = collect_stream_counts.then_some([[0usize; 256]; 4]);
-        let split_size = literals.len().div_ceil(4);
-
-        for (pos, literal) in literals.iter().copied().enumerate() {
-            let symbol = usize::from(literal);
-            counts[symbol] += 1;
-            largest = largest.max(counts[symbol]);
-            max_symbol = max_symbol.max(symbol);
-            if let Some(stream_counts) = &mut stream_counts {
-                let stream_idx = pos / split_size;
-                stream_counts[stream_idx][symbol] += 1;
-            }
-        }
-        (
-            Self {
-                counts,
-                max_symbol,
-                largest,
-            },
-            stream_counts,
-        )
-    }
-
-    pub(super) fn counts(&self) -> &[usize] {
-        &self.counts[..=self.max_symbol]
-    }
-
-    pub(super) fn likely_incompressible(&self, len: usize) -> bool {
-        self.largest <= (len >> 7) + 4
-    }
-
-    pub(super) fn largest(&self) -> usize {
-        self.largest
-    }
 }

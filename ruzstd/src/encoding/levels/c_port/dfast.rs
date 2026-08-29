@@ -7,8 +7,11 @@ use super::dfast_helpers::{
     count_match, hash8_ptr, hash_small_ptr, lowest_prefix_index_with_loaded_dict, read32, read64,
     store_match, HASH_READ_SIZE,
 };
+use super::dfast_table::{entry, set_entry};
 use super::params::CompressionParameters;
-use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
+use super::sequence_store::{
+    OffBase, PreparedStoreWords, RepeatCode, RepeatOffsets, StoredSequence,
+};
 
 const SEARCH_STRENGTH: usize = 8;
 
@@ -19,12 +22,15 @@ pub(crate) struct DFastBlockOutput {
     pub(crate) repeat_offsets: RepeatOffsets,
 }
 
+#[repr(C)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DFastMatchState {
     pub(super) hash_long: Vec<u32>,
     pub(super) hash_small: Vec<u32>,
     pub(super) hash_log: u32,
     pub(super) chain_log: u32,
+    sequence_store: Vec<StoredSequence>,
+    prepared_store: PreparedStoreWords,
 }
 
 impl DFastMatchState {
@@ -34,7 +40,43 @@ impl DFastMatchState {
             hash_small: Vec::new(),
             hash_log: 0,
             chain_log: 0,
+            sequence_store: Vec::new(),
+            prepared_store: PreparedStoreWords::default(),
         }
+    }
+
+    pub(super) fn take_prepared_store(&mut self) -> PreparedStoreWords {
+        core::mem::take(&mut self.prepared_store)
+    }
+
+    pub(super) fn recycle_prepared_store(&mut self, mut prepared: PreparedStoreWords) {
+        prepared.clear();
+        self.prepared_store = prepared;
+    }
+
+    #[cfg(test)]
+    pub(super) fn prepared_store_allocation(
+        &self,
+    ) -> ((*const u8, usize), (*const [u32; 4], usize)) {
+        self.prepared_store.allocation()
+    }
+
+    pub(super) fn take_sequence_store(&mut self) -> Vec<StoredSequence> {
+        let mut sequences = core::mem::take(&mut self.sequence_store);
+        sequences.clear();
+        sequences
+    }
+
+    pub(super) fn recycle_sequence_store(&mut self, mut sequences: Vec<StoredSequence>) {
+        sequences.clear();
+        if sequences.capacity() > self.sequence_store.capacity() {
+            self.sequence_store = sequences;
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn sequence_store_allocation(&self) -> (*const StoredSequence, usize) {
+        (self.sequence_store.as_ptr(), self.sequence_store.capacity())
     }
 
     pub(super) fn ensure_tables(&mut self, params: CompressionParameters) {
@@ -99,6 +141,95 @@ pub(crate) fn compress_block_double_fast_no_dict_with_state_and_loaded_dict(
     state: &mut DFastMatchState,
     loaded_dict_end: usize,
 ) -> DFastBlockOutput {
+    compress_block_double_fast_no_dict_codegen(
+        src,
+        block_range,
+        params,
+        repeat_offsets,
+        state,
+        loaded_dict_end,
+    )
+}
+
+fn compress_block_double_fast_no_dict_codegen(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut DFastMatchState,
+    loaded_dict_end: usize,
+) -> DFastBlockOutput {
+    debug_assert!(block_range.start <= block_range.end);
+    debug_assert!(block_range.end <= src.len());
+
+    let mut sequences = state.take_sequence_store();
+    let block_len = block_range.end - block_range.start;
+    if block_len <= HASH_READ_SIZE {
+        return DFastBlockOutput {
+            sequences,
+            last_literals: block_len as u32,
+            repeat_offsets,
+        };
+    }
+
+    state.ensure_tables(params);
+    let maximum_sequences = block_len / 4 + 1;
+    sequences.reserve(maximum_sequences);
+    let spare = sequences.spare_capacity_mut();
+    debug_assert!(spare.len() >= maximum_sequences);
+    // SAFETY: `StoredSequence` has a compile-time-proven `[u32; 3]` layout;
+    // the leaf transaction receives only spare capacity and initializes the
+    // returned bounded prefix.
+    let sequence_words = unsafe {
+        core::slice::from_raw_parts_mut(
+            spare
+                .as_mut_ptr()
+                .cast::<core::mem::MaybeUninit<[u32; 3]>>(),
+            spare.len(),
+        )
+    };
+    // SAFETY: the checked block and context parameters own the exact two hash
+    // tables selected by the logs, and `sequence_words` spans the reserved
+    // maximum number of sequences for this block.
+    let result = unsafe {
+        crate::kernel::dfast::select_block(params.min_match)(
+            src,
+            block_range.start,
+            block_range.end,
+            loaded_dict_end,
+            params.window_log,
+            params.hash_log,
+            params.chain_log,
+            repeat_offsets.as_offsets(),
+            &mut state.hash_long,
+            &mut state.hash_small,
+            sequence_words,
+        )
+    };
+    debug_assert!(result.sequence_count <= maximum_sequences);
+    // SAFETY: the returned count covers exactly the initialized spare prefix.
+    unsafe { sequences.set_len(result.sequence_count) };
+
+    DFastBlockOutput {
+        sequences,
+        last_literals: result.last_literals,
+        repeat_offsets: RepeatOffsets::from_offsets(
+            result.repeat_offsets[0],
+            result.repeat_offsets[1],
+            result.repeat_offsets[2],
+        ),
+    }
+}
+
+#[cfg(test)]
+fn compress_block_double_fast_no_dict_local(
+    src: &[u8],
+    block_range: Range<usize>,
+    params: CompressionParameters,
+    repeat_offsets: RepeatOffsets,
+    state: &mut DFastMatchState,
+    loaded_dict_end: usize,
+) -> DFastBlockOutput {
     match params.min_match {
         4 => compress_block_double_fast_no_dict_with_state_mls::<4>(
             src,
@@ -155,7 +286,7 @@ fn compress_block_double_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
     debug_assert!(block_range.end <= src.len());
 
     let mut rep = repeat_offsets.as_offsets();
-    let mut sequences = Vec::new();
+    let mut sequences = state.take_sequence_store();
     let block_start = block_range.start;
     let block_end = block_range.end;
     let block_len = block_end - block_start;
@@ -212,17 +343,17 @@ fn compress_block_double_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
         }
 
         let mut hl0 = hash8_ptr(src, ip, h_bits_l);
-        let mut idxl0 = hash_long[hl0] as usize;
+        let mut idxl0 = entry(hash_long, hl0) as usize;
         let mut matchl0 = idxl0;
 
         loop {
             let hs0 = hash_small_ptr::<MIN_MATCH>(src, ip, h_bits_s);
-            let idxs0 = hash_small[hs0] as usize;
+            let idxs0 = entry(hash_small, hs0) as usize;
             let curr = ip;
             let mut matchs0 = idxs0;
 
-            hash_long[hl0] = curr as u32;
-            hash_small[hs0] = curr as u32;
+            set_entry(hash_long, hl0, curr as u32);
+            set_entry(hash_small, hs0, curr as u32);
 
             if offset_1 > 0 && {
                 debug_assert!(ip + 1 >= offset_1);
@@ -273,7 +404,7 @@ fn compress_block_double_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
                     match_length += 1;
                 }
                 if step < 4 {
-                    hash_long[hl1] = ip1 as u32;
+                    set_entry(hash_long, hl1, ip1 as u32);
                 }
                 store_offset_match(
                     &mut sequences,
@@ -304,7 +435,7 @@ fn compress_block_double_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
                 continue 'outer;
             }
 
-            let idxl1 = hash_long[hl1] as usize;
+            let idxl1 = entry(hash_long, hl1) as usize;
             let matchl1 = idxl1;
 
             if idxs0 > prefix_lowest_index && read32(src, matchs0) == read32(src, ip) {
@@ -332,7 +463,7 @@ fn compress_block_double_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
                 }
 
                 if step < 4 {
-                    hash_long[hl1] = ip1 as u32;
+                    set_entry(hash_long, hl1, ip1 as u32);
                 }
                 store_offset_match(
                     &mut sequences,
@@ -418,15 +549,26 @@ fn complementary_insert<const MIN_MATCH: u32>(
 
     let index_to_insert = curr + 2;
     if index_to_insert <= ilimit {
-        hash_long[hash8_ptr(src, index_to_insert, h_bits_l)] = index_to_insert as u32;
-        hash_small[hash_small_ptr::<MIN_MATCH>(src, index_to_insert, h_bits_s)] =
-            index_to_insert as u32;
+        set_entry(
+            hash_long,
+            hash8_ptr(src, index_to_insert, h_bits_l),
+            index_to_insert as u32,
+        );
+        set_entry(
+            hash_small,
+            hash_small_ptr::<MIN_MATCH>(src, index_to_insert, h_bits_s),
+            index_to_insert as u32,
+        );
     }
     if let Some(index) = ip.checked_sub(2).filter(|index| *index <= ilimit) {
-        hash_long[hash8_ptr(src, index, h_bits_l)] = index as u32;
+        set_entry(hash_long, hash8_ptr(src, index, h_bits_l), index as u32);
     }
     if let Some(index) = ip.checked_sub(1).filter(|index| *index <= ilimit) {
-        hash_small[hash_small_ptr::<MIN_MATCH>(src, index, h_bits_s)] = index as u32;
+        set_entry(
+            hash_small,
+            hash_small_ptr::<MIN_MATCH>(src, index, h_bits_s),
+            index as u32,
+        );
     }
 }
 
@@ -451,8 +593,12 @@ fn consume_immediate_repcodes<const MIN_MATCH: u32>(
     } {
         let repeat_length = count_match(src, *ip + 4, *ip + 4 - *offset_2, block_end) + 4;
         core::mem::swap(offset_1, offset_2);
-        hash_small[hash_small_ptr::<MIN_MATCH>(src, *ip, h_bits_s)] = *ip as u32;
-        hash_long[hash8_ptr(src, *ip, h_bits_l)] = *ip as u32;
+        set_entry(
+            hash_small,
+            hash_small_ptr::<MIN_MATCH>(src, *ip, h_bits_s),
+            *ip as u32,
+        );
+        set_entry(hash_long, hash8_ptr(src, *ip, h_bits_l), *ip as u32);
         store_match(
             sequences,
             anchor,
@@ -481,4 +627,56 @@ fn store_offset_match(
         OffBase::Offset(offset as u32),
         match_length,
     );
+}
+
+#[cfg(test)]
+mod transaction_tests {
+    use super::*;
+    use crate::encoding::levels::c_port::params::Strategy;
+
+    #[test]
+    fn generated_transaction_matches_local_for_every_min_match() {
+        let mut source = Vec::new();
+        for index in 0..4096u32 {
+            source.extend_from_slice(&(index % 53).to_le_bytes());
+            source.extend_from_slice(b"double-fast-transaction-reference");
+            if index.is_multiple_of(7) {
+                source.extend_from_slice(b"double-fast-transaction-reference");
+            }
+        }
+
+        for min_match in 4..=7 {
+            let params = CompressionParameters {
+                window_log: 18,
+                chain_log: 16,
+                hash_log: 17,
+                search_log: 1,
+                min_match,
+                target_length: 1,
+                strategy: Strategy::DFast,
+            };
+            let block_range = 0..source.len();
+            let mut local_state = DFastMatchState::new();
+            let mut codegen_state = local_state.clone();
+            let local = compress_block_double_fast_no_dict_local(
+                &source,
+                block_range.clone(),
+                params,
+                RepeatOffsets::new(),
+                &mut local_state,
+                0,
+            );
+            let codegen = compress_block_double_fast_no_dict_codegen(
+                &source,
+                block_range,
+                params,
+                RepeatOffsets::new(),
+                &mut codegen_state,
+                0,
+            );
+
+            assert_eq!(codegen, local, "min_match={min_match}");
+            assert_eq!(codegen_state, local_state, "min_match={min_match}");
+        }
+    }
 }

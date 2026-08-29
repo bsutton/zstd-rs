@@ -107,4 +107,36 @@ impl OffsetHistory {
             }
         }
     }
+
+    /// Apply C's numeric `offBase`, resolving the raw offset and updating the
+    /// repeat history together like `ZSTD_updateRep()`.
+    #[inline(always)]
+    pub(crate) fn update_from_c_offset_value(&mut self, offset_value: u32, lit_len: u32) -> u32 {
+        debug_assert!(offset_value > 0);
+        if offset_value > 3 {
+            let actual_offset = offset_value - 3;
+            self.third = self.second;
+            self.second = self.newest;
+            self.newest = actual_offset;
+            return actual_offset;
+        }
+
+        let rep_code = offset_value - 1 + u32::from(lit_len == 0);
+        if rep_code == 0 {
+            return self.newest;
+        }
+
+        let actual_offset = match rep_code {
+            1 => self.second,
+            2 => self.third,
+            3 => self.newest - 1,
+            _ => unreachable!("C offBase repcode is in 0..=3"),
+        };
+        if rep_code >= 2 {
+            self.third = self.second;
+        }
+        self.second = self.newest;
+        self.newest = actual_offset;
+        actual_offset
+    }
 }

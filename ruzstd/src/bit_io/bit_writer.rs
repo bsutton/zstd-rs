@@ -111,6 +111,18 @@ impl<V: AsMut<Vec<u8>>> BitWriter<V> {
         self.bit_idx += data.len() * 8;
     }
 
+    /// Gives a callback direct access to append a byte-aligned payload.
+    pub(crate) fn append_aligned_with<R>(&mut self, append: impl FnOnce(&mut Vec<u8>) -> R) -> R {
+        assert_eq!(self.misaligned(), 0);
+        self.flush();
+        let initial_len = self.output.as_mut().len();
+        let result = append(self.output.as_mut());
+        let final_len = self.output.as_mut().len();
+        assert!(final_len >= initial_len);
+        self.bit_idx += (final_len - initial_len) * 8;
+        result
+    }
+
     /// Flush temporary internal buffers to the output buffer. Only works if this is currently byte aligned
     pub fn flush(&mut self) {
         assert!(self.bits_in_partial.is_multiple_of(8));

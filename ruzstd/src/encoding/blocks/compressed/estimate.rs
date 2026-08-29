@@ -5,6 +5,7 @@
 //! costs, and intentionally avoid writing the actual block payload.
 
 use alloc::vec::Vec;
+use core::fmt;
 
 use crate::{
     bit_io::BitWriter,
@@ -15,16 +16,16 @@ use crate::{
 };
 
 use super::{
-    config::HuffmanTableSearch,
     literals::{
         compressed_literals_header_len, compressed_literals_size_format,
         suspect_uncompressible_literals, LiteralStats,
     },
-    sequence_bitstream::encode_sequences_for_history_into,
+    sequence_bitstream::encode_sequences_for_estimate_into,
     sequence_codes::{encode_literal_length, encode_match_len, encode_offset},
     sequence_cost::{cross_entropy_cost, repeat_table_cost, CodeCounts},
     sequence_tables::{
-        choose_sequence_table_modes_for_estimate, encode_table, FseTableMode,
+        choose_sequence_table_modes_for_estimate,
+        choose_sequence_table_modes_for_estimate_from_counts, encode_table, FseTableMode,
         SequenceModeSearchConfig,
     },
     BlockCompressionConfig, PreparedBlockRef,
@@ -32,9 +33,20 @@ use super::{
 
 const ZSTD_BLOCK_HEADER_SIZE: usize = 3;
 
+#[derive(Clone)]
 pub(crate) struct EstimateScratch {
     sequences: Vec<Sequence>,
     table_bytes: Vec<u8>,
+    huffman: huff0_encoder::HuffmanBuildScratch,
+}
+
+impl fmt::Debug for EstimateScratch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EstimateScratch")
+            .field("sequences_len", &self.sequences.len())
+            .field("table_bytes_len", &self.table_bytes.len())
+            .finish()
+    }
 }
 
 impl EstimateScratch {
@@ -42,10 +54,21 @@ impl EstimateScratch {
         Self {
             sequences: Vec::new(),
             table_bytes: Vec::new(),
+            huffman: huff0_encoder::HuffmanBuildScratch::new(),
         }
     }
 }
 
+#[cfg_attr(target_vendor = "apple", link_section = "__TEXT,__rz_est")]
+#[cfg_attr(target_family = "windows", link_section = ".text$041.rz.est")]
+#[cfg_attr(
+    all(
+        not(target_vendor = "apple"),
+        not(target_family = "windows"),
+        not(target_family = "wasm")
+    ),
+    link_section = ".text.sorted.041.ruzstd.block.estimate"
+)]
 pub(crate) fn estimate_prepared_block_size_with_sequences(
     config: BlockCompressionConfig,
     prepared: PreparedBlockRef<'_>,
@@ -55,18 +78,14 @@ pub(crate) fn estimate_prepared_block_size_with_sequences(
     previous_huff_table_is_valid: bool,
     scratch: &mut EstimateScratch,
 ) -> usize {
-    let mut next_offset_history = offset_history;
-    encode_sequences_for_history_into(
-        prepared.sequences,
-        &mut next_offset_history,
-        &mut scratch.sequences,
-    );
+    encode_sequences_for_estimate_into(prepared.sequences, offset_history, &mut scratch.sequences);
     let literal_size = estimate_literal_section_size(
         prepared.literals,
         previous_huff_table,
         previous_huff_table_is_valid,
         config,
         scratch.sequences.len(),
+        &mut scratch.huffman,
     );
     let sequence_size = estimate_sequence_section_size(
         scratch.sequences.as_slice(),
@@ -84,6 +103,7 @@ fn estimate_literal_section_size(
     previous_table_is_valid: bool,
     config: BlockCompressionConfig,
     sequence_count: usize,
+    huffman_scratch: &mut huff0_encoder::HuffmanBuildScratch,
 ) -> usize {
     if config.literal_compression_disabled
         || literals.len() <= estimate_min_literals_to_compress(previous_table_is_valid)
@@ -96,8 +116,12 @@ fn estimate_literal_section_size(
         .is_some_and(|max_literals| literals.len() <= max_literals);
     let (size_format, _) = compressed_literals_size_format(literals.len(), force_single_stream);
     let four_streams = size_format != 0;
-    let (literal_stats, stream_counts) =
-        LiteralStats::from_literals_with_stream_counts(literals, four_streams);
+    let search_smallest_table =
+        config.search_smallest_huffman_table(literals.len(), sequence_count);
+    let (literal_stats, stream_counts) = LiteralStats::from_literals_with_stream_counts(
+        literals,
+        four_streams && search_smallest_table,
+    );
 
     if literal_stats.largest() == literals.len() {
         return usize::from(!literals.is_empty());
@@ -109,41 +133,35 @@ fn estimate_literal_section_size(
         return literals.len();
     }
 
-    let search_smallest_table = match config.huffman_table_search {
-        HuffmanTableSearch::Heuristic => {
-            sequence_count == 0
-                || (sequence_count <= super::SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES
-                    && literals.len() <= super::SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS)
-        }
-        HuffmanTableSearch::FileTypeSmall => {
-            literals.len() <= super::FILE_TYPE_SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS
-                || sequence_count == 0
-                || (sequence_count <= super::SMALL_HUFFMAN_TABLE_SEARCH_MAX_SEQUENCES
-                    && literals.len() <= super::SMALL_HUFFMAN_TABLE_SEARCH_MAX_LITERALS)
-        }
-        HuffmanTableSearch::AllSections => true,
-    };
     let new_table = if search_smallest_table {
-        huff0_encoder::HuffmanTable::build_smallest_from_counts(
+        huff0_encoder::HuffmanTable::build_smallest_from_counts_with_stream_counts(
             literal_stats.counts(),
-            literals,
-            four_streams,
+            stream_counts.as_ref(),
+        )
+    } else if config.c_literal_cost_model {
+        let table_log = huff0_encoder::HuffmanTable::c_fast_table_log(
+            literals.len(),
+            literal_stats.counts().len() - 1,
+        );
+        huff0_encoder::HuffmanTable::build_from_counts_with_max_bits_and_scratch(
+            literal_stats.counts(),
+            table_log,
+            huffman_scratch,
         )
     } else {
-        huff0_encoder::HuffmanTable::build_from_counts(literal_stats.counts())
+        huff0_encoder::HuffmanTable::build_from_counts_with_scratch(
+            literal_stats.counts(),
+            huffman_scratch,
+        )
     };
     let new_content_size =
-        estimate_huffman_content_size(&new_table, literal_stats.counts(), stream_counts.as_ref());
-    let new_table_size = new_table.encoded_len_from_counts(literal_stats.counts(), true)
-        - new_table.encoded_len_from_counts(literal_stats.counts(), false);
+        estimate_huffman_content_size(&new_table, literal_stats.counts(), four_streams);
+    let new_table_size = new_table.table_description_len();
 
     if let Some(previous_table) = previous_table {
         if previous_table.can_encode_counts(literal_stats.counts()) {
-            let old_content_size = estimate_huffman_content_size(
-                previous_table,
-                literal_stats.counts(),
-                stream_counts.as_ref(),
-            );
+            let old_content_size =
+                estimate_huffman_content_size(previous_table, literal_stats.counts(), four_streams);
             if old_content_size < literals.len()
                 && (old_content_size <= new_table_size + new_content_size
                     || new_table_size + 12 >= literals.len())
@@ -170,12 +188,11 @@ fn estimate_min_literals_to_compress(has_previous_table: bool) -> usize {
 fn estimate_huffman_content_size(
     table: &huff0_encoder::HuffmanTable,
     counts: &[usize],
-    stream_counts: Option<&[[usize; 256]; 4]>,
+    four_streams: bool,
 ) -> usize {
     // Match `HUF_estimateCompressedSize()`: estimate from the full histogram
     // without per-stream padding, then add the 4-stream jump table size.
-    table.estimated_compressed_size_from_counts(counts)
-        + if stream_counts.is_some() { 6 } else { 0 }
+    table.estimated_compressed_size_from_counts(counts) + if four_streams { 6 } else { 0 }
 }
 
 fn sampled_literals_likely_incompressible(literals: &[u8]) -> bool {
@@ -202,6 +219,7 @@ fn largest_symbol_count(literals: &[u8]) -> usize {
     largest
 }
 
+#[allow(clippy::too_many_arguments)]
 fn estimate_sequence_section_size(
     sequences: &[Sequence],
     literal_len: usize,
@@ -220,25 +238,39 @@ fn estimate_sequence_section_size(
     } else {
         16
     };
-    let (ll_mode, ml_mode, of_mode) = choose_sequence_table_modes_for_estimate(
-        sequences,
-        SequenceModeSearchConfig {
-            ll_previous: fse_tables.ll_previous.as_deref(),
-            ll_default: &fse_tables.ll_default,
-            ml_previous: fse_tables.ml_previous.as_deref(),
-            ml_default: &fse_tables.ml_default,
-            of_previous: fse_tables.of_previous.as_deref(),
-            of_default: &fse_tables.of_default,
-            repeat_table_max_sequences: config.repeat_table_max_sequences,
-            llml_predefined_max_sequences,
-            of_predefined_max_sequences: config.offset_predefined_max_sequences,
-            of_max_log: config.offset_table_max_log,
-            exact_sequence_mode_search: config.exact_sequence_mode_search,
-            c_fast_heuristics: config.c_fast_sequence_table_heuristics,
-            c_cost_model: config.c_cost_sequence_table_selection,
-        },
-    );
     let (of_estimate, ll_estimate, ml_estimate) = sequence_symbol_estimates(sequences);
+    let search_config = SequenceModeSearchConfig {
+        ll_previous: fse_tables.ll_previous.as_deref(),
+        ll_repeat_valid: fse_tables.ll_repeat_valid,
+        ll_default: &fse_tables.ll_default,
+        ml_previous: fse_tables.ml_previous.as_deref(),
+        ml_repeat_valid: fse_tables.ml_repeat_valid,
+        ml_default: &fse_tables.ml_default,
+        of_previous: fse_tables.of_previous.as_deref(),
+        of_repeat_valid: fse_tables.of_repeat_valid,
+        of_default: &fse_tables.of_default,
+        repeat_table_max_sequences: config.repeat_table_max_sequences,
+        llml_predefined_max_sequences,
+        of_predefined_max_sequences: config.offset_predefined_max_sequences,
+        of_max_log: config.offset_table_max_log,
+        exact_sequence_mode_search: config.exact_sequence_mode_search,
+        c_fast_heuristics: config.c_fast_sequence_table_heuristics,
+        c_cost_model: config.c_cost_sequence_table_selection,
+    };
+    let (ll_mode, ml_mode, of_mode) = if config.exact_sequence_mode_search {
+        choose_sequence_table_modes_for_estimate(sequences, search_config)
+    } else {
+        choose_sequence_table_modes_for_estimate_from_counts(
+            sequences.len(),
+            &ll_estimate.counts,
+            ll_estimate.last_code,
+            &ml_estimate.counts,
+            ml_estimate.last_code,
+            &of_estimate.counts,
+            of_estimate.last_code,
+            search_config,
+        )
+    };
 
     sequence_header_size(sequences.len())
         + 1
@@ -282,16 +314,13 @@ fn sequence_symbol_estimates(
 
     for sequence in sequences {
         let (of_code, _, of_bits) = encode_offset(sequence.of);
-        of_estimate.counts.add_code(of_code);
-        of_estimate.extra_bits += of_bits;
+        of_estimate.add_code(of_code, of_bits);
 
         let (ll_code, _, ll_bits) = encode_literal_length(sequence.ll);
-        ll_estimate.counts.add_code(ll_code);
-        ll_estimate.extra_bits += ll_bits;
+        ll_estimate.add_code(ll_code, ll_bits);
 
         let (ml_code, _, ml_bits) = encode_match_len(sequence.ml);
-        ml_estimate.counts.add_code(ml_code);
-        ml_estimate.extra_bits += ml_bits;
+        ml_estimate.add_code(ml_code, ml_bits);
     }
 
     (of_estimate, ll_estimate, ml_estimate)
@@ -300,6 +329,7 @@ fn sequence_symbol_estimates(
 struct SymbolEstimate {
     counts: CodeCounts,
     extra_bits: usize,
+    last_code: u8,
 }
 
 impl SymbolEstimate {
@@ -307,7 +337,14 @@ impl SymbolEstimate {
         Self {
             counts: CodeCounts::new(),
             extra_bits: 0,
+            last_code: 0,
         }
+    }
+
+    fn add_code(&mut self, code: u8, extra_bits: usize) {
+        self.counts.add_code(code);
+        self.extra_bits += extra_bits;
+        self.last_code = code;
     }
 }
 

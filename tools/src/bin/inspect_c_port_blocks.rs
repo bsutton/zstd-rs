@@ -1,20 +1,34 @@
+#[path = "inspect_c_port_blocks/comparison.rs"]
+mod comparison;
+
 use std::{
     cmp::Ordering,
     env, fs, io,
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
 };
 
-use ruzstd::encoding::compress_slice_c_level;
+use ruzstd::encoding::{
+    compress_slice_c_level, compress_slice_c_level_with_dictionary,
+    compress_slice_c_level_with_dictionary_and_target_c_block_size,
+    compress_slice_c_level_with_prepared_dictionary,
+    compress_slice_c_level_with_target_c_block_size, CLevelEncoderDictionary,
+};
 use zstd_rs_tools::{
     benchmark_tmp,
     block_inspect::{
-        inspect_frame_with_decoded_sizes, BlockInfo, BlockType, CompressedSectionInfo,
-        LiteralSectionType, SequenceMode,
+        inspect_frame_with_decoded_sizes_and_dictionary, BlockInfo, BlockType,
+        CompressedSectionInfo, LiteralSectionType, SequenceMode,
     },
     has_flag, parse_value, require_value, run_command_silent, verify_decoded_matches,
 };
-use zstd_safe::{CCtx, CParameter};
+use zstd_safe::{CCtx, CDict, CParameter};
+
+use comparison::{
+    decompressed_size_label, mode_label, print_comparison, source_offset_label,
+    write_source_aligned_csv,
+};
 
 #[derive(Debug)]
 struct Args {
@@ -25,6 +39,9 @@ struct Args {
     c_mode: CMode,
     output_dir: PathBuf,
     block_limit: usize,
+    target_c_block_size: Option<usize>,
+    dictionary: Option<PathBuf>,
+    prepared_dictionary: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -39,13 +56,24 @@ enum CBackend {
     Api,
 }
 
-#[derive(Clone, Debug)]
-struct BlockDelta {
-    index: usize,
-    delta: i64,
-    abs_delta: usize,
-    rust: BlockInfo,
-    c: BlockInfo,
+struct PreparedDictionaryReferences {
+    rust: CLevelEncoderDictionary,
+    c: CDict<'static>,
+}
+
+impl PreparedDictionaryReferences {
+    fn new(dictionary: &[u8], level: i32) -> io::Result<Self> {
+        let rust = CLevelEncoderDictionary::copy(dictionary, level).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Rust dictionary preparation failed: {error:?}"),
+            )
+        })?;
+        let c = CDict::try_create(dictionary, level).ok_or_else(|| {
+            io::Error::other("C ZSTD_createCDict() failed to allocate or prepare the dictionary")
+        })?;
+        Ok(Self { rust, c })
+    }
 }
 
 fn main() -> io::Result<()> {
@@ -57,42 +85,90 @@ fn main() -> io::Result<()> {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("input");
-    let rust_output = args
-        .output_dir
-        .join(format!("{stem}.l{}.rust.zst", args.level));
-    let c_output = args
-        .output_dir
-        .join(format!("{stem}.l{}.c.zst", args.level));
+    let rust_output = args.output_dir.join(format!(
+        "{stem}.l{}{}.rust.zst",
+        args.level,
+        mode_suffix(
+            args.target_c_block_size,
+            args.dictionary.as_deref(),
+            args.prepared_dictionary,
+        )
+    ));
+    let c_output = args.output_dir.join(format!(
+        "{stem}.l{}{}.c.zst",
+        args.level,
+        mode_suffix(
+            args.target_c_block_size,
+            args.dictionary.as_deref(),
+            args.prepared_dictionary,
+        )
+    ));
 
     let input = fs::read(&args.input)?;
-    fs::write(&rust_output, compress_slice_c_level(&input, args.level))?;
-    verify_decoded_matches(&args.zstd_bin, &rust_output, &args.input)?;
+    let dictionary = args.dictionary.as_ref().map(fs::read).transpose()?;
+    let prepared_dictionary = if args.prepared_dictionary {
+        Some(PreparedDictionaryReferences::new(
+            dictionary
+                .as_deref()
+                .expect("argument validation requires a dictionary"),
+            args.level,
+        )?)
+    } else {
+        None
+    };
+    let rust_compressed = compress_rust_reference(
+        &input,
+        args.level,
+        args.target_c_block_size,
+        dictionary.as_deref(),
+        prepared_dictionary.as_ref(),
+    )?;
+    fs::write(&rust_output, rust_compressed)?;
+    verify_decoded_matches_with_dictionary(
+        &args.zstd_bin,
+        &rust_output,
+        &args.input,
+        args.dictionary.as_deref(),
+    )?;
 
     write_c_reference(
-        args.c_backend,
-        &args.zstd_bin,
-        args.c_mode,
-        args.level,
+        &args,
         &input,
-        &args.input,
+        dictionary.as_deref(),
+        prepared_dictionary.as_ref(),
         &c_output,
     )?;
-    verify_decoded_matches(&args.zstd_bin, &c_output, &args.input)?;
+    verify_decoded_matches_with_dictionary(
+        &args.zstd_bin,
+        &c_output,
+        &args.input,
+        args.dictionary.as_deref(),
+    )?;
 
-    let rust = inspect_frame_with_decoded_sizes(&fs::read(&rust_output)?)?;
-    let c = inspect_frame_with_decoded_sizes(&fs::read(&c_output)?)?;
+    let rust = inspect_frame_with_decoded_sizes_and_dictionary(
+        &fs::read(&rust_output)?,
+        dictionary.as_deref(),
+    )?;
+    let c = inspect_frame_with_decoded_sizes_and_dictionary(
+        &fs::read(&c_output)?,
+        dictionary.as_deref(),
+    )?;
 
     println!(
         "input={} level={} c_backend={} rust_bytes={} c_bytes={}",
         args.input.display(),
         args.level,
-        args.c_backend.description(args.c_mode),
+        args.c_backend
+            .description(args.c_mode, args.prepared_dictionary),
         fs::metadata(&rust_output)?.len(),
         fs::metadata(&c_output)?.len()
     );
     print_blocks("rust", &rust, args.block_limit);
     print_blocks("c", &c, args.block_limit);
     print_comparison(&rust, &c);
+    write_blocks_csv(&args.output_dir.join("rust.blocks.csv"), &rust)?;
+    write_blocks_csv(&args.output_dir.join("c.blocks.csv"), &c)?;
+    write_source_aligned_csv(&args.output_dir.join("source-aligned.csv"), &rust, &c)?;
 
     Ok(())
 }
@@ -108,12 +184,44 @@ fn parse_args() -> io::Result<Args> {
     let level = parse_value(&raw, "--level", "5")
         .parse::<i32>()
         .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+    let c_backend = parse_c_backend(&parse_value(&raw, "--c-backend", "cli"))?;
+    let target_c_block_size = parse_optional_usize(&raw, "--target-c-block-size")?;
+    let dictionary = parse_optional_path(&raw, "--dictionary");
+    let prepared_dictionary = has_flag(&raw, "--prepared-dictionary");
+    if target_c_block_size.is_some() && c_backend != CBackend::Api {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--target-c-block-size requires --c-backend api",
+        ));
+    }
+    if prepared_dictionary && c_backend != CBackend::Api {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--prepared-dictionary requires --c-backend api",
+        ));
+    }
+    if prepared_dictionary && dictionary.is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--prepared-dictionary requires --dictionary",
+        ));
+    }
+    if prepared_dictionary && target_c_block_size.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--prepared-dictionary cannot be combined with --target-c-block-size",
+        ));
+    }
+
     Ok(Args {
         input,
         level,
         zstd_bin: PathBuf::from(parse_value(&raw, "--zstd-bin", "/usr/bin/zstd")),
-        c_backend: parse_c_backend(&parse_value(&raw, "--c-backend", "cli"))?,
+        c_backend,
         c_mode: parse_c_mode(&parse_value(&raw, "--c-mode", "single-thread"))?,
+        target_c_block_size,
+        dictionary,
+        prepared_dictionary,
         output_dir: PathBuf::from(parse_value(
             &raw,
             "--output-dir",
@@ -134,6 +242,11 @@ Usage: inspect_c_port_blocks --input FILE [--level N] [--zstd-bin PATH] [--outpu
 Options:
   --input FILE      Input fixture to compress and inspect.
   --level N         Compression level, default 5.
+  --target-c-block-size N
+                    Set C targetCBlockSize. Requires --c-backend api.
+  --dictionary PATH Compress and decode with a zstd dictionary.
+  --prepared-dictionary
+                    Compare Rust's prepared dictionary with C ZSTD_CDict.
   --zstd-bin PATH   Path to the C zstd binary.
   --c-backend MODE  C reference backend: cli or api. Default cli.
   --c-mode MODE     C zstd mode: single-thread or t1. Default single-thread.
@@ -171,27 +284,165 @@ fn parse_usize(raw: &str) -> io::Result<usize> {
         .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))
 }
 
-fn write_c_reference(
-    backend: CBackend,
-    zstd_bin: &Path,
-    mode: CMode,
-    level: i32,
+fn parse_optional_usize(raw: &[String], name: &str) -> io::Result<Option<usize>> {
+    if raw.iter().any(|arg| arg == name) {
+        parse_value(raw, name, "")
+            .parse::<usize>()
+            .map(Some)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))
+    } else {
+        Ok(None)
+    }
+}
+
+fn parse_optional_path(raw: &[String], name: &str) -> Option<PathBuf> {
+    raw.iter()
+        .position(|arg| arg == name)
+        .and_then(|index| raw.get(index + 1))
+        .map(PathBuf::from)
+}
+
+fn mode_suffix(
+    target_c_block_size: Option<usize>,
+    dictionary: Option<&Path>,
+    prepared_dictionary: bool,
+) -> String {
+    let mut suffix = String::new();
+    if let Some(target) = target_c_block_size {
+        suffix.push_str(&format!(".target{target}"));
+    }
+    if dictionary.is_some() {
+        suffix.push_str(".dict");
+    }
+    if prepared_dictionary {
+        suffix.push_str(".prepared");
+    }
+    suffix
+}
+
+fn compress_rust_reference(
     input: &[u8],
-    input_path: &Path,
+    level: i32,
+    target_c_block_size: Option<usize>,
+    dictionary: Option<&[u8]>,
+    prepared_dictionary: Option<&PreparedDictionaryReferences>,
+) -> io::Result<Vec<u8>> {
+    if let Some(prepared) = prepared_dictionary {
+        return Ok(compress_slice_c_level_with_prepared_dictionary(
+            input,
+            &prepared.rust,
+        ));
+    }
+    if let Some(dictionary) = dictionary {
+        if let Some(target_c_block_size) = target_c_block_size {
+            return compress_slice_c_level_with_dictionary_and_target_c_block_size(
+                input,
+                level,
+                dictionary,
+                target_c_block_size,
+            )
+            .map_err(|err| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("Rust dictionary target compression failed: {err:?}"),
+                )
+            })?
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "dictionary targetCBlockSize is outside C's accepted range",
+                )
+            });
+        }
+        return compress_slice_c_level_with_dictionary(input, level, dictionary).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Rust dictionary compression failed: {err:?}"),
+            )
+        });
+    }
+
+    if let Some(target_c_block_size) = target_c_block_size {
+        return compress_slice_c_level_with_target_c_block_size(input, level, target_c_block_size)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "targetCBlockSize is outside C's accepted range",
+                )
+            });
+    }
+
+    Ok(compress_slice_c_level(input, level))
+}
+
+fn write_c_reference(
+    args: &Args,
+    input: &[u8],
+    dictionary: Option<&[u8]>,
+    prepared_dictionary: Option<&PreparedDictionaryReferences>,
     output: &Path,
 ) -> io::Result<()> {
-    match backend {
-        CBackend::Cli => run_c_zstd(zstd_bin, mode, level, input_path, output),
+    match args.c_backend {
+        CBackend::Cli => {
+            if args.target_c_block_size.is_some() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "--target-c-block-size requires --c-backend api",
+                ));
+            }
+            run_c_zstd(
+                &args.zstd_bin,
+                args.c_mode,
+                args.level,
+                args.dictionary.as_deref(),
+                &args.input,
+                output,
+            )
+        }
         CBackend::Api => {
-            let compressed = compress_c_api(input, level)?;
+            let compressed = compress_c_api(
+                input,
+                args.level,
+                args.target_c_block_size,
+                dictionary,
+                prepared_dictionary,
+            )?;
             fs::write(output, compressed)
         }
     }
 }
 
-fn compress_c_api(input: &[u8], level: i32) -> io::Result<Vec<u8>> {
+fn compress_c_api(
+    input: &[u8],
+    level: i32,
+    target_c_block_size: Option<usize>,
+    dictionary: Option<&[u8]>,
+    prepared_dictionary: Option<&PreparedDictionaryReferences>,
+) -> io::Result<Vec<u8>> {
     let mut context = CCtx::create();
+    if let Some(prepared) = prepared_dictionary {
+        let mut output = Vec::with_capacity(zstd_safe::compress_bound(input.len()));
+        context
+            .compress_using_cdict(&mut output, input, &prepared.c)
+            .map_err(c_api_error)?;
+        return Ok(output);
+    }
     set_c_api_parameter(&mut context, CParameter::CompressionLevel(level))?;
+    if let Some(dictionary) = dictionary {
+        context.load_dictionary(dictionary).map_err(c_api_error)?;
+    }
+    if let Some(target_c_block_size) = target_c_block_size {
+        let target_c_block_size = target_c_block_size.try_into().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "targetCBlockSize must fit in a u32",
+            )
+        })?;
+        set_c_api_parameter(
+            &mut context,
+            CParameter::TargetCBlockSize(target_c_block_size),
+        )?;
+    }
     set_c_api_parameter(&mut context, CParameter::ChecksumFlag(false))?;
     context
         .set_pledged_src_size(Some(input.len() as u64))
@@ -219,6 +470,7 @@ fn run_c_zstd(
     zstd_bin: &Path,
     mode: CMode,
     level: i32,
+    dictionary: Option<&Path>,
     input: &Path,
     output: &Path,
 ) -> io::Result<()> {
@@ -227,14 +479,52 @@ fn run_c_zstd(
     command.args(mode.zstd_args());
     command.arg("--no-check");
     command.args(zstd_cli_level_args(level));
+    if let Some(dictionary) = dictionary {
+        command.arg("-D").arg(dictionary);
+    }
     command.arg(input).arg("-o").arg(output);
     run_command_silent(&mut command)
 }
 
+fn verify_decoded_matches_with_dictionary(
+    zstd_bin: &Path,
+    compressed: &Path,
+    original: &Path,
+    dictionary: Option<&Path>,
+) -> io::Result<()> {
+    if let Some(dictionary) = dictionary {
+        let output = Command::new(zstd_bin)
+            .arg("-q")
+            .arg("-d")
+            .arg("-c")
+            .arg("-D")
+            .arg(dictionary)
+            .arg(compressed)
+            .output()?;
+        if !output.status.success() {
+            return Err(io::Error::other(format!(
+                "zstd decode with dictionary failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+        let expected = fs::read(original)?;
+        if output.stdout != expected {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "decoded dictionary output does not match original",
+            ));
+        }
+        return Ok(());
+    }
+
+    verify_decoded_matches(zstd_bin, compressed, original)
+}
+
 impl CBackend {
-    fn description(self, mode: CMode) -> String {
+    fn description(self, mode: CMode, prepared_dictionary: bool) -> String {
         match self {
             Self::Cli => format!("C zstd CLI {}", mode.description()),
+            Self::Api if prepared_dictionary => "C ZSTD_compress_usingCDict() API".to_string(),
             Self::Api => "C ZSTD_compress2() API".to_string(),
         }
     }
@@ -292,6 +582,52 @@ fn print_blocks(label: &str, blocks: &[BlockInfo], block_limit: usize) {
     if blocks.len() > block_limit {
         println!("{label}: ... {} more blocks", blocks.len() - block_limit);
     }
+}
+
+fn write_blocks_csv(path: &Path, blocks: &[BlockInfo]) -> io::Result<()> {
+    let mut output = fs::File::create(path)?;
+    writeln!(
+        output,
+        "index,frame_offset,block_type,last,content_size,source_offset,decompressed_size,literal_type,literal_regenerated_size,literal_payload_size,literal_table_size,literal_streams,sequences,ll_mode,of_mode,ml_mode"
+    )?;
+    for block in blocks {
+        let section = block.section_info.as_ref();
+        writeln!(
+            output,
+            "{},{},{:?},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            block.index,
+            block.offset,
+            block.block_type,
+            block.last,
+            block.content_size,
+            source_offset_label(block),
+            decompressed_size_label(block),
+            section
+                .map(|info| format!("{:?}", info.literal_type))
+                .unwrap_or_else(|| "-".to_string()),
+            section
+                .map(|info| info.literal_regenerated_size.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            section
+                .map(|info| info.literal_payload_size.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            section
+                .and_then(|info| info.literal_table_size)
+                .map(|size| size.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            section
+                .and_then(|info| info.literal_streams)
+                .map(|streams| streams.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            section
+                .map(|info| info.sequences.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            mode_label(section.and_then(|info| info.ll_mode)),
+            mode_label(section.and_then(|info| info.of_mode)),
+            mode_label(section.and_then(|info| info.ml_mode)),
+        )?;
+    }
+    Ok(())
 }
 
 fn print_section_summary(label: &str, blocks: &[BlockInfo]) {
@@ -364,10 +700,13 @@ fn section_suffix(info: Option<&CompressedSectionInfo>) -> String {
         return String::new();
     };
     format!(
-        ",lit={:?}/regen:{}/payload:{}/streams:{},seqs={},modes={}/{}/{}",
+        ",lit={:?}/regen:{}/payload:{}/table:{}/streams:{},seqs={},modes={}/{}/{}",
         info.literal_type,
         info.literal_regenerated_size,
         info.literal_payload_size,
+        info.literal_table_size
+            .map(|size| size.to_string())
+            .unwrap_or_else(|| "-".to_string()),
         info.literal_streams
             .map(|streams| streams.to_string())
             .unwrap_or_else(|| "-".to_string()),
@@ -375,187 +714,6 @@ fn section_suffix(info: Option<&CompressedSectionInfo>) -> String {
         mode_label(info.ll_mode),
         mode_label(info.of_mode),
         mode_label(info.ml_mode),
-    )
-}
-
-fn mode_label(mode: Option<SequenceMode>) -> &'static str {
-    match mode {
-        Some(SequenceMode::Predefined) => "pre",
-        Some(SequenceMode::Rle) => "rle",
-        Some(SequenceMode::FseCompressed) => "fse",
-        Some(SequenceMode::Repeat) => "rep",
-        None => "-",
-    }
-}
-
-fn print_comparison(rust: &[BlockInfo], c: &[BlockInfo]) {
-    let common = rust.len().min(c.len());
-    let common_content_delta = (0..common)
-        .map(|idx| rust[idx].content_size as i64 - c[idx].content_size as i64)
-        .sum::<i64>();
-    let common_abs_content_delta = (0..common)
-        .map(|idx| rust[idx].content_size.abs_diff(c[idx].content_size))
-        .sum::<usize>();
-    let common_source_delta = (0..common)
-        .filter_map(|idx| {
-            Some(rust[idx].decompressed_size? as i64 - c[idx].decompressed_size? as i64)
-        })
-        .sum::<i64>();
-    let common_abs_source_delta = (0..common)
-        .filter_map(|idx| {
-            Some(
-                rust[idx]
-                    .decompressed_size?
-                    .abs_diff(c[idx].decompressed_size?),
-            )
-        })
-        .sum::<usize>();
-    let type_diffs = (0..common)
-        .filter(|&idx| rust[idx].block_type != c[idx].block_type)
-        .count();
-    let first_diff = (0..common).find(|&idx| {
-        rust[idx].block_type != c[idx].block_type
-            || rust[idx].content_size != c[idx].content_size
-            || rust[idx].source_offset != c[idx].source_offset
-            || rust[idx].decompressed_size != c[idx].decompressed_size
-    });
-    let first_source_diff = (0..common).find(|&idx| {
-        rust[idx].source_offset != c[idx].source_offset
-            || rust[idx].decompressed_size != c[idx].decompressed_size
-    });
-    println!(
-        "summary: common_blocks={common} block_count_delta={} content_delta={} abs_content_delta={} source_delta={} abs_source_delta={} type_diffs={type_diffs}",
-        rust.len() as isize - c.len() as isize,
-        common_content_delta,
-        common_abs_content_delta,
-        common_source_delta,
-        common_abs_source_delta,
-    );
-    match first_diff {
-        Some(idx) => println!(
-            "first_diff={idx} rust={:?}/{}/{}/{} c={:?}/{}/{}/{}",
-            rust[idx].block_type,
-            rust[idx].content_size,
-            source_offset_label(&rust[idx]),
-            decompressed_size_label(&rust[idx]),
-            c[idx].block_type,
-            c[idx].content_size,
-            source_offset_label(&c[idx]),
-            decompressed_size_label(&c[idx])
-        ),
-        None if rust.len() == c.len() => println!("first_diff=none"),
-        None => println!("first_diff=block_count rust={} c={}", rust.len(), c.len()),
-    }
-    match first_source_diff {
-        Some(idx) => println!(
-            "first_source_diff={idx} rust={}/{} c={}/{}",
-            source_offset_label(&rust[idx]),
-            decompressed_size_label(&rust[idx]),
-            source_offset_label(&c[idx]),
-            decompressed_size_label(&c[idx])
-        ),
-        None if rust.len() == c.len() => println!("first_source_diff=none"),
-        None => println!(
-            "first_source_diff=block_count rust={} c={}",
-            rust.len(),
-            c.len()
-        ),
-    }
-    print_largest_block_deltas(rust, c);
-}
-
-fn print_largest_block_deltas(rust: &[BlockInfo], c: &[BlockInfo]) {
-    let common = rust.len().min(c.len());
-    let mut deltas = (0..common)
-        .filter_map(|index| {
-            let rust_block = rust[index].clone();
-            let c_block = c[index].clone();
-            let delta = rust_block.content_size as i64 - c_block.content_size as i64;
-            let source_delta = match (rust_block.decompressed_size, c_block.decompressed_size) {
-                (Some(rust_size), Some(c_size)) => rust_size as i64 - c_size as i64,
-                _ => 0,
-            };
-            let type_changed = rust_block.block_type != c_block.block_type;
-            (delta != 0 || source_delta != 0 || type_changed).then(|| BlockDelta {
-                index,
-                delta,
-                abs_delta: rust_block.content_size.abs_diff(c_block.content_size),
-                rust: rust_block,
-                c: c_block,
-            })
-        })
-        .collect::<Vec<_>>();
-    deltas.sort_by(|left, right| {
-        right
-            .abs_delta
-            .cmp(&left.abs_delta)
-            .then_with(|| left.index.cmp(&right.index))
-    });
-
-    println!("largest_deltas:");
-    if deltas.is_empty() {
-        println!("delta,none");
-        return;
-    }
-    for delta in deltas.into_iter().take(12) {
-        println!(
-            "delta,{},{},{},{:?},{},{},{},{},{:?},{},{},{},{}{}",
-            delta.index,
-            delta.delta,
-            source_delta(&delta.rust, &delta.c),
-            delta.rust.block_type,
-            delta.rust.content_size,
-            source_offset_label(&delta.rust),
-            decompressed_size_label(&delta.rust),
-            describe_section(delta.rust.section_info.as_ref()),
-            delta.c.block_type,
-            delta.c.content_size,
-            source_offset_label(&delta.c),
-            decompressed_size_label(&delta.c),
-            describe_section(delta.c.section_info.as_ref()),
-            if delta.rust.block_type == delta.c.block_type {
-                ""
-            } else {
-                ",type_changed"
-            }
-        );
-    }
-}
-
-fn source_offset_label(block: &BlockInfo) -> String {
-    block
-        .source_offset
-        .map(|offset| offset.to_string())
-        .unwrap_or_else(|| "-".to_string())
-}
-
-fn decompressed_size_label(block: &BlockInfo) -> String {
-    block
-        .decompressed_size
-        .map(|size| size.to_string())
-        .unwrap_or_else(|| "-".to_string())
-}
-
-fn source_delta(rust: &BlockInfo, c: &BlockInfo) -> i64 {
-    match (rust.decompressed_size, c.decompressed_size) {
-        (Some(rust_size), Some(c_size)) => rust_size as i64 - c_size as i64,
-        _ => 0,
-    }
-}
-
-fn describe_section(info: Option<&CompressedSectionInfo>) -> String {
-    let Some(info) = info else {
-        return "-".to_string();
-    };
-    format!(
-        "{:?}/regen:{}/payload:{}/seqs:{}/modes:{}/{}/{}",
-        info.literal_type,
-        info.literal_regenerated_size,
-        info.literal_payload_size,
-        info.sequences,
-        mode_label(info.ll_mode),
-        mode_label(info.of_mode),
-        mode_label(info.ml_mode)
     )
 }
 

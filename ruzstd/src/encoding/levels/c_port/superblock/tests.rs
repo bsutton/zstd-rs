@@ -15,7 +15,7 @@ fn sequence(ll: u32, ml: u32) -> PreparedSequence {
         ll,
         ml,
         raw_offset: 1,
-        encoded_offset_value: None,
+        encoded_offset_value: 0,
     }
 }
 
@@ -344,6 +344,37 @@ fn append_sub_block_sequences_empty_emits_zero_sequence_header() {
 }
 
 #[test]
+fn append_supported_sub_block_sequences_with_tables_preserves_empty_entropy_flag() {
+    let mut encoded = Vec::new();
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let emission = append_supported_sub_block_sequences_with_tables(
+        &[],
+        compressed_sequence_modes(),
+        None,
+        true,
+        &mut fse_tables,
+        &mut offset_history,
+        &mut encoded,
+    )
+    .expect("zero-sequence section is supported");
+
+    assert_eq!(
+        emission,
+        SubBlockSequenceEmission {
+            byte_size: 1,
+            entropy_written: false,
+        }
+    );
+    assert_eq!(encoded, [0]);
+    assert!(fse_tables.ll_previous.is_none());
+    assert!(fse_tables.ml_previous.is_none());
+    assert!(fse_tables.of_previous.is_none());
+    assert_eq!(offset_history.as_offsets(), (1, 4, 8));
+}
+
+#[test]
 fn append_sub_block_sequences_defers_non_empty_sequences_until_fse_tables_are_ported() {
     let mut encoded = alloc::vec![0xAA];
 
@@ -367,25 +398,25 @@ fn append_supported_sub_block_sequences_emits_decodable_predefined_sequences() {
             ll: 3,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         },
         PreparedSequence {
             ll: 0,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         },
         PreparedSequence {
             ll: 0,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         },
         PreparedSequence {
             ll: 0,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         },
     ];
     let mut encoded = alloc::vec![0; BLOCK_HEADER_SIZE];
@@ -546,25 +577,25 @@ fn append_sequence_sub_block_builds_decodable_basic_sequence_block() {
             ll: 3,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         },
         PreparedSequence {
             ll: 0,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         },
         PreparedSequence {
             ll: 0,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         },
         PreparedSequence {
             ll: 0,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         },
     ];
     let mut encoded = Vec::new();
@@ -610,7 +641,7 @@ fn append_sequence_sub_block_builds_decodable_rle_sequence_block() {
             ll: 3,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: Some(6),
+            encoded_offset_value: 6,
         });
     }
     let mut encoded = Vec::new();
@@ -646,25 +677,25 @@ fn append_sequence_sub_block_emits_repeat_sequence_metadata() {
             ll: 3,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         },
         PreparedSequence {
             ll: 0,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         },
         PreparedSequence {
             ll: 0,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         },
         PreparedSequence {
             ll: 0,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         },
     ];
     let mut encoded = Vec::new();
@@ -725,7 +756,7 @@ fn append_sequence_sub_block_builds_decodable_compressed_sequence_block() {
             ll: lit_len as u32,
             ml: match_len as u32,
             raw_offset: raw_offset as u32,
-            encoded_offset_value: Some(raw_offset as u32 + 3),
+            encoded_offset_value: raw_offset as u32 + 3,
         });
     }
     let mut encoded = Vec::new();
@@ -777,7 +808,7 @@ fn append_sequence_sub_block_builds_decodable_mixed_sequence_modes() {
             ll: lit_len as u32,
             ml: match_len as u32,
             raw_offset: raw_offset as u32,
-            encoded_offset_value: Some(raw_offset as u32 + 3),
+            encoded_offset_value: raw_offset as u32 + 3,
         });
     }
     let mut encoded = Vec::new();
@@ -842,6 +873,105 @@ fn need_sequence_entropy_tables_matches_c_metadata_gate() {
     assert!(!need_sequence_entropy_tables(no_tables));
     assert!(need_sequence_entropy_tables(rle_tables));
     assert!(need_sequence_entropy_tables(compressed_tables));
+}
+
+#[test]
+fn sequence_entropy_estimate_uses_c_rle_header_cost() {
+    let sequences = [
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 4,
+            encoded_offset_value: 1,
+        },
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 1,
+            encoded_offset_value: 1,
+        },
+    ];
+    let modes = rle_sequence_modes();
+    let fse_tables = FseTables::new();
+
+    assert_eq!(
+        estimate_sequence_entropy_section_size(
+            &sequences,
+            modes,
+            None,
+            &fse_tables,
+            OffsetHistory::new(),
+            true,
+        ),
+        Some(6)
+    );
+}
+
+#[test]
+fn target_sequence_entropy_selection_uses_c_strategy_policy() {
+    let sequences = [
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 4,
+            encoded_offset_value: 1,
+        },
+        PreparedSequence {
+            ll: 1,
+            ml: 4,
+            raw_offset: 1,
+            encoded_offset_value: 2,
+        },
+        PreparedSequence {
+            ll: 0,
+            ml: 3,
+            raw_offset: 4,
+            encoded_offset_value: 1,
+        },
+        PreparedSequence {
+            ll: 1,
+            ml: 4,
+            raw_offset: 1,
+            encoded_offset_value: 2,
+        },
+    ];
+    let mut fse_tables = FseTables::new();
+    fse_tables.ll_previous = Some(Rc::new(fse_tables.ll_default.clone()));
+    fse_tables.ll_repeat_valid = true;
+    fse_tables.ml_previous = Some(Rc::new(fse_tables.ml_default.clone()));
+    fse_tables.ml_repeat_valid = true;
+    fse_tables.of_previous = Some(Rc::new(fse_tables.of_default.clone()));
+    fse_tables.of_repeat_valid = true;
+
+    let fast_modes = select_sequence_entropy_modes(
+        &sequences,
+        &fse_tables,
+        OffsetHistory::new(),
+        Strategy::Fast,
+    );
+    let optimal_modes = select_sequence_entropy_modes(
+        &sequences,
+        &fse_tables,
+        OffsetHistory::new(),
+        Strategy::BtOpt,
+    );
+
+    assert_eq!(
+        fast_modes,
+        SequenceEntropyModes {
+            ll: EntropyTableMode::Repeat,
+            ml: EntropyTableMode::Repeat,
+            of: EntropyTableMode::Repeat,
+        }
+    );
+    assert_eq!(
+        optimal_modes,
+        SequenceEntropyModes {
+            ll: EntropyTableMode::Basic,
+            ml: EntropyTableMode::Basic,
+            of: EntropyTableMode::Basic,
+        }
+    );
 }
 
 fn basic_sequence_modes() -> SequenceEntropyModes {

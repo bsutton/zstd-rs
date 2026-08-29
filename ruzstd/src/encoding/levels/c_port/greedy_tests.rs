@@ -9,12 +9,13 @@ use super::greedy::{
     GreedyBlockOutput, GreedyMatchState,
 };
 use super::greedy_block::{
-    encode_block_hash_chain_no_dict, prepare_block_greedy_no_dict, GreedyBlockEncodeContext,
-    GreedyPreparedBlock, LazyBlockStrategy,
+    encode_block_hash_chain_no_dict, encode_block_hash_chain_no_dict_with_state,
+    prepare_block_greedy_no_dict, prepare_block_greedy_no_dict_with_state,
+    GreedyBlockEncodeContext, GreedyBlockSource, GreedyPreparedBlock, LazyBlockStrategy,
 };
 use super::params::{CompressionParameters, Strategy};
 use super::sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence};
-use super::target_block::encode_target_block_with_superblock_fallback;
+use super::target_block::{encode_target_block_with_superblock_fallback, TargetBlockOptions};
 use crate::blocks::block::BlockType;
 use crate::common::MAX_BLOCK_SIZE;
 use crate::encoding::blocks::{BlockCompressionConfig, PreparedBlock, PreparedSequence};
@@ -150,7 +151,7 @@ fn greedy_no_dict_uses_row_matchfinder_when_window_is_large() {
     assert!(output
         .sequences
         .iter()
-        .any(|sequence| { matches!(sequence.off_base, OffBase::Offset(43)) }));
+        .any(|sequence| { matches!(sequence.off_base(), OffBase::Offset(43)) }));
 }
 
 #[test]
@@ -245,7 +246,7 @@ fn greedy_no_dict_state_finds_previous_block_prefix_match() {
     );
 
     assert!(second.sequences.iter().any(|sequence| matches!(
-        sequence.off_base,
+        sequence.off_base(),
         OffBase::Offset(offset) if sequence.lit_len == 0
             && offset as usize >= marker.len()
     )));
@@ -350,6 +351,87 @@ fn greedy_no_dict_prepared_block_resolves_sequences() {
 }
 
 #[test]
+fn greedy_state_reuses_sequence_store_after_block_preparation() {
+    let block = b"abcde12345abcde12345-tail";
+    let data = [block.as_slice(), block.as_slice()].concat();
+    let params = greedy_params(data.len());
+    let mut state = GreedyMatchState::new();
+
+    let first_block = prepare_block_greedy_no_dict_with_state(
+        &data,
+        0..block.len(),
+        params,
+        RepeatOffsets::new(),
+        &mut state,
+    );
+    let first = state.sequence_store_allocation();
+    assert!(first.1 > 0);
+
+    let _ = prepare_block_greedy_no_dict_with_state(
+        &data,
+        block.len()..data.len(),
+        params,
+        first_block.repeat_offsets,
+        &mut state,
+    );
+
+    assert_eq!(state.sequence_store_allocation(), first);
+}
+
+#[test]
+fn greedy_normal_native_entropy_recycles_sequence_store_across_blocks() {
+    let block = b"abcde12345abcde12345-tail";
+    let data = [block.as_slice(), block.as_slice()].concat();
+    let params = greedy_params(data.len());
+    let config = BlockCompressionConfig::for_c_strategy(params.strategy as u8);
+    let mut state = GreedyMatchState::new();
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let first_block = encode_block_hash_chain_no_dict_with_state(
+        GreedyBlockSource {
+            src: &data,
+            block_range: 0..block.len(),
+            loaded_dict_end: 0,
+        },
+        false,
+        params,
+        config,
+        RepeatOffsets::new(),
+        &mut state,
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        LazyBlockStrategy::Greedy,
+    );
+    let first_allocation = state.sequence_store_allocation();
+    assert!(first_allocation.1 > 0);
+
+    let _ = encode_block_hash_chain_no_dict_with_state(
+        GreedyBlockSource {
+            src: &data,
+            block_range: block.len()..data.len(),
+            loaded_dict_end: 0,
+        },
+        true,
+        params,
+        config,
+        first_block.repeat_offsets,
+        &mut state,
+        GreedyBlockEncodeContext {
+            previous_huff_table: first_block.new_huffman_table.as_ref(),
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        LazyBlockStrategy::Greedy,
+    );
+
+    assert_eq!(state.sequence_store_allocation(), first_allocation);
+}
+
+#[test]
 fn greedy_hidden_block_emits_compressed_block() {
     let data = b"abcde12345abcde12345-tail";
     let mut fse_tables = FseTables::new();
@@ -448,8 +530,12 @@ fn target_block_uses_literal_only_superblock_for_rle_literals() {
     let encoded = encode_target_block_with_superblock_fallback(
         &data,
         true,
-        2048,
-        RepeatOffsets::new(),
+        TargetBlockOptions {
+            target_c_block_size: 2048,
+            strategy: Strategy::BtOpt,
+            allow_rle: false,
+            repeat_offsets: RepeatOffsets::new(),
+        },
         &prepared,
         GreedyBlockEncodeContext {
             previous_huff_table: None,
@@ -485,8 +571,12 @@ fn target_block_keeps_raw_fallback_for_literal_only_non_rle_literals() {
     let encoded = encode_target_block_with_superblock_fallback(
         &data,
         false,
-        2048,
-        RepeatOffsets::new(),
+        TargetBlockOptions {
+            target_c_block_size: 2048,
+            strategy: Strategy::BtOpt,
+            allow_rle: false,
+            repeat_offsets: RepeatOffsets::new(),
+        },
         &prepared,
         GreedyBlockEncodeContext {
             previous_huff_table: None,
@@ -504,6 +594,46 @@ fn target_block_keeps_raw_fallback_for_literal_only_non_rle_literals() {
 }
 
 #[test]
+fn target_block_uses_huffman_literal_only_superblock_for_small_text() {
+    let data = b"[workspace]\nresolver = \"3\"\nmembers = [\"ruzstd\", \"cli\", \"tools\"]\n";
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+    let prepared = GreedyPreparedBlock {
+        prepared: PreparedBlock {
+            literals: data.to_vec(),
+            sequences: Vec::new(),
+        },
+        repeat_offsets: RepeatOffsets::new(),
+    };
+
+    let encoded = encode_target_block_with_superblock_fallback(
+        data,
+        true,
+        TargetBlockOptions {
+            target_c_block_size: 2048,
+            strategy: Strategy::BtUltra2,
+            allow_rle: false,
+            repeat_offsets: RepeatOffsets::new(),
+        },
+        &prepared,
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        Vec::new(),
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(last_block);
+    assert_eq!(block_type, BlockType::Compressed);
+    assert_eq!(block_size as usize, encoded.bytes.len() - 3);
+    assert!(encoded.bytes.len() < data.len() + 3);
+    assert!(encoded.new_huffman_table.is_some());
+    assert_eq!(decode_compressed_block(&encoded.bytes), data);
+}
+
+#[test]
 fn target_block_uses_sequence_metadata_for_sequence_block() {
     let mut data = Vec::new();
     for _ in 0..100 {
@@ -514,14 +644,14 @@ fn target_block_uses_sequence_metadata_for_sequence_block() {
         ll: 3,
         ml: 3,
         raw_offset: 3,
-        encoded_offset_value: None,
+        encoded_offset_value: 0,
     });
     for _ in 1..99 {
         sequences.push(PreparedSequence {
             ll: 0,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         });
     }
     let prepared = GreedyPreparedBlock {
@@ -537,8 +667,12 @@ fn target_block_uses_sequence_metadata_for_sequence_block() {
     let encoded = encode_target_block_with_superblock_fallback(
         &data,
         true,
-        2048,
-        RepeatOffsets::new(),
+        TargetBlockOptions {
+            target_c_block_size: 2048,
+            strategy: Strategy::BtOpt,
+            allow_rle: false,
+            repeat_offsets: RepeatOffsets::new(),
+        },
         &prepared,
         GreedyBlockEncodeContext {
             previous_huff_table: None,
@@ -554,6 +688,50 @@ fn target_block_uses_sequence_metadata_for_sequence_block() {
     assert_eq!(block_size as usize, encoded.bytes.len() - 3);
     assert_eq!(decode_compressed_block(&encoded.bytes), data);
     assert_eq!(offset_history.as_offsets(), (3, 3, 1));
+}
+
+#[test]
+fn target_block_prefers_basic_sequence_modes_for_single_uniform_sequence() {
+    let data = Vec::from([0x07; 1271]);
+    let prepared = GreedyPreparedBlock {
+        prepared: PreparedBlock {
+            literals: Vec::from([0x07]),
+            sequences: Vec::from([PreparedSequence {
+                ll: 1,
+                ml: 1270,
+                raw_offset: 1,
+                encoded_offset_value: 1,
+            }]),
+        },
+        repeat_offsets: RepeatOffsets::new(),
+    };
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+
+    let encoded = encode_target_block_with_superblock_fallback(
+        &data,
+        true,
+        TargetBlockOptions {
+            target_c_block_size: 2048,
+            strategy: Strategy::BtUltra2,
+            allow_rle: false,
+            repeat_offsets: RepeatOffsets::new(),
+        },
+        &prepared,
+        GreedyBlockEncodeContext {
+            previous_huff_table: None,
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+        Vec::new(),
+    );
+    let (last_block, block_type, block_size) = parse_block_header(&encoded.bytes);
+
+    assert!(last_block);
+    assert_eq!(block_type, BlockType::Compressed);
+    assert_eq!(block_size as usize, encoded.bytes.len() - 3);
+    assert_eq!(encoded.bytes.len(), 11);
+    assert_eq!(decode_compressed_block(&encoded.bytes), data);
 }
 
 #[test]
@@ -574,7 +752,7 @@ fn target_block_accepts_uniform_sequence_code_superblock() {
             ll: 3,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: Some(6),
+            encoded_offset_value: 6,
         });
     }
     let prepared = GreedyPreparedBlock {
@@ -590,8 +768,12 @@ fn target_block_accepts_uniform_sequence_code_superblock() {
     let encoded = encode_target_block_with_superblock_fallback(
         &data,
         false,
-        2048,
-        RepeatOffsets::new(),
+        TargetBlockOptions {
+            target_c_block_size: 2048,
+            strategy: Strategy::BtOpt,
+            allow_rle: false,
+            repeat_offsets: RepeatOffsets::new(),
+        },
         &prepared,
         GreedyBlockEncodeContext {
             previous_huff_table: None,
@@ -620,14 +802,14 @@ fn target_block_preserves_previous_fse_tables_for_repeat_sequence_metadata() {
         ll: 3,
         ml: 3,
         raw_offset: 3,
-        encoded_offset_value: None,
+        encoded_offset_value: 0,
     });
     for _ in 1..99 {
         sequences.push(PreparedSequence {
             ll: 0,
             ml: 3,
             raw_offset: 3,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         });
     }
     let prepared = GreedyPreparedBlock {
@@ -646,8 +828,12 @@ fn target_block_preserves_previous_fse_tables_for_repeat_sequence_metadata() {
     let encoded = encode_target_block_with_superblock_fallback(
         &data,
         true,
-        2048,
-        RepeatOffsets::new(),
+        TargetBlockOptions {
+            target_c_block_size: 2048,
+            strategy: Strategy::BtOpt,
+            allow_rle: false,
+            repeat_offsets: RepeatOffsets::new(),
+        },
         &prepared,
         GreedyBlockEncodeContext {
             previous_huff_table: None,
@@ -776,7 +962,7 @@ fn assert_loaded_dictionary_match(output: &GreedyBlockOutput, params: Compressio
 fn has_loaded_dictionary_match(output: &GreedyBlockOutput, params: CompressionParameters) -> bool {
     output.sequences.iter().any(|sequence| {
         matches!(
-            sequence.off_base,
+            sequence.off_base(),
             OffBase::Offset(offset) if offset as usize > (1_usize << params.window_log)
         )
     })

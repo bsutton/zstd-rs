@@ -10,7 +10,17 @@ mod selection;
 pub(in crate::encoding::blocks::compressed) use builder::{build_sequence_table, TableBuilder};
 #[cfg(test)]
 pub(super) use selection::choose_table;
-pub(super) use selection::{choose_sequence_table_modes, choose_sequence_table_modes_for_estimate};
+pub(super) use selection::{
+    choose_c_dfast_compact_sequence_table_modes_from_prepared,
+    choose_c_dfast_compact_sequence_table_modes_from_stored,
+    choose_c_dfast_compact_sequence_table_modes_from_stored_with_final_history,
+    choose_c_fast_sequence_table_modes_from_prepared,
+    choose_c_fast_sequence_table_modes_from_stored,
+    choose_c_fast_sequence_table_modes_from_stored_with_final_history,
+    choose_c_sequence_table_modes_from_prepared, choose_c_sequence_table_modes_from_stored,
+    choose_sequence_table_modes, choose_sequence_table_modes_for_estimate,
+    choose_sequence_table_modes_for_estimate_from_counts,
+};
 
 #[derive(Clone)]
 #[allow(clippy::large_enum_variant)]
@@ -34,10 +44,13 @@ impl FseTableMode<'_> {
 
 pub(super) struct SequenceModeSearchConfig<'a> {
     pub(super) ll_previous: Option<&'a FSETable>,
+    pub(super) ll_repeat_valid: bool,
     pub(super) ll_default: &'a FSETable,
     pub(super) ml_previous: Option<&'a FSETable>,
+    pub(super) ml_repeat_valid: bool,
     pub(super) ml_default: &'a FSETable,
     pub(super) of_previous: Option<&'a FSETable>,
+    pub(super) of_repeat_valid: bool,
     pub(super) of_default: &'a FSETable,
     pub(super) repeat_table_max_sequences: usize,
     pub(super) llml_predefined_max_sequences: usize,

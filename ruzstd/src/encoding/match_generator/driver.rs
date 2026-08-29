@@ -183,62 +183,58 @@ impl Matcher for MatchGeneratorDriver {
 
 impl MatchGeneratorDriver {
     fn window_blocks(level: CompressionLevel) -> usize {
-        match level {
-            CompressionLevel::Best => BEST_WINDOW_BLOCKS,
-            CompressionLevel::Uncompressed
-            | CompressionLevel::Fastest
-            | CompressionLevel::Default
-            | CompressionLevel::Better => FASTEST_WINDOW_BLOCKS,
+        if level.uses_best_legacy_profile() {
+            BEST_WINDOW_BLOCKS
+        } else {
+            FASTEST_WINDOW_BLOCKS
         }
     }
 
     fn suffix_store_capacity(slice_size: usize, level: CompressionLevel) -> usize {
-        match level {
-            CompressionLevel::Best => slice_size * BEST_SUFFIX_STORE_CAPACITY_MULTIPLIER,
-            CompressionLevel::Uncompressed
-            | CompressionLevel::Fastest
-            | CompressionLevel::Default
-            | CompressionLevel::Better => slice_size / SUFFIX_STORE_CAPACITY_DIVISOR,
+        if level.uses_best_legacy_profile() {
+            slice_size * BEST_SUFFIX_STORE_CAPACITY_MULTIPLIER
+        } else {
+            slice_size / SUFFIX_STORE_CAPACITY_DIVISOR
         }
     }
 
     fn adaptive_binary_no_match_probe(level: CompressionLevel) -> bool {
-        matches!(level, CompressionLevel::Best)
+        level.uses_best_legacy_profile()
     }
 
     fn use_fast_small_dense_binary_probe(level: CompressionLevel) -> bool {
-        matches!(level, CompressionLevel::Fastest)
+        level.uses_fastest_legacy_profile()
     }
 
     fn prefer_binary_next_position_repeat_lookahead(level: CompressionLevel) -> bool {
-        matches!(level, CompressionLevel::Best)
+        level.uses_best_legacy_profile()
     }
 
     fn prefer_fast_binary_next_position_repeat_lookahead(level: CompressionLevel) -> bool {
-        matches!(level, CompressionLevel::Fastest)
+        level.uses_fastest_legacy_profile()
     }
 
     fn prefer_binary_next_position_lookahead(level: CompressionLevel) -> bool {
-        matches!(level, CompressionLevel::Best)
+        level.uses_best_legacy_profile()
     }
 
     fn prefer_oldest_first_window_probe(level: CompressionLevel) -> bool {
-        matches!(level, CompressionLevel::Best)
+        level.uses_best_legacy_profile()
     }
 
     fn use_complementary_end_insertion(level: CompressionLevel) -> bool {
-        matches!(level, CompressionLevel::Best)
+        level.uses_best_legacy_profile()
     }
 
     fn use_second_newest_probe(level: CompressionLevel) -> bool {
-        matches!(level, CompressionLevel::Best)
+        level.uses_best_legacy_profile()
     }
 
     fn use_fast_binary_small_second_newest(level: CompressionLevel) -> bool {
-        matches!(level, CompressionLevel::Fastest)
+        level.uses_fastest_legacy_profile()
     }
 
     fn use_text_repeat_pipeline(level: CompressionLevel) -> bool {
-        matches!(level, CompressionLevel::Best)
+        level.uses_best_legacy_profile()
     }
 }

@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 
 use super::params::CompressionParameters;
 use super::row_match::{row_log, row_match_finder_enabled};
+use super::sequence_store::StoredSequence;
 
 const LONG_MATCH_UPDATE_GAP: usize = 384;
 const LONG_MATCH_UPDATE_LIMIT: usize = 192;
@@ -22,6 +23,7 @@ pub(crate) struct GreedyMatchState {
     pub(super) hash_salt: u64,
     pub(super) hash_salt_entropy: u32,
     pub(super) row_hash_cache: [u32; 8],
+    sequence_store: Vec<StoredSequence>,
 }
 
 impl GreedyMatchState {
@@ -41,7 +43,26 @@ impl GreedyMatchState {
             hash_salt: 0,
             hash_salt_entropy: 0,
             row_hash_cache: [0; 8],
+            sequence_store: Vec::new(),
         }
+    }
+
+    pub(super) fn take_sequence_store(&mut self) -> Vec<StoredSequence> {
+        let mut sequences = core::mem::take(&mut self.sequence_store);
+        sequences.clear();
+        sequences
+    }
+
+    pub(super) fn recycle_sequence_store(&mut self, mut sequences: Vec<StoredSequence>) {
+        sequences.clear();
+        if sequences.capacity() > self.sequence_store.capacity() {
+            self.sequence_store = sequences;
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn sequence_store_allocation(&self) -> (*const StoredSequence, usize) {
+        (self.sequence_store.as_ptr(), self.sequence_store.capacity())
     }
 
     pub(crate) fn reset_for_frame(&mut self, params: CompressionParameters) {
@@ -100,7 +121,7 @@ impl GreedyMatchState {
         let chain_size = if row_match_enabled {
             0
         } else {
-            1_usize << params.chain_log
+            (1_usize << params.chain_log) + 1
         };
         if self.chain_table.len() != chain_size {
             self.chain_table.resize(chain_size, 0);
@@ -255,7 +276,7 @@ mod tests {
 
         state.ensure_tables(params);
 
-        assert_eq!(state.chain_table.len(), 1_usize << params.chain_log);
+        assert_eq!(state.chain_table.len(), (1_usize << params.chain_log) + 1);
         assert!(state.tag_table.is_empty());
     }
 }

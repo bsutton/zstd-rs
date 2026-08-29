@@ -32,7 +32,7 @@ use crate::io::{Read, Write};
 ///
 /// # Examples
 /// ```
-/// use ruzstd::encoding::{FrameCompressor, CompressionLevel};
+/// use zstd_complete::encoding::{FrameCompressor, CompressionLevel};
 /// let mock_data: &[_] = &[0x1, 0x2, 0x3, 0x4];
 /// let mut output = std::vec::Vec::new();
 /// // Initialize a compressor.
@@ -58,17 +58,23 @@ pub struct FrameCompressor<R: Read, W: Write, M: Matcher> {
 pub(crate) struct FseTables {
     pub(crate) ll_default: FSETable,
     pub(crate) ll_previous: Option<Rc<FSETable>>,
+    pub(crate) ll_repeat_valid: bool,
     pub(crate) ml_default: FSETable,
     pub(crate) ml_previous: Option<Rc<FSETable>>,
+    pub(crate) ml_repeat_valid: bool,
     pub(crate) of_default: FSETable,
     pub(crate) of_previous: Option<Rc<FSETable>>,
+    pub(crate) of_repeat_valid: bool,
 }
 
 #[derive(Clone)]
 pub(crate) struct FseTableSnapshot {
     ll_previous: Option<Rc<FSETable>>,
+    ll_repeat_valid: bool,
     ml_previous: Option<Rc<FSETable>>,
+    ml_repeat_valid: bool,
     of_previous: Option<Rc<FSETable>>,
+    of_repeat_valid: bool,
 }
 
 impl FseTables {
@@ -76,31 +82,49 @@ impl FseTables {
         Self {
             ll_default: default_ll_table(),
             ll_previous: None,
+            ll_repeat_valid: false,
             ml_default: default_ml_table(),
             ml_previous: None,
+            ml_repeat_valid: false,
             of_default: default_of_table(),
             of_previous: None,
+            of_repeat_valid: false,
         }
     }
 
     pub fn reset(&mut self) {
         self.ll_previous = None;
+        self.ll_repeat_valid = false;
         self.ml_previous = None;
+        self.ml_repeat_valid = false;
         self.of_previous = None;
+        self.of_repeat_valid = false;
     }
 
     pub(crate) fn snapshot_previous(&self) -> FseTableSnapshot {
         FseTableSnapshot {
             ll_previous: self.ll_previous.clone(),
+            ll_repeat_valid: self.ll_repeat_valid,
             ml_previous: self.ml_previous.clone(),
+            ml_repeat_valid: self.ml_repeat_valid,
             of_previous: self.of_previous.clone(),
+            of_repeat_valid: self.of_repeat_valid,
         }
     }
 
     pub(crate) fn restore_previous(&mut self, snapshot: FseTableSnapshot) {
         self.ll_previous = snapshot.ll_previous;
+        self.ll_repeat_valid = snapshot.ll_repeat_valid;
         self.ml_previous = snapshot.ml_previous;
+        self.ml_repeat_valid = snapshot.ml_repeat_valid;
         self.of_previous = snapshot.of_previous;
+        self.of_repeat_valid = snapshot.of_repeat_valid;
+    }
+
+    /// C only treats a dictionary offset table as universally valid for the
+    /// first source block. Later blocks can require larger offset codes.
+    pub(crate) fn downgrade_offset_repeat_validity(&mut self) {
+        self.of_repeat_valid = false;
     }
 }
 
@@ -379,23 +403,20 @@ fn compress_with_level_policy<M: Matcher>(
     uncompressed_data: Vec<u8>,
     output: &mut Vec<u8>,
 ) {
-    match level {
-        CompressionLevel::Uncompressed => {
-            let header = BlockHeader {
-                last_block,
-                block_type: crate::blocks::block::BlockType::Raw,
-                block_size: uncompressed_data.len().try_into().unwrap(),
-            };
-            header.serialize(output);
-            output.extend_from_slice(&uncompressed_data);
-        }
-        CompressionLevel::Fastest => compress_fastest(state, last_block, uncompressed_data, output),
-        CompressionLevel::Default | CompressionLevel::Better => {
-            compress_at_level(state, level, last_block, uncompressed_data, output)
-        }
-        CompressionLevel::Best => {
-            compress_best_adaptive(state, level, last_block, uncompressed_data, output)
-        }
+    if level.is_uncompressed() {
+        let header = BlockHeader {
+            last_block,
+            block_type: crate::blocks::block::BlockType::Raw,
+            block_size: uncompressed_data.len().try_into().unwrap(),
+        };
+        header.serialize(output);
+        output.extend_from_slice(&uncompressed_data);
+    } else if level.uses_fastest_legacy_profile() {
+        compress_fastest(state, last_block, uncompressed_data, output);
+    } else if level.uses_best_legacy_profile() {
+        compress_best_adaptive(state, level, last_block, uncompressed_data, output);
+    } else {
+        compress_at_level(state, level, last_block, uncompressed_data, output);
     }
 }
 

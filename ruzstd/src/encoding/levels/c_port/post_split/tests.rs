@@ -12,13 +12,13 @@ fn prepared_chunk_splits_literals_and_source_span() {
                 ll: 2,
                 ml: 3,
                 raw_offset: 4,
-                encoded_offset_value: None,
+                encoded_offset_value: 0,
             },
             PreparedSequence {
                 ll: 2,
                 ml: 5,
                 raw_offset: 7,
-                encoded_offset_value: None,
+                encoded_offset_value: 0,
             },
         ],
     };
@@ -44,7 +44,7 @@ fn partition_offcode_resolution_rewrites_repcodes_after_raw_partition_like_c() {
             ll: 1,
             ml: 3,
             raw_offset: 4,
-            encoded_offset_value: Some(OffBase::offset_to_c_value(4)),
+            encoded_offset_value: OffBase::offset_to_c_value(4),
         }],
     };
     let second_partition = PreparedBlock {
@@ -53,7 +53,7 @@ fn partition_offcode_resolution_rewrites_repcodes_after_raw_partition_like_c() {
             ll: 1,
             ml: 3,
             raw_offset: 4,
-            encoded_offset_value: Some(1),
+            encoded_offset_value: 1,
         }],
     };
     let initial_repeats = RepeatOffsets::new();
@@ -75,7 +75,7 @@ fn partition_offcode_resolution_rewrites_repcodes_after_raw_partition_like_c() {
 
     assert_eq!(
         second_sequences[0].encoded_offset_value,
-        Some(OffBase::offset_to_c_value(4))
+        OffBase::offset_to_c_value(4)
     );
     assert_eq!(second_sequences[0].raw_offset, 4);
     assert_eq!(decompression_repeats.as_offsets(), [4, 1, 4]);
@@ -90,7 +90,7 @@ fn partition_offcode_resolution_borrows_when_no_rewrite_is_needed() {
             ll: 1,
             ml: 3,
             raw_offset: 4,
-            encoded_offset_value: Some(OffBase::offset_to_c_value(4)),
+            encoded_offset_value: OffBase::offset_to_c_value(4),
         }],
     };
     let mut compression_repeats = RepeatOffsets::new();
@@ -116,13 +116,14 @@ fn derive_block_splits_refuses_tiny_sequence_counts() {
                 ll: 1,
                 ml: 3,
                 raw_offset: 1,
-                encoded_offset_value: None,
+                encoded_offset_value: 0,
             };
             4
         ],
     };
     let block = [b'a'; 20];
     let prefixes = sequence_prefixes(&prepared);
+    let mut estimate_scratch = EstimateScratch::new();
     let splits = derive_block_splits(
         &block,
         &prepared,
@@ -134,6 +135,7 @@ fn derive_block_splits_refuses_tiny_sequence_counts() {
             offset_history: OffsetHistory::new(),
             previous_huff_table: None,
         },
+        &mut estimate_scratch,
     );
 
     assert!(splits.is_empty());
@@ -160,7 +162,7 @@ fn derive_block_splits_finds_cheaper_halves() {
             ll: 1,
             ml: 3,
             raw_offset: 1,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         });
     }
     let prepared = PreparedBlock {
@@ -168,6 +170,7 @@ fn derive_block_splits_finds_cheaper_halves() {
         sequences,
     };
     let prefixes = sequence_prefixes(&prepared);
+    let mut estimate_scratch = EstimateScratch::new();
 
     let splits = derive_block_splits(
         &block,
@@ -180,6 +183,7 @@ fn derive_block_splits_finds_cheaper_halves() {
             offset_history: OffsetHistory::new(),
             previous_huff_table: None,
         },
+        &mut estimate_scratch,
     );
 
     assert!(splits.contains(&300));

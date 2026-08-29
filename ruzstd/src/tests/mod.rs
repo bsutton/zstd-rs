@@ -730,6 +730,7 @@ fn inspect_archive(path: &std::path::Path) {
     use crate::blocks::block::BlockType;
     use crate::blocks::literals_section::{LiteralsSection, LiteralsSectionType};
     use crate::blocks::sequence_section::SequencesHeader;
+    use crate::decoding::dictionary::Dictionary;
     use crate::decoding::frame;
     use crate::decoding::literals_section_decoder::decode_literals;
     use crate::decoding::scratch::DecoderScratch;
@@ -739,10 +740,17 @@ fn inspect_archive(path: &std::path::Path) {
     use std::fs;
 
     let frame_bytes = fs::read(path).unwrap();
+    let dictionary = env::var("RUZSTD_INSPECT_DICTIONARY").ok().map(|path| {
+        let bytes = fs::read(path).unwrap();
+        Dictionary::decode_dict(&bytes).unwrap()
+    });
     let mut source = frame_bytes.as_slice();
     let (frame_header, _) = frame::read_frame_header(&mut source).unwrap();
     let window_size = frame_header.window_size().unwrap() as usize;
     let mut scratch = DecoderScratch::new(window_size);
+    if let Some(dictionary) = dictionary.as_ref() {
+        scratch.init_from_dict(dictionary);
+    }
     let mut block_decoder = crate::decoding::block_decoder::new();
 
     std::println!(

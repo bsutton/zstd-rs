@@ -2,20 +2,21 @@
 
 use alloc::vec::Vec;
 
-use super::superblock::{EntropyTableMode, SequenceEntropyModes, SubBlockSequenceEmission};
+use super::{
+    params::Strategy,
+    superblock::{EntropyTableMode, SequenceEntropyModes, SubBlockSequenceEmission},
+};
 use crate::encoding::{
     blocks::{
         append_compressed_sequence_section, append_predefined_sequence_section,
         append_repeat_sequence_section, append_rle_sequence_section,
         append_sequence_section_with_table_modes, build_compressed_sequence_tables,
-        literal_length_code, match_length_code, offset_code, CompressedSequenceTables,
+        estimate_superblock_sequence_section_size, finish_sequence_tables_after_superblock,
+        prime_sequence_tables_for_repeat, select_c_sequence_table_modes, CompressedSequenceTables,
         PreparedSequence, SequenceTableMode, SequenceTableModes,
     },
     frame_compressor::{FseTables, OffsetHistory},
 };
-use crate::fse::fse_encoder::FSETable;
-
-const REPEAT_TABLE_MAX_SEQUENCES: usize = 64;
 
 pub(super) fn append_sub_block_sequences(
     sequences: &[PreparedSequence],
@@ -120,9 +121,58 @@ pub(super) fn build_compressed_sequence_tables_for_modes(
     modes: SequenceEntropyModes,
     offset_history: OffsetHistory,
 ) -> Option<CompressedSequenceTables> {
-    sequence_modes_need_compressed_tables(modes)
-        .then(|| build_compressed_sequence_tables(sequences, offset_history))
-        .flatten()
+    if !sequence_modes_need_compressed_tables(modes) {
+        return None;
+    }
+    build_compressed_sequence_tables(sequences, offset_history)
+}
+
+pub(super) fn prime_sequence_entropy_tables_for_repeat(
+    sequences: &[PreparedSequence],
+    modes: SequenceEntropyModes,
+    compressed_tables: Option<&CompressedSequenceTables>,
+    fse_tables: &mut FseTables,
+    offset_history: OffsetHistory,
+) -> Option<()> {
+    prime_sequence_tables_for_repeat(
+        sequences,
+        sequence_table_modes(modes),
+        compressed_tables,
+        fse_tables,
+        offset_history,
+    )
+}
+
+pub(super) fn finish_sequence_entropy_tables_after_superblock(
+    modes: SequenceEntropyModes,
+    compressed_tables: Option<&CompressedSequenceTables>,
+    previous_fse_tables: &FseTables,
+    fse_tables: &mut FseTables,
+) -> Option<()> {
+    finish_sequence_tables_after_superblock(
+        sequence_table_modes(modes),
+        compressed_tables,
+        previous_fse_tables,
+        fse_tables,
+    )
+}
+
+pub(super) fn estimate_sequence_entropy_section_size(
+    sequences: &[PreparedSequence],
+    modes: SequenceEntropyModes,
+    compressed_tables: Option<&CompressedSequenceTables>,
+    fse_tables: &FseTables,
+    offset_history: OffsetHistory,
+    write_entropy: bool,
+) -> Option<usize> {
+    estimate_superblock_sequence_section_size(
+        sequences,
+        sequence_table_modes(modes),
+        compressed_tables,
+        fse_tables,
+        offset_history,
+        write_entropy,
+    )
 }
 
 pub(super) fn need_sequence_entropy_tables(modes: SequenceEntropyModes) -> bool {
@@ -135,70 +185,11 @@ pub(super) fn select_sequence_entropy_modes(
     sequences: &[PreparedSequence],
     fse_tables: &FseTables,
     offset_history: OffsetHistory,
+    strategy: Strategy,
 ) -> SequenceEntropyModes {
-    let mut offset_history = offset_history;
-    let mut ll_codes = Vec::with_capacity(sequences.len());
-    let mut ml_codes = Vec::with_capacity(sequences.len());
-    let mut of_codes = Vec::with_capacity(sequences.len());
-
-    for sequence in sequences {
-        let offset_value = if let Some(offset_value) = sequence.encoded_offset_value {
-            offset_history.update_from_offset_value(offset_value, sequence.ll, sequence.raw_offset);
-            offset_value
-        } else {
-            offset_history.encode_offset_value(sequence.raw_offset, sequence.ll)
-        };
-        ll_codes.push(literal_length_code(sequence.ll));
-        ml_codes.push(match_length_code(sequence.ml));
-        of_codes.push(offset_code(offset_value));
-    }
-
-    SequenceEntropyModes {
-        ll: select_stream_entropy_mode(
-            &ll_codes,
-            &fse_tables.ll_default,
-            fse_tables.ll_previous.as_deref(),
-        ),
-        ml: select_stream_entropy_mode(
-            &ml_codes,
-            &fse_tables.ml_default,
-            fse_tables.ml_previous.as_deref(),
-        ),
-        of: select_stream_entropy_mode(
-            &of_codes,
-            &fse_tables.of_default,
-            fse_tables.of_previous.as_deref(),
-        ),
-    }
-}
-
-fn select_stream_entropy_mode(
-    codes: &[u8],
-    default_table: &FSETable,
-    previous_table: Option<&FSETable>,
-) -> EntropyTableMode {
-    let all_same = codes
-        .first()
-        .is_some_and(|first| codes.iter().all(|code| code == first));
-    if all_same && codes.len() > 2 {
-        return EntropyTableMode::Rle;
-    }
-    if let Some(previous_table) = previous_table {
-        if codes.len() < REPEAT_TABLE_MAX_SEQUENCES
-            && codes
-                .iter()
-                .all(|code| previous_table.can_encode_symbol(*code))
-        {
-            return EntropyTableMode::Repeat;
-        }
-    }
-    if codes
-        .iter()
-        .all(|code| default_table.can_encode_symbol(*code))
-    {
-        return EntropyTableMode::Basic;
-    }
-    EntropyTableMode::Compressed
+    let modes =
+        select_c_sequence_table_modes(sequences, fse_tables, offset_history, strategy as u8);
+    sequence_entropy_modes(modes)
 }
 
 fn sequence_modes_are(modes: SequenceEntropyModes, mode: EntropyTableMode) -> bool {
@@ -225,5 +216,22 @@ fn sequence_table_mode(mode: EntropyTableMode) -> SequenceTableMode {
         EntropyTableMode::Rle => SequenceTableMode::Rle,
         EntropyTableMode::Compressed => SequenceTableMode::Compressed,
         EntropyTableMode::Repeat => SequenceTableMode::Repeat,
+    }
+}
+
+fn sequence_entropy_modes(modes: SequenceTableModes) -> SequenceEntropyModes {
+    SequenceEntropyModes {
+        ll: sequence_entropy_mode(modes.ll),
+        ml: sequence_entropy_mode(modes.ml),
+        of: sequence_entropy_mode(modes.of),
+    }
+}
+
+fn sequence_entropy_mode(mode: SequenceTableMode) -> EntropyTableMode {
+    match mode {
+        SequenceTableMode::Predefined => EntropyTableMode::Basic,
+        SequenceTableMode::Rle => EntropyTableMode::Rle,
+        SequenceTableMode::Compressed => EntropyTableMode::Compressed,
+        SequenceTableMode::Repeat => EntropyTableMode::Repeat,
     }
 }

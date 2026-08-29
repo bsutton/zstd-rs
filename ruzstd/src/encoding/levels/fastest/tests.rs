@@ -14,25 +14,25 @@ fn best_split_mid_biases_toward_balanced_decompressed_bytes() {
                 ll: 100,
                 ml: 100,
                 raw_offset: 4,
-                encoded_offset_value: None,
+                encoded_offset_value: 0,
             },
             PreparedSequence {
                 ll: 1,
                 ml: 1,
                 raw_offset: 4,
-                encoded_offset_value: None,
+                encoded_offset_value: 0,
             },
             PreparedSequence {
                 ll: 1,
                 ml: 1,
                 raw_offset: 4,
-                encoded_offset_value: None,
+                encoded_offset_value: 0,
             },
             PreparedSequence {
                 ll: 1,
                 ml: 1,
                 raw_offset: 4,
-                encoded_offset_value: None,
+                encoded_offset_value: 0,
             },
         ],
     };
@@ -49,25 +49,25 @@ fn best_split_mid_keeps_even_sequences_centered() {
                 ll: 2,
                 ml: 2,
                 raw_offset: 4,
-                encoded_offset_value: None,
+                encoded_offset_value: 0,
             },
             PreparedSequence {
                 ll: 2,
                 ml: 2,
                 raw_offset: 4,
-                encoded_offset_value: None,
+                encoded_offset_value: 0,
             },
             PreparedSequence {
                 ll: 2,
                 ml: 2,
                 raw_offset: 4,
-                encoded_offset_value: None,
+                encoded_offset_value: 0,
             },
             PreparedSequence {
                 ll: 2,
                 ml: 2,
                 raw_offset: 4,
-                encoded_offset_value: None,
+                encoded_offset_value: 0,
             },
         ],
     };
@@ -89,7 +89,7 @@ fn derive_best_partitions_respects_partition_budget() {
             ll: 1,
             ml: 3,
             raw_offset: 4,
-            encoded_offset_value: None,
+            encoded_offset_value: 0,
         };
         sequence_count
     ];

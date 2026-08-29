@@ -1,10 +1,18 @@
 //! Frame-level adapter for the C optimal no-dictionary path.
 
+mod attached;
+mod strategy;
+
+use attached::{attached_dict_cctx, initialize_attached_dictionary};
+use strategy::{
+    encode_block_opt_no_dict_with_state, opt_parser_strategy, selected_opt_frame_strategy,
+    OptFrameStrategy,
+};
+
 use alloc::vec::Vec;
 
 use super::{
     block_compressor::{select_block_compressor, DictionaryMode},
-    block_policy::BlockEncodingPolicy,
     c_frame_header::write_frame_header_no_dict,
     cctx_params::{CctxParameters, ParamSwitch},
     compress_bound::compress_bound,
@@ -23,16 +31,13 @@ use super::{
     opt_block::prime_btultra2_stats_no_dict,
     opt_dict::load_prefix,
     opt_encode::{
-        encode_block_btopt_no_dict_with_state_and_policy,
-        encode_block_btultra_no_dict_with_state_and_policy,
+        encode_block_opt_attached_dict_with_state_and_policy_and_ldm_in_mode,
         encode_block_opt_ext_dict_with_state_and_policy_and_ldm_in_mode,
-        encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode,
+        OptAttachedDictBlockSource,
     },
     opt_state::OptBlockState,
-    params::{CompressionParameters, Strategy},
-    sequence_store::RepeatOffsets,
+    params::Strategy,
 };
-use crate::encoding::blocks::BlockCompressionConfig;
 
 const ZSTD_PREDEF_THRESHOLD: usize = 8;
 
@@ -65,12 +70,44 @@ pub(crate) fn encode_frame_btopt_with_dictionary(
     encode_frame_opt_with_dictionary(src, level, dictionary, OptFrameStrategy::BtOpt)
 }
 
+pub(crate) fn encode_frame_btopt_with_dictionary_and_cctx(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+    cctx: CctxParameters,
+) -> Vec<u8> {
+    encode_frame_opt_with_dictionary_with_cctx(
+        src,
+        level,
+        dictionary,
+        OptFrameStrategy::BtOpt,
+        cctx,
+        false,
+    )
+}
+
 pub(crate) fn encode_frame_btultra_with_dictionary(
     src: &[u8],
     level: i32,
     dictionary: ParsedDictionary<'_>,
 ) -> Vec<u8> {
     encode_frame_opt_with_dictionary(src, level, dictionary, OptFrameStrategy::BtUltra)
+}
+
+pub(crate) fn encode_frame_btultra_with_dictionary_and_cctx(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+    cctx: CctxParameters,
+) -> Vec<u8> {
+    encode_frame_opt_with_dictionary_with_cctx(
+        src,
+        level,
+        dictionary,
+        OptFrameStrategy::BtUltra,
+        cctx,
+        false,
+    )
 }
 
 pub(crate) fn encode_frame_btultra2_with_dictionary(
@@ -92,29 +129,48 @@ pub(crate) fn encode_frame_btultra2_with_dictionary(
     )
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum OptFrameStrategy {
-    BtOpt,
-    BtUltra,
-    BtUltra2,
+pub(crate) fn encode_frame_btultra2_with_dictionary_and_cctx(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+    cctx: CctxParameters,
+) -> Vec<u8> {
+    let selected = select_block_compressor(
+        Strategy::BtUltra2,
+        ParamSwitch::Disable,
+        DictionaryMode::DictMatchState,
+    )
+    .expect("C supports btultra2 dictionary routing through btultra");
+    encode_frame_opt_with_dictionary_with_cctx(
+        src,
+        level,
+        dictionary,
+        selected_opt_frame_strategy(selected.strategy),
+        cctx,
+        false,
+    )
 }
 
-fn selected_opt_frame_strategy(strategy: Strategy) -> OptFrameStrategy {
-    match strategy {
-        Strategy::BtOpt => OptFrameStrategy::BtOpt,
-        Strategy::BtUltra => OptFrameStrategy::BtUltra,
-        Strategy::BtUltra2 => OptFrameStrategy::BtUltra2,
-        _ => unreachable!("only optimal strategies route through opt_frame"),
-    }
-}
-
-fn opt_parser_strategy(strategy: OptFrameStrategy) -> super::opt_state::OptParserStrategy {
-    match strategy {
-        OptFrameStrategy::BtOpt => super::opt_state::OptParserStrategy::BtOpt,
-        OptFrameStrategy::BtUltra | OptFrameStrategy::BtUltra2 => {
-            super::opt_state::OptParserStrategy::BtUltra
-        }
-    }
+pub(crate) fn encode_frame_opt_with_prepared_dictionary_and_cctx(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+    cctx: CctxParameters,
+) -> Vec<u8> {
+    let selected = select_block_compressor(
+        cctx.compression.strategy,
+        ParamSwitch::Disable,
+        DictionaryMode::DictMatchState,
+    )
+    .expect("C supports prepared dictionaries for every optimal strategy");
+    encode_frame_opt_with_dictionary_with_cctx(
+        src,
+        level,
+        dictionary,
+        selected_opt_frame_strategy(selected.strategy),
+        cctx,
+        true,
+    )
 }
 
 fn encode_frame_opt_no_dict(src: &[u8], level: i32, strategy: OptFrameStrategy) -> Vec<u8> {
@@ -237,13 +293,15 @@ fn encode_frame_opt_no_dict_resolved(
         if let Some(store) = ldm_store.as_mut() {
             store.skip_bytes(block_size as u32);
         }
+        let encoded_size = encoded_block.bytes.len();
         frame_state.record_encoded_block(
             block_size,
-            encoded_block.bytes.len(),
+            encoded_size,
             encoded_block.repeat_offsets,
             encoded_block.new_huffman_table,
         );
         output.extend_from_slice(&encoded_block.bytes);
+        opt_state.recycle_block_bytes(encoded_block.bytes);
         block_start = block_end;
     }
 
@@ -256,7 +314,35 @@ fn encode_frame_opt_with_dictionary(
     dictionary: ParsedDictionary<'_>,
     strategy: OptFrameStrategy,
 ) -> Vec<u8> {
-    let mut context = DictionaryFrameContext::new(src, level, dictionary);
+    let cctx = CctxParameters::for_level_with_mode(
+        level,
+        src.len() as u64,
+        dictionary.content.len(),
+        super::params::CParamMode::NoAttachDict,
+    );
+    encode_frame_opt_with_dictionary_with_cctx(src, level, dictionary, strategy, cctx, false)
+}
+
+fn encode_frame_opt_with_dictionary_with_cctx(
+    src: &[u8],
+    level: i32,
+    dictionary: ParsedDictionary<'_>,
+    strategy: OptFrameStrategy,
+    cctx: CctxParameters,
+    prepared_dictionary: bool,
+) -> Vec<u8> {
+    let attached_dict = prepared_dictionary
+        .then(|| attached_dict_cctx(level, src.len(), dictionary.raw_size, cctx, strategy))
+        .flatten();
+    let dictionary_params =
+        attached_dict.map_or(cctx.compression, |attached| attached.dictionary_params);
+    let cctx = attached_dict.map_or(cctx, |attached| attached.active_cctx);
+    let mut context = DictionaryFrameContext::new_with_cctx_and_dictionary_params(
+        src,
+        dictionary,
+        cctx,
+        dictionary_params,
+    );
     let params = context.cctx.compression;
     let block_encode_mode = BlockEncodeMode::from_cctx(context.cctx);
     let ldm_sequences = if context.cctx.ldm.enable_ldm == ParamSwitch::Enable {
@@ -285,7 +371,16 @@ fn encode_frame_opt_with_dictionary(
     if let Some(seeds) = context.opt_price_seeds.take() {
         opt_state.price_state.set_dictionary_seeds(seeds);
     }
-    load_prefix(&mut opt_state, &context.combined, context.dict_len, params);
+    let attached_dictionary = attached_dict.map(|attached| {
+        initialize_attached_dictionary(
+            &context.combined[..context.dict_len],
+            attached.dictionary_params,
+            &mut opt_state,
+        )
+    });
+    if attached_dictionary.is_none() {
+        load_prefix(&mut opt_state, &context.combined, context.dict_len, params);
+    }
 
     if src.is_empty() {
         let encoded_block = encode_block_opt_no_dict_with_state(
@@ -343,7 +438,25 @@ fn encode_frame_opt_with_dictionary(
             offset_history: &mut context.frame_state.offset_history,
         };
         let policy = FrameBlockState::block_policy(block_start == context.dict_len);
-        let encoded_block = if loaded_dict_end == 0 {
+        let encoded_block = if let Some(dictionary) = attached_dictionary {
+            encode_block_opt_attached_dict_with_state_and_policy_and_ldm_in_mode(
+                OptAttachedDictBlockSource {
+                    src: &context.combined,
+                    block_range: block_start..block_end,
+                    dictionary,
+                },
+                block_end == src_end,
+                params,
+                context.frame_state.block_config,
+                context.frame_state.repeat_offsets,
+                &mut opt_state,
+                block_context,
+                opt_parser_strategy(strategy),
+                block_encode_mode,
+                policy,
+                ldm_cursor.as_mut(),
+            )
+        } else if loaded_dict_end == 0 {
             encode_block_opt_no_dict_with_state(
                 GreedyBlockSource {
                     src: &context.combined,
@@ -384,96 +497,17 @@ fn encode_frame_opt_with_dictionary(
         if let Some(store) = ldm_store.as_mut() {
             store.skip_bytes(block_size as u32);
         }
+        let encoded_size = encoded_block.bytes.len();
         context.frame_state.record_encoded_block(
             block_size,
-            encoded_block.bytes.len(),
+            encoded_size,
             encoded_block.repeat_offsets,
             encoded_block.new_huffman_table,
         );
         context.output.extend_from_slice(&encoded_block.bytes);
+        opt_state.recycle_block_bytes(encoded_block.bytes);
         block_start = block_end;
     }
 
     context.output
-}
-
-#[allow(clippy::too_many_arguments)]
-fn encode_block_opt_no_dict_with_state(
-    source: GreedyBlockSource<'_>,
-    last_block: bool,
-    params: CompressionParameters,
-    config: BlockCompressionConfig,
-    repeat_offsets: RepeatOffsets,
-    opt_state: &mut OptBlockState,
-    context: GreedyBlockEncodeContext<'_, '_>,
-    strategy: OptFrameStrategy,
-    block_encode_mode: BlockEncodeMode,
-    policy: BlockEncodingPolicy,
-    ldm_cursor: Option<&mut LdmOptCursor<'_>>,
-) -> super::greedy_block::GreedyEncodedBlock {
-    let target_mode = block_encode_mode.target_c_block_size().is_some();
-    match strategy {
-        OptFrameStrategy::BtOpt => {
-            if ldm_cursor.is_some() || target_mode {
-                encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode(
-                    source,
-                    last_block,
-                    params,
-                    config,
-                    repeat_offsets,
-                    opt_state,
-                    context,
-                    super::opt_state::OptParserStrategy::BtOpt,
-                    block_encode_mode,
-                    policy,
-                    ldm_cursor,
-                )
-            } else {
-                encode_block_btopt_no_dict_with_state_and_policy(
-                    source,
-                    last_block,
-                    params,
-                    config,
-                    repeat_offsets,
-                    opt_state,
-                    context,
-                    block_encode_mode.split_block_enabled(),
-                    policy,
-                )
-            }
-        }
-        OptFrameStrategy::BtUltra | OptFrameStrategy::BtUltra2 => {
-            debug_assert!(matches!(
-                params.strategy,
-                Strategy::BtUltra | Strategy::BtUltra2
-            ));
-            if strategy == OptFrameStrategy::BtUltra2 || ldm_cursor.is_some() || target_mode {
-                encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode(
-                    source,
-                    last_block,
-                    params,
-                    config,
-                    repeat_offsets,
-                    opt_state,
-                    context,
-                    super::opt_state::OptParserStrategy::BtUltra,
-                    block_encode_mode,
-                    policy,
-                    ldm_cursor,
-                )
-            } else {
-                encode_block_btultra_no_dict_with_state_and_policy(
-                    source,
-                    last_block,
-                    params,
-                    config,
-                    repeat_offsets,
-                    opt_state,
-                    context,
-                    block_encode_mode.split_block_enabled(),
-                    policy,
-                )
-            }
-        }
-    }
 }

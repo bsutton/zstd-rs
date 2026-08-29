@@ -3,8 +3,10 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use super::block_emit::{append_prepared_block_or_raw, PreparedBlockEmission};
-use super::block_policy::{should_skip_sequence_build, BlockEncodingPolicy};
+use super::block_emit::{
+    append_prepared_block_or_raw, append_stored_block_or_raw, PreparedBlockEmission,
+};
+use super::block_policy::BlockEncodingPolicy;
 use super::frame_state::BlockEncodeMode;
 use super::greedy::{
     compress_block_btlazy2_no_dict_with_state_and_loaded_dict,
@@ -13,16 +15,22 @@ use super::greedy::{
     compress_block_lazy_no_dict_with_state_and_loaded_dict, GreedyBlockOutput, GreedyMatchState,
 };
 use super::params::CompressionParameters;
-use super::sequence_store::RepeatOffsets;
-use super::target_block::encode_target_block_with_superblock_fallback;
+use super::sequence_store::{
+    prepare_stored_literal_words_in, prepare_stored_sequence_words_in, prepared_block_into_words,
+    prepared_words_into_block, RepeatOffsets,
+};
+use super::target_block::{encode_target_block_with_superblock_fallback, TargetBlockOptions};
 use crate::{
     encoding::{
-        block_header::BlockHeader,
-        blocks::{BlockCompressionConfig, PreparedBlock, PreparedSequence},
+        blocks::{BlockCompressionConfig, PreparedBlock, StoredBlockRef},
         frame_compressor::{FseTableSnapshot, FseTables, OffsetHistory},
     },
     huff0::huff0_encoder::HuffmanTable,
 };
+
+mod special;
+
+pub(super) use special::encode_special_block;
 
 pub(crate) struct GreedyPreparedBlock {
     pub(crate) prepared: PreparedBlock,
@@ -115,7 +123,7 @@ fn prepare_block_hash_chain_no_dict_with_state(
     loaded_dict_end: usize,
 ) -> GreedyPreparedBlock {
     let block = &src[block_range.clone()];
-    let output = compress_block_for_depth_with_state(
+    let mut output = compress_block_for_depth_with_state(
         src,
         block_range,
         params,
@@ -125,10 +133,12 @@ fn prepare_block_hash_chain_no_dict_with_state(
         loaded_dict_end,
     );
     let prepared = prepare_from_greedy_output(block, repeat_offsets, &output);
+    let output_repeat_offsets = output.repeat_offsets;
+    state.recycle_sequence_store(core::mem::take(&mut output.sequences));
 
     GreedyPreparedBlock {
         prepared,
-        repeat_offsets: output.repeat_offsets,
+        repeat_offsets: output_repeat_offsets,
     }
 }
 
@@ -210,27 +220,22 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_policy(
     depth: LazyBlockStrategy,
     policy: BlockEncodingPolicy,
 ) -> GreedyEncodedBlock {
-    let mut bytes = Vec::new();
-
-    if let Some(encoded) = encode_special_block(src, last_block, repeat_offsets, &mut bytes) {
-        return encoded;
-    }
-
-    let previous_fse = context.fse_tables.snapshot_previous();
-    let previous_offsets = *context.offset_history;
-    let prepared = prepare_block_hash_chain_no_dict(src, params, repeat_offsets, depth);
-    encode_prepared_block(
-        src,
+    let mut match_state = GreedyMatchState::new();
+    encode_block_hash_chain_no_dict_with_state_and_policy_in_mode(
+        GreedyBlockSource {
+            src,
+            block_range: 0..src.len(),
+            loaded_dict_end: 0,
+        },
         last_block,
         params,
         config,
         repeat_offsets,
-        prepared,
-        policy,
-        previous_fse,
-        previous_offsets,
+        &mut match_state,
         context,
-        bytes,
+        depth,
+        policy,
+        BlockEncodeMode::Normal,
     )
 }
 
@@ -326,35 +331,73 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy_in_mode(
         return encoded;
     }
 
-    let previous_fse = context.fse_tables.snapshot_previous();
-    let previous_offsets = *context.offset_history;
+    if let Some(target_size) = block_encode_mode.target_c_block_size() {
+        let prepared = prepare_block_hash_chain_no_dict_with_state(
+            source.src,
+            source.block_range.clone(),
+            params,
+            repeat_offsets,
+            match_state,
+            depth,
+            source.loaded_dict_end,
+        );
+        return encode_target_block_with_superblock_fallback(
+            block,
+            last_block,
+            TargetBlockOptions {
+                target_c_block_size: target_size,
+                strategy: params.strategy,
+                allow_rle: policy.allows_rle(),
+                repeat_offsets,
+            },
+            &prepared,
+            context,
+            bytes,
+        );
+    }
+
+    if config.uses_c_greedy_native_sequence_store() {
+        let output = compress_block_for_depth_with_state(
+            source.src,
+            source.block_range,
+            params,
+            repeat_offsets,
+            match_state,
+            depth,
+            source.loaded_dict_end,
+        );
+        return encode_stored_block(
+            block,
+            last_block,
+            params,
+            config,
+            repeat_offsets,
+            output,
+            policy,
+            context,
+            match_state,
+            bytes,
+        );
+    }
+
     let prepared = prepare_block_hash_chain_no_dict_with_state(
         source.src,
-        source.block_range.clone(),
+        source.block_range,
         params,
         repeat_offsets,
         match_state,
         depth,
         source.loaded_dict_end,
     );
-    if let Some(target_size) = block_encode_mode.target_c_block_size() {
-        return encode_target_block_with_superblock_fallback(
-            block,
-            last_block,
-            target_size,
-            repeat_offsets,
-            &prepared,
-            context,
-            bytes,
-        );
-    }
+    let previous_fse = context.fse_tables.snapshot_previous();
+    let previous_offsets = *context.offset_history;
     encode_prepared_block(
         block,
         last_block,
         params,
         config,
         repeat_offsets,
-        prepared,
+        &prepared,
         policy,
         previous_fse,
         previous_offsets,
@@ -364,13 +407,67 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy_in_mode(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub(super) fn encode_stored_block(
+    block: &[u8],
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    mut stored: GreedyBlockOutput,
+    policy: BlockEncodingPolicy,
+    context: GreedyBlockEncodeContext<'_, '_>,
+    match_state: &mut GreedyMatchState,
+    mut bytes: Vec<u8>,
+) -> GreedyEncodedBlock {
+    let compressed_repeat_offsets = stored.repeat_offsets;
+    let literal_store = prepare_stored_literal_words_in(
+        block,
+        &stored.sequences,
+        stored.last_literals,
+        Default::default(),
+    );
+    let emission = append_stored_block_or_raw(
+        block,
+        last_block,
+        params.strategy,
+        policy,
+        config,
+        StoredBlockRef {
+            literals: &literal_store.literals,
+            sequences: &stored.sequences,
+        },
+        compressed_repeat_offsets,
+        context.previous_huff_table,
+        None,
+        None,
+        context.fse_tables,
+        context.offset_history,
+        &mut bytes,
+    );
+    match_state.recycle_sequence_store(core::mem::take(&mut stored.sequences));
+
+    match emission {
+        PreparedBlockEmission::Raw | PreparedBlockEmission::Rle => GreedyEncodedBlock {
+            bytes,
+            repeat_offsets,
+            new_huffman_table: None,
+        },
+        PreparedBlockEmission::Compressed { new_huffman_table } => GreedyEncodedBlock {
+            bytes,
+            repeat_offsets: compressed_repeat_offsets,
+            new_huffman_table,
+        },
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(super) fn encode_prepared_block(
     block: &[u8],
     last_block: bool,
     params: CompressionParameters,
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
-    prepared: GreedyPreparedBlock,
+    prepared: &GreedyPreparedBlock,
     policy: BlockEncodingPolicy,
     previous_fse: FseTableSnapshot,
     previous_offsets: OffsetHistory,
@@ -410,73 +507,28 @@ pub(super) fn prepare_from_greedy_output(
     initial_repeat_offsets: RepeatOffsets,
     output: &GreedyBlockOutput,
 ) -> PreparedBlock {
-    let mut literals = Vec::with_capacity(src.len());
-    let mut sequences = Vec::with_capacity(output.sequences.len());
-    let mut repeat_offsets = initial_repeat_offsets;
-    let mut anchor = 0_usize;
-
-    for sequence in &output.sequences {
-        let lit_len = sequence.lit_len as usize;
-        let match_len = sequence.match_len as usize;
-        let lit_end = anchor + lit_len;
-        debug_assert!(lit_end <= src.len());
-        literals.extend_from_slice(&src[anchor..lit_end]);
-
-        let raw_offset = repeat_offsets.resolve(sequence.off_base, sequence.lit_len);
-        sequences.push(PreparedSequence {
-            ll: sequence.lit_len,
-            ml: sequence.match_len,
-            raw_offset,
-            encoded_offset_value: Some(sequence.off_base.to_c_value()),
-        });
-        repeat_offsets.update(sequence.off_base, sequence.lit_len);
-        anchor = lit_end + match_len;
-        debug_assert!(anchor <= src.len());
-    }
-
-    let tail_end = anchor + output.last_literals as usize;
-    debug_assert_eq!(tail_end, src.len());
-    literals.extend_from_slice(&src[anchor..tail_end]);
-
-    PreparedBlock {
-        literals,
-        sequences,
-    }
+    prepare_from_greedy_output_in(
+        src,
+        initial_repeat_offsets,
+        output,
+        PreparedBlock {
+            literals: Vec::new(),
+            sequences: Vec::new(),
+        },
+    )
 }
 
-pub(super) fn encode_special_block(
-    block: &[u8],
-    last_block: bool,
-    repeat_offsets: RepeatOffsets,
-    bytes: &mut Vec<u8>,
-) -> Option<GreedyEncodedBlock> {
-    if block.is_empty() {
-        write_raw_block(last_block, 0, block, bytes);
-        return Some(GreedyEncodedBlock {
-            bytes: core::mem::take(bytes),
-            repeat_offsets,
-            new_huffman_table: None,
-        });
-    }
-
-    if should_skip_sequence_build(block.len()) {
-        write_raw_block(last_block, block.len() as u32, block, bytes);
-        return Some(GreedyEncodedBlock {
-            bytes: core::mem::take(bytes),
-            repeat_offsets,
-            new_huffman_table: None,
-        });
-    }
-
-    None
-}
-
-fn write_raw_block(last_block: bool, block_size: u32, data: &[u8], output: &mut Vec<u8>) {
-    let header = BlockHeader {
-        last_block,
-        block_type: crate::blocks::block::BlockType::Raw,
-        block_size,
-    };
-    header.serialize(output);
-    output.extend_from_slice(data);
+pub(super) fn prepare_from_greedy_output_in(
+    src: &[u8],
+    initial_repeat_offsets: RepeatOffsets,
+    output: &GreedyBlockOutput,
+    prepared: PreparedBlock,
+) -> PreparedBlock {
+    prepared_words_into_block(prepare_stored_sequence_words_in(
+        src,
+        initial_repeat_offsets,
+        &output.sequences,
+        output.last_literals,
+        prepared_block_into_words(prepared),
+    ))
 }

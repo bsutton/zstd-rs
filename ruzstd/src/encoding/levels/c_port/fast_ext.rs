@@ -89,14 +89,13 @@ fn compress_block_fast_ext_dict_with_state_mls<const MIN_MATCH: u32>(
     debug_assert!(block_range.end <= src.len());
 
     let mut rep = repeat_offsets.as_offsets();
-    let mut sequences = Vec::new();
     let block_start = block_range.start;
     let block_end = block_range.end;
     let block_len = block_end - block_start;
 
     if block_len <= HASH_READ_SIZE {
         return FastBlockOutput {
-            sequences,
+            sequences: Vec::new(),
             last_literals: block_len as u32,
             repeat_offsets,
         };
@@ -117,6 +116,7 @@ fn compress_block_fast_ext_dict_with_state_mls<const MIN_MATCH: u32>(
             0,
         );
     }
+    let mut sequences = Vec::new();
     let ilimit = block_end - HASH_READ_SIZE;
 
     let hash_table = state.table_for(hlog);

@@ -2,8 +2,11 @@
 //! `zstd_lazy.c`.
 
 use super::{
-    greedy::GreedyMatchState, hash_chain_match::MatchSearchConfig, params::CompressionParameters,
+    greedy::GreedyMatchState,
+    hash_chain_match::MatchSearchConfig,
+    params::CompressionParameters,
     sequence_store::OffBase,
+    unaligned::{read32, read64},
 };
 
 const TAG_BITS: u32 = 8;
@@ -14,30 +17,61 @@ const MAX_MATCH_END_POSITIONS_TO_UPDATE: usize = 32;
 const ROW_HASH_CACHE_SIZE: usize = 8;
 const ROW_HASH_CACHE_MASK: usize = ROW_HASH_CACHE_SIZE - 1;
 
-pub(super) fn row_find_best_match(
+pub(super) fn row_find_best_match<const ATTACHED_DICT: bool>(
     src: &[u8],
     ip: usize,
     block_end: usize,
     off_base: &mut u32,
     state: &mut GreedyMatchState,
-    config: MatchSearchConfig,
+    config: MatchSearchConfig<'_>,
+    no_dict_search: Option<crate::kernel::row::NoDictSearchFn>,
 ) -> usize {
     let params = config.params;
+    debug_assert_eq!(config.attached_dictionary.is_some(), ATTACHED_DICT);
+    if !ATTACHED_DICT {
+        // SAFETY: the caller and frame state establish the source bounds and
+        // exact row-table/cache relationship required by the selected kernel.
+        return unsafe {
+            no_dict_search.expect("normal row search is selected once per block")(
+                src,
+                ip,
+                block_end,
+                config.lowest_prefix_index(ip),
+                params.hash_log,
+                params.search_log,
+                state.hash_salt,
+                state.lazy_skipping,
+                &mut state.hash_table,
+                &mut state.tag_table,
+                &mut state.row_hash_cache,
+                &mut state.next_to_update,
+                &mut state.hash_salt_entropy,
+                off_base,
+            )
+        };
+    }
+    debug_assert!(no_dict_search.is_none());
     match row_log(params) {
-        4 => row_find_best_match_impl::<4>(src, ip, block_end, off_base, state, config),
-        5 => row_find_best_match_impl::<5>(src, ip, block_end, off_base, state, config),
-        6 => row_find_best_match_impl::<6>(src, ip, block_end, off_base, state, config),
+        4 => row_find_best_match_impl::<4, ATTACHED_DICT>(
+            src, ip, block_end, off_base, state, config,
+        ),
+        5 => row_find_best_match_impl::<5, ATTACHED_DICT>(
+            src, ip, block_end, off_base, state, config,
+        ),
+        6 => row_find_best_match_impl::<6, ATTACHED_DICT>(
+            src, ip, block_end, off_base, state, config,
+        ),
         _ => unreachable!("row_log is clamped to 4..=6"),
     }
 }
 
-fn row_find_best_match_impl<const ROW_LOG: u32>(
+fn row_find_best_match_impl<const ROW_LOG: u32, const ATTACHED_DICT: bool>(
     src: &[u8],
     ip: usize,
     block_end: usize,
     off_base: &mut u32,
     state: &mut GreedyMatchState,
-    config: MatchSearchConfig,
+    config: MatchSearchConfig<'_>,
 ) -> usize {
     let params = config.params;
     let min_match = config.min_match;
@@ -66,61 +100,187 @@ fn row_find_best_match_impl<const ROW_LOG: u32>(
 
     let row_start = ((hash >> TAG_BITS) as usize) << ROW_LOG;
     let tag = (hash & TAG_MASK) as u8;
-    // SAFETY: row_start is derived from row_hash_log bits, shifted by ROW_LOG,
-    // and the row tables are sized to 1 << params.hash_log.
-    let tag_row = unsafe {
-        let row_ptr = state.tag_table.as_ptr().add(row_start);
-        core::slice::from_raw_parts(row_ptr, row_entries)
-    };
+    let tag_row = super::row_table::tags(&state.tag_table, row_start, row_entries);
     let head = usize::from(tag_row[0] & row_mask as u8);
-    let mut best_len = 3usize;
     let mut matches = row_match_mask(tag_row, tag, head);
+    let mut best_len = 3usize;
+    let mut attempts = 0usize;
 
-    {
-        let mut attempts = 0usize;
-        while matches != 0 && attempts < max_attempts {
-            let step = matches.trailing_zeros() as usize;
-            matches &= matches - 1;
-            let pos = (head + step) & row_mask;
-            if pos == 0 {
-                continue;
-            }
+    while matches != 0 && attempts < max_attempts {
+        let step = matches.trailing_zeros() as usize;
+        matches &= matches - 1;
+        let pos = (head + step) & row_mask;
+        if pos == 0 {
+            continue;
+        }
 
-            // SAFETY: pos is masked to the current row width.
-            let match_index = unsafe { *state.hash_table.get_unchecked(row_start + pos) as usize };
-            if match_index < low_limit {
+        let match_index =
+            super::row_table::entry(&state.hash_table, row_start, pos, row_mask) as usize;
+        if match_index < low_limit {
+            break;
+        }
+        if match_index >= curr {
+            continue;
+        }
+        attempts += 1;
+
+        let mut current_len = 0usize;
+        if read32(src, match_index + best_len - 3) == read32(src, ip + best_len - 3) {
+            current_len = super::hash_chain_match::count_match(src, ip, match_index, block_end);
+        }
+
+        if current_len > best_len {
+            best_len = current_len;
+            *off_base = OffBase::offset_to_c_value((curr - match_index) as u32);
+            if ip + current_len == block_end {
                 break;
-            }
-            if match_index >= curr {
-                continue;
-            }
-            attempts += 1;
-
-            let mut current_len = 0usize;
-            if read32(src, match_index + best_len - 3) == read32(src, ip + best_len - 3) {
-                current_len = super::hash_chain_match::count_match(src, ip, match_index, block_end);
-            }
-
-            if current_len > best_len {
-                best_len = current_len;
-                *off_base = OffBase::offset_to_c_value((curr - match_index) as u32);
-                if ip + current_len == block_end {
-                    break;
-                }
             }
         }
     }
 
-    // SAFETY: row_start is bounded as above and insert_pos is masked to the row.
-    unsafe {
-        let insert_pos = next_row_index(state.tag_table.get_unchecked_mut(row_start), row_mask);
-        let row_pos = row_start + insert_pos;
-        *state.tag_table.get_unchecked_mut(row_pos) = tag;
-        *state.hash_table.get_unchecked_mut(row_pos) = state.next_to_update as u32;
-    }
+    let insert_pos = super::row_table::next_index(&mut state.tag_table, row_start, row_mask);
+    super::row_table::insert(
+        &mut state.hash_table,
+        &mut state.tag_table,
+        row_start,
+        insert_pos,
+        row_mask,
+        tag,
+        state.next_to_update as u32,
+    );
     state.next_to_update += 1;
 
+    debug_assert_eq!(config.attached_dictionary.is_some(), ATTACHED_DICT);
+    if ATTACHED_DICT {
+        let attached = config
+            .attached_dictionary
+            .expect("attached row specialization carries dictionary state");
+        best_len = row_find_best_attached_dictionary::<ROW_LOG>(
+            src,
+            ip,
+            block_end,
+            off_base,
+            best_len,
+            max_attempts - attempts,
+            attached,
+        );
+    }
+
     best_len
+}
+
+#[allow(clippy::too_many_arguments)]
+fn row_find_best_attached_dictionary<const ROW_LOG: u32>(
+    src: &[u8],
+    ip: usize,
+    block_end: usize,
+    off_base: &mut u32,
+    mut best_len: usize,
+    mut attempts: usize,
+    attached: super::hash_chain_match::AttachedDictionarySearch<'_>,
+) -> usize {
+    let row_entries = 1usize << ROW_LOG;
+    let row_mask = row_entries - 1;
+    let row_hash_log = attached.params.hash_log - ROW_LOG;
+    let dictionary_size = attached.src.len();
+    let dictionary_index_end = match attached.dictionary_index_start.checked_add(dictionary_size) {
+        Some(end) => end,
+        None => return best_len,
+    };
+    if attempts == 0
+        || dictionary_size == 0
+        || attached.active_dict_limit < dictionary_index_end
+        || attached.active_dict_limit < attached.active_prefix_start
+    {
+        return best_len;
+    }
+
+    let hash = hash_ptr_unsalted(src, ip, row_hash_log + TAG_BITS, attached.params.min_match);
+    let row_start = ((hash >> TAG_BITS) as usize) << ROW_LOG;
+    let tag = (hash & TAG_MASK) as u8;
+    if row_start + row_entries > attached.state.tag_table.len()
+        || row_start + row_entries > attached.state.hash_table.len()
+    {
+        return best_len;
+    }
+
+    let tag_row = super::row_table::tags(&attached.state.tag_table, row_start, row_entries);
+    let head = usize::from(tag_row[0] & row_mask as u8);
+    let mut matches = row_match_mask(tag_row, tag, head);
+    let dms_index_delta = attached.active_dict_limit - dictionary_index_end;
+    let active_index_delta = attached.active_dict_limit - attached.active_prefix_start;
+
+    while matches != 0 && attempts > 0 {
+        let step = matches.trailing_zeros() as usize;
+        matches &= matches - 1;
+        let pos = (head + step) & row_mask;
+        if pos == 0 {
+            continue;
+        }
+
+        let match_index =
+            super::row_table::entry(&attached.state.hash_table, row_start, pos, row_mask) as usize;
+        if match_index < attached.dictionary_index_start {
+            break;
+        }
+        let dictionary_offset = match_index - attached.dictionary_index_start;
+        if dictionary_offset + 4 > dictionary_size {
+            continue;
+        }
+        attempts -= 1;
+
+        let mut current_len = 0usize;
+        if read32(attached.src, dictionary_offset) == read32(src, ip) {
+            current_len = count_match_2segments(
+                src,
+                ip + 4,
+                attached.src,
+                dictionary_offset + 4,
+                block_end,
+                attached.active_prefix_start,
+            ) + 4;
+        }
+
+        if current_len > best_len {
+            best_len = current_len;
+            let translated_match_index = match_index + dms_index_delta - active_index_delta;
+            debug_assert!(ip > translated_match_index);
+            *off_base = OffBase::offset_to_c_value((ip - translated_match_index) as u32);
+            if ip + current_len == block_end {
+                break;
+            }
+        }
+    }
+
+    best_len
+}
+
+fn count_match_2segments(
+    src: &[u8],
+    mut ip: usize,
+    dict: &[u8],
+    mut match_index: usize,
+    block_end: usize,
+    prefix_start: usize,
+) -> usize {
+    let start = ip;
+    while ip < block_end {
+        let match_byte = if match_index < dict.len() {
+            dict[match_index]
+        } else {
+            let prefix_index = prefix_start + (match_index - dict.len());
+            if prefix_index >= src.len() {
+                break;
+            }
+            src[prefix_index]
+        };
+        if src[ip] != match_byte {
+            break;
+        }
+        ip += 1;
+        match_index += 1;
+    }
+    ip - start
 }
 
 fn update_rows<const ROW_LOG: u32>(
@@ -130,7 +290,7 @@ fn update_rows<const ROW_LOG: u32>(
     min_match: u32,
     state: &mut GreedyMatchState,
 ) {
-    update_rows_internal::<ROW_LOG>(src, target, params, min_match, state, true);
+    update_rows_internal::<ROW_LOG>(src, target, 0, params, min_match, state, true);
 }
 
 pub(super) fn fill_hash_cache(
@@ -183,10 +343,21 @@ pub(super) fn load_dictionary_rows(
     min_match: u32,
     state: &mut GreedyMatchState,
 ) {
+    load_dictionary_rows_at_index_base(src, target, 0, params, min_match, state);
+}
+
+pub(super) fn load_dictionary_rows_at_index_base(
+    src: &[u8],
+    target: usize,
+    index_base: usize,
+    params: CompressionParameters,
+    min_match: u32,
+    state: &mut GreedyMatchState,
+) {
     match row_log(params) {
-        4 => update_rows_internal::<4>(src, target, params, min_match, state, false),
-        5 => update_rows_internal::<5>(src, target, params, min_match, state, false),
-        6 => update_rows_internal::<6>(src, target, params, min_match, state, false),
+        4 => update_rows_internal::<4>(src, target, index_base, params, min_match, state, false),
+        5 => update_rows_internal::<5>(src, target, index_base, params, min_match, state, false),
+        6 => update_rows_internal::<6>(src, target, index_base, params, min_match, state, false),
         _ => unreachable!("row_log is clamped to 4..=6"),
     }
 }
@@ -194,6 +365,7 @@ pub(super) fn load_dictionary_rows(
 fn update_rows_internal<const ROW_LOG: u32>(
     src: &[u8],
     target: usize,
+    index_base: usize,
     params: CompressionParameters,
     min_match: u32,
     state: &mut GreedyMatchState,
@@ -201,14 +373,20 @@ fn update_rows_internal<const ROW_LOG: u32>(
 ) {
     let row_mask = (1usize << ROW_LOG) - 1;
     let row_hash_log = params.hash_log - ROW_LOG;
+    let target_index = index_base + target;
     let mut idx = state.next_to_update;
 
-    if use_cache_skip && target.saturating_sub(idx) > SKIP_THRESHOLD {
+    debug_assert!(idx >= index_base);
+    debug_assert!(target <= src.len());
+    debug_assert!(!use_cache_skip || index_base == 0);
+
+    if use_cache_skip && target_index.saturating_sub(idx) > SKIP_THRESHOLD {
         let start_bound = idx + MAX_MATCH_START_POSITIONS_TO_UPDATE;
         update_rows_range(
             src,
             idx,
             start_bound,
+            index_base,
             row_hash_log,
             ROW_LOG,
             row_mask,
@@ -216,14 +394,15 @@ fn update_rows_internal<const ROW_LOG: u32>(
             state,
             use_cache_skip,
         );
-        idx = target - MAX_MATCH_END_POSITIONS_TO_UPDATE;
+        idx = target_index - MAX_MATCH_END_POSITIONS_TO_UPDATE;
         fill_hash_cache(src, idx, target, params, min_match, state);
     }
 
     update_rows_range(
         src,
         idx,
-        target,
+        target_index,
+        index_base,
         row_hash_log,
         ROW_LOG,
         row_mask,
@@ -231,7 +410,7 @@ fn update_rows_internal<const ROW_LOG: u32>(
         state,
         use_cache_skip,
     );
-    state.next_to_update = target;
+    state.next_to_update = target_index;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -239,6 +418,7 @@ fn update_rows_range(
     src: &[u8],
     mut idx: usize,
     target: usize,
+    index_base: usize,
     row_hash_log: u32,
     row_log: u32,
     row_mask: usize,
@@ -247,28 +427,30 @@ fn update_rows_range(
     use_cache: bool,
 ) {
     while idx < target {
+        let source_pos = idx - index_base;
         let hash = if use_cache {
-            next_cached_hash(src, idx, row_hash_log, row_log, min_match, state)
+            debug_assert_eq!(index_base, 0);
+            next_cached_hash(src, source_pos, row_hash_log, row_log, min_match, state)
         } else {
             hash_ptr_salted(
                 src,
-                idx,
+                source_pos,
                 row_hash_log + TAG_BITS,
                 min_match,
                 state.hash_salt,
             )
         };
         let row_start = ((hash >> TAG_BITS) as usize) << row_log;
-        // SAFETY: hash contains row_hash_log row bits, and
-        // row_hash_log + row_log == params.hash_log. ensure_tables() sizes
-        // both row tables to 1 << params.hash_log, and pos is masked to the
-        // current row width.
-        unsafe {
-            let pos = next_row_index(state.tag_table.get_unchecked_mut(row_start), row_mask);
-            let row_pos = row_start + pos;
-            *state.tag_table.get_unchecked_mut(row_pos) = (hash & TAG_MASK) as u8;
-            *state.hash_table.get_unchecked_mut(row_pos) = idx as u32;
-        }
+        let pos = super::row_table::next_index(&mut state.tag_table, row_start, row_mask);
+        super::row_table::insert(
+            &mut state.hash_table,
+            &mut state.tag_table,
+            row_start,
+            pos,
+            row_mask,
+            (hash & TAG_MASK) as u8,
+            idx as u32,
+        );
         idx += 1;
     }
 }
@@ -281,6 +463,8 @@ fn next_cached_hash(
     min_match: u32,
     state: &mut GreedyMatchState,
 ) -> u32 {
+    #[cfg(not(target_arch = "x86_64"))]
+    let _ = row_log;
     let new_hash = hash_ptr_salted(
         src,
         idx + ROW_HASH_CACHE_SIZE,
@@ -310,20 +494,7 @@ fn prefetch_row(state: &GreedyMatchState, row_start: usize, row_log: u32) {
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
 fn prefetch_read<T>(ptr: *const T) {
-    unsafe {
-        use core::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
-        _mm_prefetch(ptr.cast::<i8>(), _MM_HINT_T0);
-    }
-}
-
-#[inline(always)]
-fn next_row_index(head: &mut u8, row_mask: usize) -> usize {
-    let mut next = usize::from(head.wrapping_sub(1)) & row_mask;
-    if next == 0 {
-        next = row_mask;
-    }
-    *head = next as u8;
-    next
+    super::x86::prefetch_read(ptr);
 }
 
 #[inline(always)]
@@ -345,31 +516,11 @@ fn row_match_mask_sse2(tag_row: &[u8], tag: u8, head: usize) -> u64 {
     debug_assert!(matches!(tag_row.len(), 16 | 32 | 64));
     debug_assert!(head < tag_row.len());
 
-    // SAFETY: row tables are allocated as 16, 32, or 64 byte rows. Each load
-    // starts at a 16-byte chunk boundary inside that row, and unaligned loads
-    // mirror the C implementation's `_mm_loadu_si128()` use.
-    unsafe {
-        use core::arch::x86_64::{
-            __m128i, _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8,
-        };
-
-        let comparison = _mm_set1_epi8(tag as i8);
-        let load_mask = |chunk_start: usize| -> u64 {
-            let chunk = _mm_loadu_si128(tag_row.as_ptr().add(chunk_start).cast::<__m128i>());
-            let equal = _mm_cmpeq_epi8(chunk, comparison);
-            _mm_movemask_epi8(equal) as u64
-        };
-
-        let matches = match tag_row.len() {
-            16 => load_mask(0),
-            32 => load_mask(0) | (load_mask(16) << 16),
-            64 => {
-                load_mask(0) | (load_mask(16) << 16) | (load_mask(32) << 32) | (load_mask(48) << 48)
-            }
-            _ => unreachable!("row width is clamped to 16, 32, or 64 bytes"),
-        };
-        rotate_right_within(matches, head, tag_row.len())
-    }
+    rotate_right_within(
+        super::x86::row_tag_match_mask(tag_row, tag),
+        head,
+        tag_row.len(),
+    )
 }
 
 #[cfg(any(test, not(all(target_arch = "x86_64", target_feature = "sse2"))))]
@@ -435,6 +586,11 @@ fn hash_ptr_salted(src: &[u8], pos: usize, h_bits: u32, min_match: u32, salt: u6
 }
 
 #[inline(always)]
+fn hash_ptr_unsalted(src: &[u8], pos: usize, h_bits: u32, min_match: u32) -> u32 {
+    hash_ptr_salted(src, pos, h_bits, min_match, 0)
+}
+
+#[inline(always)]
 fn hash4(value: u32, h_bits: u32, salt: u32) -> u32 {
     const PRIME_4_BYTES: u32 = 2_654_435_761;
     (value.wrapping_mul(PRIME_4_BYTES) ^ salt).wrapping_shr(32 - h_bits)
@@ -450,30 +606,6 @@ fn hash5(value: u64, h_bits: u32, salt: u64) -> u32 {
 fn hash6(value: u64, h_bits: u32, salt: u64) -> u32 {
     const PRIME_6_BYTES: u64 = 227_718_039_650_203;
     (((value << (64 - 48)).wrapping_mul(PRIME_6_BYTES) ^ salt) >> (64 - h_bits)) as u32
-}
-
-#[inline(always)]
-fn read32(src: &[u8], pos: usize) -> u32 {
-    debug_assert!(pos + 4 <= src.len());
-    // SAFETY: row hashing and match probes bound positions before reading.
-    // Unaligned loads mirror zstd's MEM_read32() hot path.
-    unsafe {
-        u32::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u32>(),
-        ))
-    }
-}
-
-#[inline(always)]
-fn read64(src: &[u8], pos: usize) -> u64 {
-    debug_assert!(pos + 8 <= src.len());
-    // SAFETY: row hashing bounds positions before reading. Unaligned loads
-    // mirror zstd's MEM_readST/MEM_read64() hot path.
-    unsafe {
-        u64::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u64>(),
-        ))
-    }
 }
 
 #[cfg(test)]

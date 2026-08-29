@@ -1,8 +1,28 @@
 # Changelog
 
-This document records the changes made between versions, starting with version 0.5.0
+This document records the changes made between versions.
 
-# After 0.8.3 (Current)
+# 0.1.0 (2026-08-30)
+
+First release as `zstd-complete`, forked from `ruzstd`.
+
+* Add the complete standard compression-level table (levels 1 through 22) and
+  a bounded `std::io::Write` encoder with validated levels, typed errors,
+  configurable frame chunks, and an explicit memory budget.
+* Add portable scalar execution and optimized runtime-selected x86-64 paths,
+  plus release checks for Windows, Apple Silicon, AArch64, wasm `no_std`, and
+  forced-scalar builds.
+* Disclose the Zstandard 1.5.7 compressor provenance and distribute derived
+  compressor portions under the selected BSD-3-Clause option alongside the
+  existing MIT license.
+* Add generated Fast, DFast, row, Huffman, and sequence-store kernels as private
+  modules in the main crate. The temporary five-crate development layout was
+  removed before release.
+* Add the idiomatic crate import name `zstd_complete`; workspace tools retain
+  `ruzstd` only as a local dependency alias.
+* Document exact zstd C feature coverage, safe public API boundaries, internal
+  unsafe-code assurance, benchmark limitations, and the absence of an
+  independent human line-by-line review.
 * Improve Fastest match selection by retaining both oldest and newest hash
   candidates for each suffix bucket and using a cheaper five-byte hash.
 
@@ -11,6 +31,10 @@ This document records the changes made between versions, starting with version 0
 * Fix Dictionary decoding. It should not panic on invalid inputs.
 * Improve Huffman literal table selection by using length-limited frequency
   code lengths when they can be repaired to the zstd 11-bit maximum.
+
+# ruzstd history
+
+The entries below predate the `zstd-complete` fork.
 
 # After 0.8.2
 * Introduce the `rust-version` field

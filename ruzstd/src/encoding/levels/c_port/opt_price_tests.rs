@@ -1,7 +1,7 @@
 use super::{
     hash_chain_match::highbit32,
     opt_price::{DictionaryPriceSeeds, OptLevel, OptPriceState, BITCOST_MULTIPLIER},
-    sequence_store::OffBase,
+    sequence_store::{OffBase, RepeatCode},
 };
 use crate::encoding::blocks::{literal_length_code, match_length_code};
 
@@ -48,11 +48,70 @@ fn single_literal_cost_matches_slice_cost() {
 }
 
 #[test]
-fn literal_length_increment_matches_price_difference() {
+fn dynamic_single_literal_cost_matches_general_dynamic_cost() {
     for opt_level in [OptLevel::BtOpt, OptLevel::BtUltra] {
         let mut state = OptPriceState::new();
         state.rescale_freqs(b"abcabcabcabcabcabcabcabc", opt_level);
-        for lit_length in 1..=1024 {
+
+        for literal in [b'a', b'b', b'c', b'z'] {
+            assert_eq!(
+                state.dynamic_raw_literal_cost(literal, opt_level),
+                state.raw_literal_cost(literal, opt_level),
+                "literal={literal} opt_level={opt_level:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn dynamic_literal_length_price_matches_general_dynamic_price() {
+    const ZSTD_BLOCKSIZE_MAX: u32 = 128 * 1024;
+
+    for opt_level in [OptLevel::BtOpt, OptLevel::BtUltra] {
+        let mut state = OptPriceState::new();
+        state.rescale_freqs(b"abcabcabcabcabcabcabcabc", opt_level);
+
+        for lit_length in [0, 1, 7, 16, 17, 18, 31, 32, 128, 1024, ZSTD_BLOCKSIZE_MAX] {
+            assert_eq!(
+                state.dynamic_lit_length_price(lit_length, opt_level),
+                state.lit_length_price(lit_length, opt_level),
+                "lit_length={lit_length} opt_level={opt_level:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn split_match_price_matches_combined_price() {
+    for opt_level in [OptLevel::BtOpt, OptLevel::BtUltra] {
+        let mut state = OptPriceState::new();
+        state.rescale_freqs(b"abcabcabcabcabcabcabcabc", opt_level);
+
+        for off_base in [
+            OffBase::Repeat(RepeatCode::First).to_c_value(),
+            OffBase::Offset(10).to_c_value(),
+            OffBase::Offset(1 << 20).to_c_value(),
+        ] {
+            for match_length in [3, 4, 10, 32, 128] {
+                assert_eq!(
+                    state.match_price(off_base, match_length, opt_level),
+                    state.match_offset_price(off_base, opt_level)
+                        + state.match_length_price(match_length, opt_level),
+                    "off_base={off_base} match_length={match_length} opt_level={opt_level:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn literal_length_increment_matches_price_difference() {
+    const ZSTD_BLOCKSIZE_MAX: u32 = 128 * 1024;
+
+    for opt_level in [OptLevel::BtOpt, OptLevel::BtUltra] {
+        let mut state = OptPriceState::new();
+        state.rescale_freqs(b"abcabcabcabcabcabcabcabc", opt_level);
+        for lit_length in 1..=ZSTD_BLOCKSIZE_MAX {
             let expected = state.lit_length_price(lit_length, opt_level) as i64
                 - state.lit_length_price(lit_length - 1, opt_level) as i64;
             assert_eq!(

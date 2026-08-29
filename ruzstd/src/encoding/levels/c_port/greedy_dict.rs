@@ -1,9 +1,9 @@
 //! Dictionary prefix loading for the C greedy/lazy/lazy2/btlazy2 paths.
 
 use super::{
+    bt_match::load_dictionary_binary_tree,
     greedy::GreedyMatchState,
     hash_chain_match::load_dictionary_hash_chain,
-    opt_match::update_tree_no_dict,
     params::CompressionParameters,
     row_match::{load_dictionary_rows, row_match_finder_enabled},
 };
@@ -50,9 +50,7 @@ pub(crate) fn load_binary_tree_prefix(
     state.ensure_tables(params);
     let target = prefix_len - HASH_READ_SIZE;
     let min_match = params.min_match.clamp(4, 6);
-    update_tree_no_dict(
-        src, target, prefix_len, min_match, params, state, prefix_len,
-    );
+    load_dictionary_binary_tree(src, target, prefix_len, params, min_match, state);
     state.next_to_update = prefix_len;
     state.next_to_update3 = prefix_len;
 }
@@ -129,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn binary_tree_loader_uses_sorted_tree_update_then_marks_prefix_loaded() {
+    fn binary_tree_loader_uses_dubt_update_then_marks_prefix_loaded() {
         let data = b"abcdefghabcdefghabcdefghabcdefgh";
         let params = btlazy2_params();
         let mut state = GreedyMatchState::new();

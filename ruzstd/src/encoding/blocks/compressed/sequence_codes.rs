@@ -1,5 +1,14 @@
-const LITERAL_LENGTH_SMALL_CODES: [(u8, u32, usize); 64] = small_literal_length_codes();
-const MATCH_LENGTH_SMALL_CODES: [(u8, u32, usize); 128] = small_match_length_codes();
+#[derive(Clone, Copy)]
+struct SmallLengthCode {
+    add_bits: u32,
+    code: u8,
+    num_bits: u8,
+}
+
+const _: () = assert!(core::mem::size_of::<SmallLengthCode>() == 8);
+
+const LITERAL_LENGTH_SMALL_CODES: [SmallLengthCode; 64] = small_literal_length_codes();
+const MATCH_LENGTH_SMALL_CODES: [SmallLengthCode; 128] = small_match_length_codes();
 
 #[inline(always)]
 pub(crate) fn literal_length_code(len: u32) -> u8 {
@@ -19,7 +28,8 @@ pub(crate) fn offset_code(offset_value: u32) -> u8 {
 #[inline(always)]
 pub(super) fn encode_literal_length(len: u32) -> (u8, u32, usize) {
     if len < LITERAL_LENGTH_SMALL_CODES.len() as u32 {
-        return LITERAL_LENGTH_SMALL_CODES[len as usize];
+        let entry = LITERAL_LENGTH_SMALL_CODES[len as usize];
+        return (entry.code, entry.add_bits, usize::from(entry.num_bits));
     }
 
     match len {
@@ -42,7 +52,8 @@ pub(super) fn encode_literal_length(len: u32) -> (u8, u32, usize) {
 #[inline(always)]
 pub(super) fn encode_match_len(len: u32) -> (u8, u32, usize) {
     if (3..=130).contains(&len) {
-        return MATCH_LENGTH_SMALL_CODES[(len - 3) as usize];
+        let entry = MATCH_LENGTH_SMALL_CODES[(len - 3) as usize];
+        return (entry.code, entry.add_bits, usize::from(entry.num_bits));
     }
 
     match len {
@@ -62,11 +73,15 @@ pub(super) fn encode_match_len(len: u32) -> (u8, u32, usize) {
     }
 }
 
-const fn small_literal_length_codes() -> [(u8, u32, usize); 64] {
-    let mut codes = [(0, 0, 0); 64];
+const fn small_literal_length_codes() -> [SmallLengthCode; 64] {
+    let mut codes = [SmallLengthCode {
+        add_bits: 0,
+        code: 0,
+        num_bits: 0,
+    }; 64];
     let mut len = 0usize;
     while len < codes.len() {
-        codes[len] = match len {
+        let (code, add_bits, num_bits) = match len {
             0..=15 => (len as u8, 0, 0),
             16..=17 => (16, len as u32 - 16, 1),
             18..=19 => (17, len as u32 - 18, 1),
@@ -79,17 +94,26 @@ const fn small_literal_length_codes() -> [(u8, u32, usize); 64] {
             48..=63 => (24, len as u32 - 48, 4),
             _ => unreachable!(),
         };
+        codes[len] = SmallLengthCode {
+            add_bits,
+            code,
+            num_bits: num_bits as u8,
+        };
         len += 1;
     }
     codes
 }
 
-const fn small_match_length_codes() -> [(u8, u32, usize); 128] {
-    let mut codes = [(0, 0, 0); 128];
+const fn small_match_length_codes() -> [SmallLengthCode; 128] {
+    let mut codes = [SmallLengthCode {
+        add_bits: 0,
+        code: 0,
+        num_bits: 0,
+    }; 128];
     let mut idx = 0usize;
     while idx < codes.len() {
         let len = idx + 3;
-        codes[idx] = match len {
+        let (code, add_bits, num_bits) = match len {
             3..=34 => (len as u8 - 3, 0, 0),
             35..=36 => (32, len as u32 - 35, 1),
             37..=38 => (33, len as u32 - 37, 1),
@@ -103,6 +127,11 @@ const fn small_match_length_codes() -> [(u8, u32, usize); 128] {
             83..=98 => (41, len as u32 - 83, 4),
             99..=130 => (42, len as u32 - 99, 5),
             _ => unreachable!(),
+        };
+        codes[idx] = SmallLengthCode {
+            add_bits,
+            code,
+            num_bits: num_bits as u8,
         };
         idx += 1;
     }

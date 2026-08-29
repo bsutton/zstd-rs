@@ -1,7 +1,9 @@
-use super::super::hash_chain_match::MatchSearchConfig;
+use super::super::hash_chain_match::{AttachedDictionarySearch, MatchSearchConfig};
 use super::*;
 use crate::encoding::levels::c_port::params::Strategy;
-use alloc::vec;
+use alloc::{vec, vec::Vec};
+
+const C_WINDOW_START_INDEX: usize = 2;
 
 fn params() -> CompressionParameters {
     CompressionParameters {
@@ -17,11 +19,11 @@ fn params() -> CompressionParameters {
 
 #[test]
 fn row_next_index_cycles_backwards_and_skips_zero() {
-    let mut head = 0u8;
+    let mut tags = [0u8; 16];
 
-    assert_eq!(next_row_index(&mut head, 15), 15);
-    assert_eq!(head, 15);
-    assert_eq!(next_row_index(&mut head, 15), 14);
+    assert_eq!(super::super::row_table::next_index(&mut tags, 0, 15), 15);
+    assert_eq!(tags[0], 15);
+    assert_eq!(super::super::row_table::next_index(&mut tags, 0, 15), 14);
 }
 
 #[test]
@@ -80,17 +82,77 @@ fn row_finder_reports_previous_match() {
         &mut state,
     );
 
-    let match_len = row_find_best_match(
+    let match_len = row_find_best_match::<false>(
         data,
         8,
         data.len(),
         &mut off_base,
         &mut state,
         MatchSearchConfig::new(params, 4, 0),
+        Some(crate::kernel::row::select_best_match_no_dict(
+            4,
+            params.search_log,
+        )),
     );
 
     assert!(match_len >= 8);
     assert_eq!(off_base, 11);
+}
+
+#[test]
+fn row_finder_searches_attached_dictionary_rows_after_active_rows() {
+    let dict = b"prefix:shared-payload";
+    let source = b"zzzz:shared-payload-tail";
+    let mut combined = Vec::new();
+    combined.extend_from_slice(dict);
+    combined.extend_from_slice(source);
+
+    let params = params();
+    let mut dict_state = GreedyMatchState::new();
+    dict_state.ensure_tables(params);
+    dict_state.next_to_update = C_WINDOW_START_INDEX;
+    load_dictionary_rows_at_index_base(
+        dict,
+        dict.len() - 8,
+        C_WINDOW_START_INDEX,
+        params,
+        4,
+        &mut dict_state,
+    );
+
+    let mut active_state = GreedyMatchState::new();
+    active_state.ensure_tables(params);
+    active_state.next_to_update = dict.len();
+    let mut off_base = 0;
+    fill_hash_cache(
+        &combined,
+        active_state.next_to_update,
+        combined.len() - 16,
+        params,
+        4,
+        &mut active_state,
+    );
+
+    let ip = dict.len() + 5;
+    let match_len = row_find_best_match::<true>(
+        &combined,
+        ip,
+        combined.len(),
+        &mut off_base,
+        &mut active_state,
+        MatchSearchConfig::new(params, 4, 0).with_attached_dictionary(AttachedDictionarySearch {
+            src: dict,
+            state: &dict_state,
+            params,
+            dictionary_index_start: C_WINDOW_START_INDEX,
+            active_dict_limit: dict.len() + C_WINDOW_START_INDEX,
+            active_prefix_start: dict.len(),
+        }),
+        None,
+    );
+
+    assert!(match_len >= b"shared-payload".len());
+    assert_eq!(off_base, OffBase::offset_to_c_value((ip - 7) as u32));
 }
 
 #[test]
@@ -126,13 +188,17 @@ fn row_update_skips_middle_of_large_gaps_like_c() {
         &mut state,
     );
 
-    let match_len = row_find_best_match(
+    let match_len = row_find_best_match::<false>(
         &data,
         500,
         data.len(),
         &mut off_base,
         &mut state,
         MatchSearchConfig::new(params, 4, 0),
+        Some(crate::kernel::row::select_best_match_no_dict(
+            4,
+            params.search_log,
+        )),
     );
 
     assert_eq!(match_len, 3);

@@ -6,7 +6,8 @@ use super::fast::{
     compress_block_fast_no_dict_with_state_and_loaded_dict, FastMatchState,
 };
 use super::fast_block::{
-    encode_block_fast_no_dict, prepare_block_fast_no_dict, FastBlockEncodeContext,
+    encode_block_fast_no_dict, encode_block_fast_no_dict_with_state, prepare_block_fast_no_dict,
+    FastBlockEncodeContext, FastBlockSource,
 };
 use super::fast_frame::{
     encode_frame_fast_no_dict, encode_frame_fast_with_dictionary,
@@ -111,7 +112,7 @@ fn fast_no_dict_state_finds_previous_block_prefix_match() {
     );
 
     assert!(second.sequences.iter().any(|sequence| matches!(
-        sequence.off_base,
+        sequence.off_base(),
         OffBase::Offset(offset) if sequence.lit_len == 0
             && offset as usize >= marker.len()
     )));
@@ -160,7 +161,7 @@ fn fast_loaded_dictionary_keeps_full_dictionary_valid_like_c() {
     assert!(no_loaded.sequences.is_empty());
     assert!(loaded.sequences.iter().any(|sequence| {
         matches!(
-            sequence.off_base,
+            sequence.off_base(),
             OffBase::Offset(offset) if offset as usize > (1_usize << params.window_log)
         )
     }));
@@ -224,6 +225,8 @@ fn fast_no_dict_hidden_block_emits_compressed_block() {
         RepeatOffsets::new(),
         FastBlockEncodeContext {
             previous_huff_table: None,
+            huffman_build_scratch: &mut Default::default(),
+            fse_build_scratch: &mut Default::default(),
             fse_tables: &mut fse_tables,
             offset_history: &mut offset_history,
         },
@@ -250,6 +253,8 @@ fn fast_no_dict_hidden_block_falls_back_to_raw_when_not_smaller() {
         RepeatOffsets::new(),
         FastBlockEncodeContext {
             previous_huff_table: None,
+            huffman_build_scratch: &mut Default::default(),
+            fse_build_scratch: &mut Default::default(),
             fse_tables: &mut fse_tables,
             offset_history: &mut offset_history,
         },
@@ -261,6 +266,69 @@ fn fast_no_dict_hidden_block_falls_back_to_raw_when_not_smaller() {
     assert_eq!(block_size as usize, data.len());
     assert_eq!(&encoded.bytes[3..], data);
     assert_eq!(encoded.repeat_offsets, RepeatOffsets::new());
+}
+
+#[test]
+fn fast_state_reuses_prepared_allocations_through_compressed_and_raw_blocks() {
+    let mut data = Vec::new();
+    while data.len() < 4096 {
+        data.extend_from_slice(b"tenant=alpha route=/archive status=200 bytes=4812\n");
+    }
+    data.truncate(4096);
+    let raw_start = data.len();
+    data.extend_from_slice(&[0x02, 0x13, 0x27, 0x3B, 0x51, 0x68, 0x80, 0x99]);
+
+    let params = level1_params(data.len());
+    let config = BlockCompressionConfig::for_level(CompressionLevel::Fastest);
+    let mut state = FastMatchState::new();
+    let mut fse_tables = FseTables::new();
+    let mut offset_history = OffsetHistory::new();
+    let first = encode_block_fast_no_dict_with_state(
+        FastBlockSource {
+            src: &data,
+            block_range: 0..raw_start,
+            loaded_dict_end: 0,
+        },
+        false,
+        params,
+        config,
+        RepeatOffsets::new(),
+        &mut state,
+        FastBlockEncodeContext {
+            previous_huff_table: None,
+            huffman_build_scratch: &mut Default::default(),
+            fse_build_scratch: &mut Default::default(),
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+    );
+    assert_eq!(parse_block_header(&first.bytes).1, BlockType::Compressed);
+    let allocation = state.prepared_store_allocation();
+    assert!(allocation.0 .1 >= raw_start);
+    assert!(allocation.1 .1 > 0);
+
+    let second = encode_block_fast_no_dict_with_state(
+        FastBlockSource {
+            src: &data,
+            block_range: raw_start..data.len(),
+            loaded_dict_end: 0,
+        },
+        true,
+        params,
+        config,
+        first.repeat_offsets,
+        &mut state,
+        FastBlockEncodeContext {
+            previous_huff_table: first.new_huffman_table.as_ref(),
+            huffman_build_scratch: &mut Default::default(),
+            fse_build_scratch: &mut Default::default(),
+            fse_tables: &mut fse_tables,
+            offset_history: &mut offset_history,
+        },
+    );
+
+    assert_eq!(parse_block_header(&second.bytes).1, BlockType::Raw);
+    assert_eq!(state.prepared_store_allocation(), allocation);
 }
 
 #[test]
@@ -277,6 +345,8 @@ fn fast_no_dict_hidden_block_emits_rle_for_single_byte_run() {
         RepeatOffsets::new(),
         FastBlockEncodeContext {
             previous_huff_table: None,
+            huffman_build_scratch: &mut Default::default(),
+            fse_build_scratch: &mut Default::default(),
             fse_tables: &mut fse_tables,
             offset_history: &mut offset_history,
         },
@@ -304,6 +374,8 @@ fn fast_no_dict_hidden_tiny_rle_candidate_stays_raw_like_c() {
         RepeatOffsets::new(),
         FastBlockEncodeContext {
             previous_huff_table: None,
+            huffman_build_scratch: &mut Default::default(),
+            fse_build_scratch: &mut Default::default(),
             fse_tables: &mut fse_tables,
             offset_history: &mut offset_history,
         },

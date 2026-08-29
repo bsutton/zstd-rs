@@ -1,5 +1,10 @@
 //! Low-level primitives for the C fast block compressor.
 
+#![forbid(unsafe_code)]
+
+pub(super) use super::unaligned::read32;
+use super::unaligned::read64;
+
 const HASH_READ_SIZE: usize = 8;
 
 pub(super) fn lowest_prefix_index_with_loaded_dict(
@@ -38,30 +43,6 @@ pub(super) fn hash_ptr(src: &[u8], pos: usize, h_bits: u32, min_match: u32) -> u
         7 => hash7(read64(src, pos), h_bits),
         8 => hash8(read64(src, pos), h_bits),
         _ => hash4(read32(src, pos), h_bits),
-    }
-}
-
-pub(super) fn read32(src: &[u8], pos: usize) -> u32 {
-    debug_assert!(pos + 4 <= src.len());
-    // SAFETY: The C-port match finders only call read32() for positions that
-    // have already been bounded by the block/search limits. Unaligned loads are
-    // intentional here to mirror zstd's MEM_read32() hot path.
-    unsafe {
-        u32::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u32>(),
-        ))
-    }
-}
-
-fn read64(src: &[u8], pos: usize) -> u64 {
-    debug_assert!(pos + 8 <= src.len());
-    // SAFETY: The C-port match finders only call read64() for positions that
-    // have already been bounded by the block/search limits. Unaligned loads are
-    // intentional here to mirror zstd's MEM_read64() hot path.
-    unsafe {
-        u64::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u64>(),
-        ))
     }
 }
 

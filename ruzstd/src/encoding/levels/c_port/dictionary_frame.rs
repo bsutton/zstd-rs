@@ -26,9 +26,28 @@ impl DictionaryFrameContext {
             original_dict_len,
             CParamMode::NoAttachDict,
         );
+        Self::new_with_cctx(src, dictionary, cctx)
+    }
+
+    pub(crate) fn new_with_cctx(
+        src: &[u8],
+        dictionary: ParsedDictionary<'_>,
+        cctx: CctxParameters,
+    ) -> Self {
+        Self::new_with_cctx_and_dictionary_params(src, dictionary, cctx, cctx.compression)
+    }
+
+    /// Builds an active frame while sizing retained dictionary content from
+    /// the dictionary match state rather than the active source tables.
+    pub(crate) fn new_with_cctx_and_dictionary_params(
+        src: &[u8],
+        dictionary: ParsedDictionary<'_>,
+        cctx: CctxParameters,
+        dictionary_params: super::params::CompressionParameters,
+    ) -> Self {
         cctx.assert_resolved();
         let params = cctx.compression;
-        let loaded_dictionary = loaded_dictionary_content(params, dictionary.content);
+        let loaded_dictionary = loaded_dictionary_content(dictionary_params, dictionary.content);
         let dict_len = loaded_dictionary.len();
         let mut combined = Vec::with_capacity(dict_len + src.len());
         combined.extend_from_slice(loaded_dictionary);
@@ -121,5 +140,40 @@ mod tests {
             context.loaded_dict_end_for_block(context.dict_len + window_size + 1, params),
             0
         );
+    }
+
+    #[test]
+    fn attached_dictionary_retention_uses_dictionary_table_parameters() {
+        let dictionary = vec![b'd'; 64 * 1024];
+        let parsed = parse_dictionary(&dictionary, DictionaryContentType::Auto, false)
+            .unwrap()
+            .expect("raw dictionary");
+        let active_params = super::super::params::CompressionParameters {
+            window_log: 16,
+            chain_log: 12,
+            hash_log: 12,
+            search_log: 6,
+            min_match: 3,
+            target_length: 128,
+            strategy: super::super::params::Strategy::BtUltra,
+        };
+        let dictionary_params = super::super::params::CompressionParameters {
+            chain_log: 17,
+            hash_log: 17,
+            ..active_params
+        };
+        let cctx = CctxParameters::from_compression_parameters(16, active_params, 2048);
+
+        let active_limited =
+            DictionaryFrameContext::new_with_cctx(b"payload", parsed.clone(), cctx);
+        let dictionary_limited = DictionaryFrameContext::new_with_cctx_and_dictionary_params(
+            b"payload",
+            parsed,
+            cctx,
+            dictionary_params,
+        );
+
+        assert_eq!(active_limited.dict_len, 32 * 1024);
+        assert_eq!(dictionary_limited.dict_len, dictionary.len());
     }
 }

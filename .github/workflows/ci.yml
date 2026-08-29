@@ -44,5 +44,79 @@ jobs:
       - run: cargo +nightly fmt --all -- --check
       - run: cargo +nightly clippy --workspace --no-default-features -- -D warnings
       - run: cargo +nightly clippy --workspace -- -D warnings
-      - run: cargo +nightly miri test ringbuffer
-      - run: cargo +nightly miri test short_Writer
+      - run: cargo +nightly miri test -p zstd-complete --lib ringbuffer
+      - run: cargo +nightly miri test -p zstd-complete --lib short_writer
+      - run: cargo +nightly miri test -p zstd-complete --lib unaligned_reads
+      - run: cargo +nightly miri test -p zstd-complete --lib direct_c_prepared_entropy_path
+
+  portable-builds:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x86-64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            command: test
+          - name: macOS Apple Silicon
+            os: macos-14
+            target: aarch64-apple-darwin
+            command: test
+          - name: Linux AArch64 no_std
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            command: check
+          - name: wasm32 no_std
+            os: ubuntu-latest
+            target: wasm32-unknown-unknown
+            command: check
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Native tests
+        if: matrix.command == 'test'
+        run: cargo test --workspace --all-targets --target ${{ matrix.target }}
+      - name: Cross-target no_std check
+        if: matrix.command == 'check'
+        run: cargo check -p zstd-complete --no-default-features --target ${{ matrix.target }}
+
+  forced-scalar:
+    name: forced scalar x86-64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p zstd-complete --features force-scalar
+
+  package-audit:
+    name: package and license audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Inspect publishable package contents
+        run: |
+          cargo package -p zstd-complete --list
+      - name: Require mixed-license notices in the public package
+        run: |
+          cargo package -p zstd-complete --list | grep -Fx LICENSE-MIT
+          cargo package -p zstd-complete --list | grep -Fx LICENSE-BSD-3-Clause
+          cargo package -p zstd-complete --list | grep -Fx THIRD_PARTY_NOTICES.md
+
+  address-sanitizer:
+    name: compressor address sanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - name: Exercise compressor kernels under ASan
+        env:
+          RUSTFLAGS: -Zsanitizer=address
+          ASAN_OPTIONS: detect_leaks=0
+        run: cargo +nightly test -p zstd-complete --lib encoding::levels::c_port --target x86_64-unknown-linux-gnu

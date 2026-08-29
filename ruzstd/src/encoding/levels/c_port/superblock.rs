@@ -10,6 +10,8 @@ pub(super) use super::superblock_sequences::{
 };
 pub(super) use super::superblock_sequences::{
     append_supported_sub_block_sequences_with_tables, build_compressed_sequence_tables_for_modes,
+    estimate_sequence_entropy_section_size, finish_sequence_entropy_tables_after_superblock,
+    prime_sequence_entropy_tables_for_repeat,
 };
 use super::{block_policy::min_compression_gain, params::Strategy};
 use crate::{
@@ -285,7 +287,7 @@ fn write_raw_or_rle_literal_size(len: usize, writer: &mut BitWriter<&mut Vec<u8>
             writer.write_bits(0b11u8, 2);
             writer.write_bits(len as u32, 20);
         }
-        _ => unimplemented!("too many literals"),
+        _ => panic!("literal section exceeds zstd raw/RLE literals size limit"),
     }
 }
 

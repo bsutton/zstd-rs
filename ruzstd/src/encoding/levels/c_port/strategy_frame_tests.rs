@@ -1,8 +1,14 @@
 use alloc::vec::Vec;
 
 use super::{
+    dictionary::PreparedDictionary,
     params::Strategy,
-    strategy_frame::{encode_frame_no_dict, encode_frame_with_dictionary, strategy_for_level},
+    strategy_frame::{
+        encode_frame_no_dict, encode_frame_no_dict_with_target_c_block_size,
+        encode_frame_with_dictionary, encode_frame_with_dictionary_and_target_c_block_size,
+        encode_frame_with_prepared_dictionary, strategy_for_level,
+        strategy_for_level_with_dictionary,
+    },
     test_dictionary::{dictionary_content, full_dictionary_fixture, DICT_ID},
 };
 use crate::{
@@ -215,6 +221,33 @@ fn strategy_frame_does_not_emit_rle_first_block_like_c() {
 }
 
 #[test]
+fn strategy_frame_target_c_block_size_round_trips_supported_strategies() {
+    let mut data = Vec::new();
+    while data.len() < (MAX_BLOCK_SIZE as usize * 2) + 1536 {
+        data.extend_from_slice(b"target-mode route=/archive status=200 bytes=1874\n");
+    }
+    data.truncate((MAX_BLOCK_SIZE as usize * 2) + 1536);
+
+    for level in [1, 3, 5, 6, 8, 13, 16, 18, 19] {
+        let encoded = encode_frame_no_dict_with_target_c_block_size(&data, level, 2048)
+            .expect("target mode should be supported for no-dictionary strategies");
+
+        assert_eq!(first_frame_block_type(&encoded), BlockType::Compressed);
+        assert_round_trips(&encoded, &data);
+    }
+}
+
+#[test]
+fn strategy_frame_target_c_block_size_rejects_invalid_sizes() {
+    let data = b"target mode target mode target mode target mode";
+
+    assert_eq!(
+        encode_frame_no_dict_with_target_c_block_size(data, 16, 128 * 1024 + 1),
+        None
+    );
+}
+
+#[test]
 fn strategy_frame_routes_dictionary_levels_and_round_trips() {
     let dict = full_dictionary_fixture();
     let data = dictionary_payload();
@@ -227,6 +260,109 @@ fn strategy_frame_routes_dictionary_levels_and_round_trips() {
         assert_eq!(header.dictionary_id(), Some(DICT_ID));
         assert_round_trips_with_dictionary(&encoded, &data, &dict);
     }
+}
+
+#[test]
+fn strategy_frame_routes_prepared_dictionary_levels_and_round_trips() {
+    let dict = full_dictionary_fixture();
+    let prepared = PreparedDictionary::from_bytes(&dict)
+        .unwrap()
+        .expect("full dictionary");
+    let data = dictionary_payload();
+
+    for level in [1, 3, 5, 6, 8, 13, 16, 18, 19] {
+        let encoded = encode_frame_with_prepared_dictionary(&data, level, &prepared);
+        let (header, _) = crate::decoding::frame::read_frame_header(encoded.as_slice())
+            .expect("frame header should parse");
+
+        assert_eq!(header.dictionary_id(), Some(DICT_ID));
+        assert_round_trips_with_dictionary(&encoded, &data, &dict);
+    }
+}
+
+#[test]
+fn strategy_frame_dictionary_target_c_block_size_round_trips_optimal_strategy() {
+    let dict = full_dictionary_fixture();
+    let data = dictionary_payload();
+
+    let encoded = encode_frame_with_dictionary_and_target_c_block_size(&data, 16, &dict, 2048)
+        .unwrap()
+        .expect("level 16 dictionary target mode is target-wired");
+    let (header, _) = crate::decoding::frame::read_frame_header(encoded.as_slice())
+        .expect("frame header should parse");
+
+    assert_eq!(header.dictionary_id(), Some(DICT_ID));
+    assert_round_trips_with_dictionary(&encoded, &data, &dict);
+}
+
+#[test]
+fn strategy_frame_dictionary_target_c_block_size_round_trips_hash_chain_strategies() {
+    let dict = full_dictionary_fixture();
+    let data = dictionary_payload();
+    let mut checked = 0;
+
+    for level in 1..=22 {
+        if !matches!(
+            strategy_for_level_with_dictionary(level, data.len(), dict.len()),
+            Strategy::Greedy | Strategy::Lazy | Strategy::Lazy2 | Strategy::BtLazy2
+        ) {
+            continue;
+        }
+        checked += 1;
+
+        let encoded =
+            encode_frame_with_dictionary_and_target_c_block_size(&data, level, &dict, 2048)
+                .unwrap()
+                .expect("hash-chain dictionary target mode is target-wired");
+        let (header, _) = crate::decoding::frame::read_frame_header(encoded.as_slice())
+            .expect("frame header should parse");
+
+        assert_eq!(header.dictionary_id(), Some(DICT_ID));
+        assert_round_trips_with_dictionary(&encoded, &data, &dict);
+    }
+
+    assert!(checked > 0, "fixture should exercise hash-chain levels");
+}
+
+#[test]
+fn strategy_frame_dictionary_target_c_block_size_round_trips_fast_strategies() {
+    let dict = full_dictionary_fixture();
+    let data = dictionary_payload();
+    let mut checked = 0;
+
+    for level in 1..=22 {
+        if !matches!(
+            strategy_for_level_with_dictionary(level, data.len(), dict.len()),
+            Strategy::Fast | Strategy::DFast
+        ) {
+            continue;
+        }
+        checked += 1;
+
+        let encoded =
+            encode_frame_with_dictionary_and_target_c_block_size(&data, level, &dict, 2048)
+                .unwrap()
+                .expect("fast dictionary target mode is target-wired");
+        let (header, _) = crate::decoding::frame::read_frame_header(encoded.as_slice())
+            .expect("frame header should parse");
+
+        assert_eq!(header.dictionary_id(), Some(DICT_ID));
+        assert_round_trips_with_dictionary(&encoded, &data, &dict);
+    }
+
+    assert!(checked > 0, "fixture should exercise fast levels");
+}
+
+#[test]
+fn strategy_frame_dictionary_target_c_block_size_rejects_invalid_sizes() {
+    let dict = full_dictionary_fixture();
+    let data = dictionary_payload();
+
+    let encoded =
+        encode_frame_with_dictionary_and_target_c_block_size(&data, 1, &dict, 128 * 1024 + 1)
+            .expect("dictionary parses");
+
+    assert_eq!(encoded, None);
 }
 
 #[test]

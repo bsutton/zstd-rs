@@ -13,13 +13,16 @@ use crate::{
         blocks::BlockCompressionConfig,
         frame_compressor::{FseTables, OffsetHistory},
     },
-    huff0::huff0_encoder::HuffmanTable,
+    fse::fse_encoder::FSETableBuildScratch,
+    huff0::huff0_encoder::{HuffmanBuildScratch, HuffmanTable},
 };
 
 pub(crate) struct FrameBlockState {
     pub(crate) fse_tables: FseTables,
     pub(crate) offset_history: OffsetHistory,
     pub(crate) last_huff_table: Option<HuffmanTable>,
+    pub(crate) huffman_build_scratch: HuffmanBuildScratch,
+    pub(crate) fse_build_scratch: FSETableBuildScratch,
     pub(crate) repeat_offsets: RepeatOffsets,
     pub(crate) block_config: BlockCompressionConfig,
     block_size_max: usize,
@@ -65,6 +68,8 @@ impl FrameBlockState {
             fse_tables: FseTables::new(),
             offset_history: OffsetHistory::new(),
             last_huff_table: None,
+            huffman_build_scratch: HuffmanBuildScratch::new(),
+            fse_build_scratch: FSETableBuildScratch::new(),
             repeat_offsets: RepeatOffsets::new(),
             block_config,
             block_size_max,
@@ -78,11 +83,16 @@ impl FrameBlockState {
         dictionary: &ParsedDictionary<'_>,
     ) -> Self {
         let offsets = dictionary.repeat_offsets.as_offsets();
-        let block_config = block_config(params);
+        let mut block_config = block_config(params);
+        block_config.set_prefer_valid_repeat_huffman(
+            params.strategy < Strategy::Lazy && dictionary.initial_huffman_table_is_valid(),
+        );
         Self {
             fse_tables: dictionary.initial_fse_tables(),
             offset_history: OffsetHistory::from_offsets(offsets[0], offsets[1], offsets[2]),
             last_huff_table: dictionary.initial_huffman_table(),
+            huffman_build_scratch: HuffmanBuildScratch::new(),
+            fse_build_scratch: FSETableBuildScratch::new(),
             repeat_offsets: dictionary.repeat_offsets,
             block_config,
             block_size_max,
@@ -119,9 +129,16 @@ impl FrameBlockState {
         repeat_offsets: RepeatOffsets,
         new_huffman_table: Option<HuffmanTable>,
     ) {
+        self.fse_tables.downgrade_offset_repeat_validity();
         self.repeat_offsets = repeat_offsets;
         if let Some(table) = new_huffman_table {
-            self.last_huff_table = Some(table);
+            let previous = self.last_huff_table.replace(table);
+            if self.block_config.uses_c_fast_entropy_path() {
+                if let Some(previous) = previous {
+                    self.huffman_build_scratch.recycle_table(previous);
+                }
+            }
+            self.block_config.set_prefer_valid_repeat_huffman(false);
         }
         self.progress.record_block(block_size, encoded_size);
     }
@@ -229,6 +246,28 @@ mod tests {
             state.next_frame_chunk_block_size(&data[900..], 900, Strategy::Greedy),
             1024
         );
+    }
+
+    #[test]
+    fn recording_first_block_downgrades_dictionary_offset_validity_like_c() {
+        let mut state = FrameBlockState::new(params(Strategy::Fast, 0), 1024);
+        state.fse_tables.of_repeat_valid = true;
+
+        state.record_encoded_block(1024, 900, RepeatOffsets::new(), None);
+
+        assert!(!state.fse_tables.of_repeat_valid);
+    }
+
+    #[test]
+    fn recording_fast_table_recycles_superseded_huffman_allocation() {
+        let mut state = FrameBlockState::new(params(Strategy::Fast, 0), 1024);
+        state.last_huff_table = Some(HuffmanTable::build_from_counts(&[8, 5, 3, 2]));
+        let next = HuffmanTable::build_from_counts(&[9, 7, 4, 2]);
+
+        state.record_encoded_block(1024, 900, RepeatOffsets::new(), Some(next));
+
+        assert!(state.last_huff_table.is_some());
+        assert_eq!(state.huffman_build_scratch.recycled_table_count(), 1);
     }
 
     #[test]

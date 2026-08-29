@@ -1,7 +1,7 @@
 //! Dictionary metadata handling ported from `ZSTD_compress_insertDictionary()`.
 
-use alloc::{boxed::Box, rc::Rc};
-use core::fmt;
+use alloc::{rc::Rc, vec::Vec};
+use core::{convert::TryFrom, fmt};
 
 use crate::decoding::dictionary::{Dictionary, MAGIC_NUM};
 use crate::encoding::frame_compressor::FseTables;
@@ -29,9 +29,10 @@ pub(crate) enum DictionaryKind {
 pub(crate) struct ParsedDictionary<'a> {
     pub(crate) kind: DictionaryKind,
     pub(crate) dict_id: u32,
+    pub(crate) raw_size: usize,
     pub(crate) content: &'a [u8],
     pub(crate) repeat_offsets: RepeatOffsets,
-    entropy: Option<Box<DictionaryEntropy>>,
+    entropy: Option<Rc<DictionaryEntropy>>,
 }
 
 impl ParsedDictionary<'_> {
@@ -48,6 +49,12 @@ impl ParsedDictionary<'_> {
             .map(|entropy| entropy.huffman_table.clone())
     }
 
+    pub(crate) fn initial_huffman_table_is_valid(&self) -> bool {
+        self.entropy
+            .as_ref()
+            .is_some_and(|entropy| entropy.huffman_repeat_valid)
+    }
+
     pub(crate) fn initial_opt_price_seeds(&self) -> Option<DictionaryPriceSeeds> {
         self.entropy
             .as_ref()
@@ -61,6 +68,7 @@ impl fmt::Debug for ParsedDictionary<'_> {
             .debug_struct("ParsedDictionary")
             .field("kind", &self.kind)
             .field("dict_id", &self.dict_id)
+            .field("raw_size", &self.raw_size)
             .field("content", &self.content)
             .field("repeat_offsets", &self.repeat_offsets)
             .field("has_entropy", &self.entropy.is_some())
@@ -72,6 +80,7 @@ impl PartialEq for ParsedDictionary<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.kind == other.kind
             && self.dict_id == other.dict_id
+            && self.raw_size == other.raw_size
             && self.content == other.content
             && self.repeat_offsets == other.repeat_offsets
     }
@@ -82,8 +91,56 @@ impl Eq for ParsedDictionary<'_> {}
 #[derive(Clone)]
 struct DictionaryEntropy {
     huffman_table: huff0_encoder::HuffmanTable,
+    huffman_repeat_valid: bool,
     fse_tables: FseTables,
     opt_price_seeds: DictionaryPriceSeeds,
+}
+
+/// Owned dictionary metadata produced once for the prepared-dictionary API.
+///
+/// This is the safe Rust counterpart of the immutable content and entropy
+/// state retained by `ZSTD_CDict`. Match-finder tables are strategy-specific
+/// and are prepared by the frame path selected for each compression.
+#[derive(Clone)]
+pub(crate) struct PreparedDictionary {
+    kind: DictionaryKind,
+    dict_id: u32,
+    raw_size: usize,
+    content: Vec<u8>,
+    repeat_offsets: RepeatOffsets,
+    entropy: Option<Rc<DictionaryEntropy>>,
+}
+
+impl PreparedDictionary {
+    pub(crate) fn from_bytes(dictionary: &[u8]) -> Result<Option<Self>, DictionaryParseError> {
+        let Some(parsed) = parse_dictionary(dictionary, DictionaryContentType::Auto, false)? else {
+            return Ok(None);
+        };
+
+        Ok(Some(Self {
+            kind: parsed.kind,
+            dict_id: parsed.dict_id,
+            raw_size: parsed.raw_size,
+            content: parsed.content.to_vec(),
+            repeat_offsets: parsed.repeat_offsets,
+            entropy: parsed.entropy,
+        }))
+    }
+
+    pub(crate) fn as_parsed(&self) -> ParsedDictionary<'_> {
+        ParsedDictionary {
+            kind: self.kind,
+            dict_id: self.dict_id,
+            raw_size: self.raw_size,
+            content: &self.content,
+            repeat_offsets: self.repeat_offsets,
+            entropy: self.entropy.clone(),
+        }
+    }
+
+    pub(crate) fn raw_size(&self) -> usize {
+        self.raw_size
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -123,6 +180,7 @@ fn raw_dictionary(dict: &[u8]) -> ParsedDictionary<'_> {
     ParsedDictionary {
         kind: DictionaryKind::RawContent,
         dict_id: 0,
+        raw_size: dict.len(),
         content: dict,
         repeat_offsets: RepeatOffsets::new(),
         entropy: None,
@@ -151,36 +209,67 @@ fn parse_full_dictionary(
     Ok(Some(ParsedDictionary {
         kind: DictionaryKind::Full,
         dict_id: if no_dict_id { 0 } else { decoded.id },
+        raw_size: dict.len(),
         content: &dict[content_start..],
         repeat_offsets,
-        entropy: Some(Box::new(dictionary_entropy(&decoded))),
+        entropy: Some(Rc::new(dictionary_entropy(
+            &decoded,
+            dict.len() - content_start,
+        ))),
     }))
 }
 
-fn dictionary_entropy(decoded: &Dictionary) -> DictionaryEntropy {
+fn dictionary_entropy(decoded: &Dictionary, content_len: usize) -> DictionaryEntropy {
     let mut fse_tables = FseTables::new();
-    fse_tables.ll_previous = Some(Rc::new(fse_encoder::build_table_from_probabilities(
+    let ll_table = Rc::new(fse_encoder::build_table_from_probabilities(
         decoded.fse.literal_lengths.symbol_probabilities(),
         decoded.fse.literal_lengths.accuracy_log,
-    )));
-    fse_tables.ml_previous = Some(Rc::new(fse_encoder::build_table_from_probabilities(
+    ));
+    let ml_table = Rc::new(fse_encoder::build_table_from_probabilities(
         decoded.fse.match_lengths.symbol_probabilities(),
         decoded.fse.match_lengths.accuracy_log,
-    )));
-    fse_tables.of_previous = Some(Rc::new(fse_encoder::build_table_from_probabilities(
+    ));
+    let of_table = Rc::new(fse_encoder::build_table_from_probabilities(
         decoded.fse.offsets.symbol_probabilities(),
         decoded.fse.offsets.accuracy_log,
-    )));
+    ));
+    fse_tables.ll_repeat_valid = fse_repeat_is_valid(&ll_table, 35);
+    fse_tables.ml_repeat_valid = fse_repeat_is_valid(&ml_table, 52);
+    fse_tables.of_repeat_valid =
+        fse_repeat_is_valid(&of_table, dictionary_offset_max_symbol(content_len));
+    fse_tables.ll_previous = Some(ll_table);
+    fse_tables.ml_previous = Some(ml_table);
+    fse_tables.of_previous = Some(of_table);
 
     let opt_price_seeds = dictionary_price_seeds(decoded);
 
+    let huffman_weights = decoded.huf.table.encoder_weights();
     DictionaryEntropy {
-        huffman_table: huff0_encoder::HuffmanTable::build_from_weights(
-            &decoded.huf.table.encoder_weights(),
-        ),
+        huffman_table: huff0_encoder::HuffmanTable::build_from_weights(&huffman_weights),
+        huffman_repeat_valid: huffman_repeat_is_valid(&huffman_weights),
         fse_tables,
         opt_price_seeds,
     }
+}
+
+fn fse_repeat_is_valid(table: &fse_encoder::FSETable, max_symbol: u8) -> bool {
+    (0..=max_symbol).all(|symbol| table.can_encode_symbol(symbol))
+}
+
+fn dictionary_offset_max_symbol(content_len: usize) -> u8 {
+    const BLOCK_SIZE: usize = 128 * 1024;
+    const MAX_OFFSET_CODE: u32 = 31;
+
+    content_len
+        .checked_add(BLOCK_SIZE)
+        .and_then(|max_offset| u32::try_from(max_offset).ok())
+        .map_or(MAX_OFFSET_CODE, |max_offset| {
+            highbit32(max_offset).min(MAX_OFFSET_CODE)
+        }) as u8
+}
+
+fn huffman_repeat_is_valid(weights: &[usize]) -> bool {
+    weights.len() == 256 && weights.iter().all(|weight| *weight != 0)
 }
 
 fn dictionary_price_seeds(decoded: &Dictionary) -> DictionaryPriceSeeds {
@@ -373,6 +462,25 @@ mod tests {
         assert!(fse_tables.ll_previous.is_none());
         assert!(fse_tables.ml_previous.is_none());
         assert!(fse_tables.of_previous.is_none());
+    }
+
+    #[test]
+    fn dictionary_huffman_repeat_validity_requires_all_symbols_like_c() {
+        assert!(huffman_repeat_is_valid(&[1; 256]));
+        assert!(!huffman_repeat_is_valid(&[1; 255]));
+        let mut weights = [1; 256];
+        weights[137] = 0;
+        assert!(!huffman_repeat_is_valid(&weights));
+    }
+
+    #[test]
+    fn dictionary_offset_repeat_validity_uses_reachable_codes_like_c() {
+        assert_eq!(dictionary_offset_max_symbol(25), 17);
+        assert_eq!(
+            dictionary_offset_max_symbol((u32::MAX as usize) - 128 * 1024),
+            31
+        );
+        assert_eq!(dictionary_offset_max_symbol(u32::MAX as usize), 31);
     }
 
     #[test]

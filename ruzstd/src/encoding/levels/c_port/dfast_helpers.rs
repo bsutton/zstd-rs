@@ -1,6 +1,9 @@
 //! Low-level primitives for the C double-fast block compressor.
 
+#![forbid(unsafe_code)]
+
 use super::sequence_store::{OffBase, StoredSequence};
+pub(super) use super::unaligned::{read32, read64};
 use alloc::vec::Vec;
 
 pub(super) const HASH_READ_SIZE: usize = 8;
@@ -50,20 +53,9 @@ pub(super) fn hash_ptr(src: &[u8], pos: usize, h_bits: u32, min_match: u32) -> u
     }
 }
 
-pub(super) fn read32(src: &[u8], pos: usize) -> u32 {
-    debug_assert!(pos + 4 <= src.len());
-    // SAFETY: The C-port match finders only call read32() for positions that
-    // have already been bounded by the block/search limits. Unaligned loads are
-    // intentional here to mirror zstd's MEM_read32() hot path.
-    unsafe {
-        u32::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u32>(),
-        ))
-    }
-}
-
 pub(super) use super::match_count::count_match_behind as count_match;
 
+#[inline(always)]
 pub(super) fn store_match(
     sequences: &mut Vec<StoredSequence>,
     anchor: &mut usize,
@@ -78,18 +70,6 @@ pub(super) fn store_match(
     ));
     *ip += match_length;
     *anchor = *ip;
-}
-
-pub(super) fn read64(src: &[u8], pos: usize) -> u64 {
-    debug_assert!(pos + 8 <= src.len());
-    // SAFETY: The C-port match finders only call read64() for positions that
-    // have already been bounded by the block/search limits. Unaligned loads are
-    // intentional here to mirror zstd's MEM_read64() hot path.
-    unsafe {
-        u64::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u64>(),
-        ))
-    }
 }
 
 fn hash4(value: u32, h_bits: u32) -> usize {

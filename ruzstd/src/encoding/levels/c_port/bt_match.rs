@@ -1,5 +1,9 @@
 //! Binary-tree match finder ported from the no-dictionary DUBT path.
 
+mod attached;
+
+pub(super) use attached::load_attached_dictionary_binary_tree;
+
 use super::{
     greedy::GreedyMatchState,
     hash_chain_match::{count_match, hash_ptr, highbit32, MatchSearchConfig},
@@ -9,20 +13,32 @@ use super::{
 
 const DUBT_UNSORTED_MARK: u32 = 1;
 
-pub(super) fn bt_find_best_match(
+pub(super) fn bt_find_best_match<const ATTACHED_DICT: bool>(
     src: &[u8],
     ip: usize,
     block_end: usize,
     off_base: &mut u32,
     state: &mut GreedyMatchState,
-    config: MatchSearchConfig,
+    config: MatchSearchConfig<'_>,
 ) -> usize {
     if ip < state.next_to_update {
         return 0;
     }
 
     update_dubt(src, ip, config.params, config.min_match, state);
-    dubt_find_best_match(src, ip, block_end, off_base, state, config)
+    dubt_find_best_match::<ATTACHED_DICT>(src, ip, block_end, off_base, state, config)
+}
+
+pub(super) fn load_dictionary_binary_tree(
+    src: &[u8],
+    target: usize,
+    block_end: usize,
+    params: CompressionParameters,
+    min_match: u32,
+    state: &mut GreedyMatchState,
+) {
+    update_dubt(src, target, params, min_match, state);
+    debug_assert!(state.next_to_update <= block_end);
 }
 
 fn update_dubt(
@@ -49,13 +65,13 @@ fn update_dubt(
     state.next_to_update = target;
 }
 
-fn dubt_find_best_match(
+fn dubt_find_best_match<const ATTACHED_DICT: bool>(
     src: &[u8],
     ip: usize,
     block_end: usize,
     off_base: &mut u32,
     state: &mut GreedyMatchState,
-    config: MatchSearchConfig,
+    config: MatchSearchConfig<'_>,
 ) -> usize {
     let params = config.params;
     let hash = hash_ptr(src, ip, params.hash_log, config.min_match);
@@ -132,6 +148,9 @@ fn dubt_find_best_match(
                 *off_base = OffBase::offset_to_c_value((curr - match_index) as u32);
             }
             if ip + match_length == block_end {
+                if ATTACHED_DICT {
+                    nb_compares = 0;
+                }
                 break;
             }
         }
@@ -159,6 +178,22 @@ fn dubt_find_best_match(
 
     write_tree_slot(state, smaller_slot, 0);
     write_tree_slot(state, larger_slot, 0);
+    debug_assert_eq!(config.attached_dictionary.is_some(), ATTACHED_DICT);
+    if ATTACHED_DICT {
+        let attached = config
+            .attached_dictionary
+            .expect("attached tree specialization carries dictionary state");
+        best_length = attached::find_better_attached_dictionary_match(
+            src,
+            ip,
+            block_end,
+            off_base,
+            best_length,
+            nb_compares,
+            config.min_match,
+            attached,
+        );
+    }
     state.next_to_update = match_end_idx - 8;
     best_length
 }
@@ -170,7 +205,7 @@ fn insert_dubt1(
     mut nb_compares: usize,
     bt_low: usize,
     state: &mut GreedyMatchState,
-    config: MatchSearchConfig,
+    config: MatchSearchConfig<'_>,
 ) {
     let params = config.params;
     let mask = bt_mask(params);

@@ -12,6 +12,7 @@ use super::{
         count_match, hash8_ptr, hash_small_ptr, lowest_prefix_index_with_loaded_dict, read32,
         read64, store_match, HASH_READ_SIZE,
     },
+    dfast_table::{entry, set_entry},
     params::CompressionParameters,
     sequence_store::{OffBase, RepeatCode, RepeatOffsets, StoredSequence},
 };
@@ -88,22 +89,19 @@ fn compress_block_double_fast_ext_dict_with_state_mls<const MIN_MATCH: u32>(
     debug_assert!(block_range.end <= src.len());
 
     let mut rep = repeat_offsets.as_offsets();
-    let mut sequences = Vec::new();
     let block_start = block_range.start;
     let block_end = block_range.end;
     let block_len = block_end - block_start;
 
     if block_len <= HASH_READ_SIZE {
         return DFastBlockOutput {
-            sequences,
+            sequences: state.take_sequence_store(),
             last_literals: block_len as u32,
             repeat_offsets,
         };
     }
 
     state.ensure_tables(params);
-    let hash_long = &mut state.hash_long;
-    let hash_small = &mut state.hash_small;
     let h_bits_l = params.hash_log;
     let h_bits_s = params.chain_log;
     let dict_start_index =
@@ -119,6 +117,9 @@ fn compress_block_double_fast_ext_dict_with_state_mls<const MIN_MATCH: u32>(
             0,
         );
     }
+    let mut sequences = state.take_sequence_store();
+    let hash_long = &mut state.hash_long;
+    let hash_small = &mut state.hash_small;
     let ilimit = block_end - HASH_READ_SIZE;
 
     let mut anchor = block_start;
@@ -128,16 +129,16 @@ fn compress_block_double_fast_ext_dict_with_state_mls<const MIN_MATCH: u32>(
 
     while ip < ilimit {
         let h_small = hash_small_ptr::<MIN_MATCH>(src, ip, h_bits_s);
-        let match_index = hash_small[h_small] as usize;
+        let match_index = entry(hash_small, h_small) as usize;
         let mut match_pos = match_index;
 
         let h_long = hash8_ptr(src, ip, h_bits_l);
-        let match_long_index = hash_long[h_long] as usize;
+        let match_long_index = entry(hash_long, h_long) as usize;
         let mut match_long = match_long_index;
 
         let curr = ip;
-        hash_small[h_small] = curr as u32;
-        hash_long[h_long] = curr as u32;
+        set_entry(hash_small, h_small, curr as u32);
+        set_entry(hash_long, h_long, curr as u32);
 
         let mut match_length;
         if rep_match_at_next(src, ip, offset_1, dict_start_index, prefix_start_index) {
@@ -176,9 +177,9 @@ fn compress_block_double_fast_ext_dict_with_state_mls<const MIN_MATCH: u32>(
             );
         } else if match_index > dict_start_index && read32(src, match_pos) == read32(src, ip) {
             let h3 = hash8_ptr(src, ip + 1, h_bits_l);
-            let match_index3 = hash_long[h3] as usize;
+            let match_index3 = entry(hash_long, h3) as usize;
             let mut match3 = match_index3;
-            hash_long[h3] = (curr + 1) as u32;
+            set_entry(hash_long, h3, (curr + 1) as u32);
 
             let offset;
             if match_index3 > dict_start_index && read64(src, match3) == read64(src, ip + 1) {
@@ -269,15 +270,26 @@ fn complementary_insert<const MIN_MATCH: u32>(
 ) {
     let index_to_insert = curr + 2;
     if index_to_insert <= ilimit {
-        hash_long[hash8_ptr(src, index_to_insert, h_bits_l)] = index_to_insert as u32;
-        hash_small[hash_small_ptr::<MIN_MATCH>(src, index_to_insert, h_bits_s)] =
-            index_to_insert as u32;
+        set_entry(
+            hash_long,
+            hash8_ptr(src, index_to_insert, h_bits_l),
+            index_to_insert as u32,
+        );
+        set_entry(
+            hash_small,
+            hash_small_ptr::<MIN_MATCH>(src, index_to_insert, h_bits_s),
+            index_to_insert as u32,
+        );
     }
     if let Some(index) = ip.checked_sub(2).filter(|index| *index <= ilimit) {
-        hash_long[hash8_ptr(src, index, h_bits_l)] = index as u32;
+        set_entry(hash_long, hash8_ptr(src, index, h_bits_l), index as u32);
     }
     if let Some(index) = ip.checked_sub(1).filter(|index| *index <= ilimit) {
-        hash_small[hash_small_ptr::<MIN_MATCH>(src, index, h_bits_s)] = index as u32;
+        set_entry(
+            hash_small,
+            hash_small_ptr::<MIN_MATCH>(src, index, h_bits_s),
+            index as u32,
+        );
     }
 }
 
@@ -302,8 +314,12 @@ fn consume_immediate_repcodes<const MIN_MATCH: u32>(
         let rep_index = *ip - *offset_2;
         let repeat_length = count_match(src, *ip + 4, rep_index + 4, block_end) + 4;
         core::mem::swap(offset_1, offset_2);
-        hash_small[hash_small_ptr::<MIN_MATCH>(src, *ip, h_bits_s)] = *ip as u32;
-        hash_long[hash8_ptr(src, *ip, h_bits_l)] = *ip as u32;
+        set_entry(
+            hash_small,
+            hash_small_ptr::<MIN_MATCH>(src, *ip, h_bits_s),
+            *ip as u32,
+        );
+        set_entry(hash_long, hash8_ptr(src, *ip, h_bits_l), *ip as u32);
         store_match(
             sequences,
             anchor,

@@ -44,6 +44,40 @@ fn direct_repeat_history_update_matches_encoded_update_without_literals() {
 }
 
 #[test]
+fn fused_c_offset_update_matches_resolved_history_transition() {
+    for initial in [
+        OffsetHistory::new(),
+        OffsetHistory::from_offsets(11, 22, 33),
+        OffsetHistory::from_offsets(101, 7, 53),
+    ] {
+        for offset_value in 1..=20 {
+            for lit_len in [0, 1, 17] {
+                let expected_offset = if offset_value > 3 {
+                    offset_value - 3
+                } else {
+                    let rep_code = offset_value - 1 + u32::from(lit_len == 0);
+                    match rep_code {
+                        0 => initial.newest,
+                        1 => initial.second,
+                        2 => initial.third,
+                        3 => initial.newest - 1,
+                        _ => unreachable!(),
+                    }
+                };
+
+                let mut separate = initial;
+                separate.update_from_offset_value(offset_value, lit_len, expected_offset);
+                let mut fused = initial;
+                let actual_offset = fused.update_from_c_offset_value(offset_value, lit_len);
+
+                assert_eq!(actual_offset, expected_offset);
+                assert_eq!(fused, separate);
+            }
+        }
+    }
+}
+
+#[test]
 fn very_simple_raw_compress() {
     let mock_data = [1_u8, 2, 3].as_slice();
     let mut output: Vec<u8> = Vec::new();

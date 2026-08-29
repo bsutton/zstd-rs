@@ -34,6 +34,7 @@ pub(super) fn encode_split_block(
     prepared: &GreedyPreparedBlock,
     previous_offsets: OffsetHistory,
     context: &mut GreedyBlockEncodeContext<'_, '_>,
+    estimate_scratch: &mut EstimateScratch,
 ) -> Option<GreedyEncodedBlock> {
     let prefixes = sequence_prefixes(&prepared.prepared);
     let partitions = derive_block_splits(
@@ -47,12 +48,13 @@ pub(super) fn encode_split_block(
             offset_history: previous_offsets,
             previous_huff_table: context.previous_huff_table,
         },
+        estimate_scratch,
     );
     if partitions.len() <= 1 {
         return None;
     }
 
-    let mut bytes = Vec::new();
+    let mut bytes = Vec::with_capacity(block.len().saturating_add(partitions.len() * 3));
     let mut last_huff_table = None;
     let mut decompression_repeat_offsets = repeat_offsets;
     let mut compression_repeat_offsets = repeat_offsets;
@@ -104,14 +106,14 @@ fn derive_block_splits(
     prepared: &PreparedBlock,
     prefixes: &[SequencePrefix],
     context: EstimateContext<'_>,
+    estimate_scratch: &mut EstimateScratch,
 ) -> Vec<usize> {
     let nb_seq = prepared.sequences.len();
     if nb_seq <= 4 {
         return Vec::new();
     }
 
-    let mut splits = Vec::new();
-    let mut estimate_scratch = EstimateScratch::new();
+    let mut splits = Vec::with_capacity(nb_seq.min(MAX_NB_BLOCK_SPLITS + 1));
     derive_block_splits_helper(
         &mut splits,
         0,
@@ -120,7 +122,8 @@ fn derive_block_splits(
         prepared,
         prefixes,
         context,
-        &mut estimate_scratch,
+        estimate_scratch,
+        None,
     );
     splits.push(nb_seq);
     splits
@@ -136,21 +139,24 @@ fn derive_block_splits_helper(
     prefixes: &[SequencePrefix],
     context: EstimateContext<'_>,
     estimate_scratch: &mut EstimateScratch,
+    known_original_size: Option<usize>,
 ) {
     if end_idx - start_idx < MIN_SEQUENCES_BLOCK_SPLITTING || splits.len() >= MAX_NB_BLOCK_SPLITS {
         return;
     }
 
     let mid_idx = (start_idx + end_idx) / 2;
-    let original_size = estimate_partition_size_with_sequences(
-        block,
-        prepared,
-        prefixes,
-        start_idx,
-        end_idx,
-        context,
-        estimate_scratch,
-    );
+    let original_size = known_original_size.unwrap_or_else(|| {
+        estimate_partition_size_with_sequences(
+            block,
+            prepared,
+            prefixes,
+            start_idx,
+            end_idx,
+            context,
+            estimate_scratch,
+        )
+    });
     let first_half_size = estimate_partition_size_with_sequences(
         block,
         prepared,
@@ -185,6 +191,7 @@ fn derive_block_splits_helper(
             prefixes,
             context,
             estimate_scratch,
+            Some(first_half_size),
         );
         splits.push(mid_idx);
         derive_block_splits_helper(
@@ -196,6 +203,7 @@ fn derive_block_splits_helper(
             prefixes,
             context,
             estimate_scratch,
+            Some(second_half_size),
         );
     }
 }
@@ -255,7 +263,7 @@ fn estimate_partition_size_with_sequences(
     }
 
     estimate_prepared_block_size_with_sequences(
-        context.config,
+        context.config.for_c_block_split_estimate(),
         chunk.prepared,
         context.fse_tables,
         context.offset_history,
@@ -351,9 +359,7 @@ fn resolved_partition_sequences<'a>(
     let mut resolved = None;
 
     for (idx, sequence) in sequences.iter().copied().enumerate() {
-        let original_off_base = sequence
-            .encoded_offset_value
-            .and_then(OffBase::from_c_value)
+        let original_off_base = OffBase::from_c_value(sequence.encoded_offset_value)
             .expect("C-port split partitions require C offBase values");
         let mut decompression_off_base = original_off_base;
 
@@ -366,8 +372,7 @@ fn resolved_partition_sequences<'a>(
                 decompression_off_base = OffBase::Offset(compression_raw_offset);
                 let resolved_sequences = resolved.get_or_insert_with(|| sequences.to_vec());
                 resolved_sequences[idx].raw_offset = compression_raw_offset;
-                resolved_sequences[idx].encoded_offset_value =
-                    Some(decompression_off_base.to_c_value());
+                resolved_sequences[idx].encoded_offset_value = decompression_off_base.to_c_value();
             }
         }
 
@@ -390,7 +395,7 @@ fn encode_partition(
 ) -> GreedyEncodedBlock {
     let previous_fse = context.fse_tables.snapshot_previous();
     let previous_offsets = *context.offset_history;
-    let mut bytes = Vec::new();
+    let mut bytes = Vec::with_capacity(block.len().saturating_add(3));
 
     if append_special_block(block, last_block, &mut bytes) {
         return GreedyEncodedBlock {

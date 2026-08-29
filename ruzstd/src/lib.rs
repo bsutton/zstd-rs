@@ -12,6 +12,7 @@
 //!
 #![doc = include_str!("../Readme.md")]
 #![no_std]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(trivial_casts, trivial_numeric_casts, rust_2018_idioms)]
 
 #[cfg(feature = "std")]
@@ -34,11 +35,13 @@ macro_rules! vprintln {
 
 mod bit_io;
 mod common;
+mod cpu;
 pub mod decoding;
 #[cfg(feature = "dict_builder")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dict_builder")))]
 pub mod dictionary;
 pub mod encoding;
+mod kernel;
 
 pub(crate) mod blocks;
 

@@ -1,15 +1,50 @@
 //! Hash-chain search primitives shared by the C greedy/lazy/lazy2 ports.
 
-use super::{greedy::GreedyMatchState, params::CompressionParameters, sequence_store::OffBase};
+#![forbid(unsafe_code)]
+
+pub(super) use super::unaligned::read32;
+use super::{
+    greedy::GreedyMatchState, params::CompressionParameters, sequence_store::OffBase,
+    unaligned::read64,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct MatchSearchConfig {
+pub(super) struct AttachedDictionarySearch<'a> {
+    pub(super) src: &'a [u8],
+    pub(super) state: &'a GreedyMatchState,
+    pub(super) params: CompressionParameters,
+    pub(super) dictionary_index_start: usize,
+    pub(super) active_dict_limit: usize,
+    pub(super) active_prefix_start: usize,
+}
+
+impl<'a> AttachedDictionarySearch<'a> {
+    pub(super) fn zero_based(
+        src: &'a [u8],
+        state: &'a GreedyMatchState,
+        params: CompressionParameters,
+        active_prefix_start: usize,
+    ) -> Self {
+        Self {
+            src,
+            state,
+            params,
+            dictionary_index_start: 0,
+            active_dict_limit: active_prefix_start,
+            active_prefix_start,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct MatchSearchConfig<'a> {
     pub(super) params: CompressionParameters,
     pub(super) min_match: u32,
     pub(super) loaded_dict_end: usize,
+    pub(super) attached_dictionary: Option<AttachedDictionarySearch<'a>>,
 }
 
-impl MatchSearchConfig {
+impl<'a> MatchSearchConfig<'a> {
     pub(super) fn new(
         params: CompressionParameters,
         min_match: u32,
@@ -19,7 +54,16 @@ impl MatchSearchConfig {
             params,
             min_match,
             loaded_dict_end,
+            attached_dictionary: None,
         }
+    }
+
+    pub(super) fn with_attached_dictionary(
+        mut self,
+        attached_dictionary: AttachedDictionarySearch<'a>,
+    ) -> Self {
+        self.attached_dictionary = Some(attached_dictionary);
+        self
     }
 
     pub(super) fn lowest_prefix_index(self, pos: usize) -> usize {
@@ -33,7 +77,7 @@ pub(super) fn hc_find_best_match(
     block_end: usize,
     off_base: &mut u32,
     state: &mut GreedyMatchState,
-    config: MatchSearchConfig,
+    config: MatchSearchConfig<'_>,
 ) -> usize {
     let params = config.params;
     let chain_size = 1_usize << params.chain_log;
@@ -136,18 +180,6 @@ pub(super) fn equal_min_match(src: &[u8], left: usize, right: usize, min_match: 
     read32(src, left) == read32(src, right)
 }
 
-pub(super) fn read32(src: &[u8], pos: usize) -> u32 {
-    debug_assert!(pos + 4 <= src.len());
-    // SAFETY: The hash-chain and binary-tree match finders only call read32()
-    // for positions that have already been bounded by the block/search limits.
-    // Unaligned loads mirror zstd's MEM_read32() hot path.
-    unsafe {
-        u32::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u32>(),
-        ))
-    }
-}
-
 pub(super) fn lowest_prefix_index(pos: usize, window_log: u32) -> usize {
     pos.saturating_sub(1_usize << window_log)
 }
@@ -183,18 +215,6 @@ fn hash5(value: u64, h_bits: u32) -> usize {
 fn hash6(value: u64, h_bits: u32) -> usize {
     const PRIME_6_BYTES: u64 = 227_718_039_650_203;
     ((value << (64 - 48)).wrapping_mul(PRIME_6_BYTES) >> (64 - h_bits)) as usize
-}
-
-fn read64(src: &[u8], pos: usize) -> u64 {
-    debug_assert!(pos + 8 <= src.len());
-    // SAFETY: The hash-chain and binary-tree match finders only call read64()
-    // for positions that have already been bounded by the block/search limits.
-    // Unaligned loads mirror zstd's MEM_read64() hot path.
-    unsafe {
-        u64::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u64>(),
-        ))
-    }
 }
 
 #[cfg(test)]

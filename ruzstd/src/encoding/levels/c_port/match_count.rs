@@ -1,5 +1,9 @@
 //! Match-length counter shared by the C-port match finders.
 
+#![forbid(unsafe_code)]
+
+use super::unaligned::{read16, read32, read64};
+
 pub(super) fn count_match(
     src: &[u8],
     mut pos: usize,
@@ -51,14 +55,24 @@ pub(super) fn count_match_no_dict(
     debug_assert!(match_limit <= src.len());
 
     let start = pos;
+    let loop_limit = match_limit.saturating_sub(7);
 
-    while pos + 8 <= match_limit {
+    if pos < loop_limit {
         let diff = read64(src, pos) ^ read64(src, match_pos);
         if diff != 0 {
-            return pos - start + common_prefix_bytes(diff);
+            return common_prefix_bytes(diff);
         }
         pos += 8;
         match_pos += 8;
+
+        while pos < loop_limit {
+            let diff = read64(src, pos) ^ read64(src, match_pos);
+            if diff != 0 {
+                return pos - start + common_prefix_bytes(diff);
+            }
+            pos += 8;
+            match_pos += 8;
+        }
     }
 
     if pos + 4 <= match_limit && read32(src, pos) == read32(src, match_pos) {
@@ -119,42 +133,6 @@ pub(super) fn count_match_behind(
 #[inline(always)]
 fn common_prefix_bytes(diff: u64) -> usize {
     (diff.trailing_zeros() >> 3) as usize
-}
-
-#[inline(always)]
-fn read16(src: &[u8], pos: usize) -> u16 {
-    debug_assert!(pos + 2 <= src.len());
-    // SAFETY: callers bound positions before reading. Unaligned loads mirror
-    // zstd's MEM_read16/MEM_readST match extension hot path.
-    unsafe {
-        u16::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u16>(),
-        ))
-    }
-}
-
-#[inline(always)]
-fn read32(src: &[u8], pos: usize) -> u32 {
-    debug_assert!(pos + 4 <= src.len());
-    // SAFETY: callers bound positions before reading. Unaligned loads mirror
-    // zstd's MEM_read32/MEM_readST match extension hot path.
-    unsafe {
-        u32::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u32>(),
-        ))
-    }
-}
-
-#[inline(always)]
-fn read64(src: &[u8], pos: usize) -> u64 {
-    debug_assert!(pos + 8 <= src.len());
-    // SAFETY: callers bound positions before reading. Unaligned loads mirror
-    // zstd's MEM_readST match extension hot path.
-    unsafe {
-        u64::from_le(core::ptr::read_unaligned(
-            src.as_ptr().add(pos).cast::<u64>(),
-        ))
-    }
 }
 
 #[cfg(test)]

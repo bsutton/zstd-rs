@@ -35,19 +35,41 @@ fn tables_equal() {
     let enc_table = fse_encoder::build_table_from_probabilities(huff_weight_probs, 5);
 
     check_tables(&dec_table, &enc_table);
+
+    for enc_table in [
+        fse_encoder::default_ll_table(),
+        fse_encoder::default_ml_table(),
+        fse_encoder::default_of_table(),
+    ] {
+        let mut dec_table = FSETable::new(255);
+        dec_table
+            .build_from_probabilities(enc_table.acc_log(), &enc_table.probabilities())
+            .unwrap();
+        check_tables(&dec_table, &enc_table);
+    }
 }
 
 #[cfg(any(test, feature = "fuzz_exports"))]
 fn check_tables(dec_table: &fse_decoder::FSETable, enc_table: &fse_encoder::FSETable) {
-    for (idx, dec_state) in dec_table.decode.iter().enumerate() {
-        let enc_states = &enc_table.states[dec_state.symbol as usize];
-        let enc_state = enc_states
-            .states
-            .iter()
-            .find(|state| state.index as usize == idx)
-            .unwrap();
-        assert_eq!(enc_state.baseline as usize, dec_state.base_line as usize);
-        assert_eq!(enc_state.num_bits, dec_state.num_bits);
+    let table_size = 1usize << enc_table.acc_log();
+    let table_mask = table_size - 1;
+    for symbol in 0..=u8::MAX {
+        if !enc_table.can_encode_symbol(symbol) {
+            continue;
+        }
+        for state in table_size..2 * table_size {
+            let (bits, num_bits, next_state) = enc_table.encode_symbol(symbol, state as u32);
+            let dec_state = dec_table.decode[next_state as usize & table_mask];
+            let bit_mask = (1u32 << num_bits).wrapping_sub(1);
+            assert_eq!(dec_state.symbol, symbol);
+            assert_eq!(dec_state.num_bits, num_bits);
+            assert_eq!(
+                dec_state.base_line + (bits & bit_mask),
+                state as u32 & table_mask as u32
+            );
+        }
+        let start_state = enc_table.c_start_state_index(symbol) as usize & table_mask;
+        assert_eq!(dec_table.decode[start_state].symbol, symbol);
     }
 }
 

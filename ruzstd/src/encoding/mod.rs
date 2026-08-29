@@ -7,8 +7,12 @@ pub(crate) mod frame_header;
 pub(crate) mod match_generator;
 pub(crate) mod util;
 
+mod compression_level;
 mod frame_compressor;
 mod levels;
+#[cfg(feature = "std")]
+mod streaming_encoder;
+pub use compression_level::{CompressionLevel, InvalidCompressionLevel};
 pub(crate) use file_profile::CompressionFileProfile;
 pub use file_profile::CompressionFileType;
 #[cfg(feature = "std")]
@@ -17,6 +21,11 @@ pub(crate) use file_profile::{compression_file_profile_for_path_and_data, read_f
 pub use file_profile::{compression_file_type_for_path, compression_file_type_for_path_and_data};
 pub use frame_compressor::FrameCompressor;
 pub use match_generator::MatchGeneratorDriver;
+#[cfg(feature = "std")]
+pub use streaming_encoder::{
+    encode, encode_all, DictionaryError, EncodeError, Encoder, EncoderDictionary, EncoderOptions,
+    DEFAULT_FRAME_CHUNK_SIZE, DEFAULT_MEMORY_LIMIT,
+};
 
 use crate::io::{Read, Write};
 use alloc::vec::Vec;
@@ -25,7 +34,7 @@ use std::path::Path;
 
 /// Convenience function to compress some source into a target without reusing any resources of the compressor
 /// ```rust
-/// use ruzstd::encoding::{compress, CompressionLevel};
+/// use zstd_complete::encoding::{compress, CompressionLevel};
 /// let data: &[u8] = &[0,0,0,0,0,0,0,0,0,0,0,0];
 /// let mut target = Vec::new();
 /// compress(data, &mut target, CompressionLevel::Fastest);
@@ -73,7 +82,7 @@ pub fn compress_with_path<R: Read, W: Write>(
 
 /// Convenience function to compress some source into a Vec without reusing any resources of the compressor
 /// ```rust
-/// use ruzstd::encoding::{compress_to_vec, CompressionLevel};
+/// use zstd_complete::encoding::{compress_to_vec, CompressionLevel};
 /// let data: &[u8] = &[0,0,0,0,0,0,0,0,0,0,0,0];
 /// let compressed = compress_to_vec(data, CompressionLevel::Fastest);
 /// ```
@@ -88,6 +97,7 @@ pub fn compress_to_vec<R: Read>(source: R, level: CompressionLevel) -> Vec<u8> {
 /// This entry point accepts the same numeric level range as upstream zstd. It currently
 /// targets the no-dictionary path and buffers the complete source so that the C-port
 /// frame encoder can choose block strategies from the full content size.
+#[cfg(any(test, feature = "c-port-validation"))]
 pub fn compress_c_level<R: Read, W: Write>(mut source: R, mut target: W, level: i32) {
     let mut input = Vec::new();
     source.read_to_end(&mut input).unwrap();
@@ -96,6 +106,7 @@ pub fn compress_c_level<R: Read, W: Write>(mut source: R, mut target: W, level: 
 }
 
 /// Compress a full source into a Vec using the faithful C no-dictionary level table.
+#[cfg(any(test, feature = "c-port-validation"))]
 pub fn compress_to_vec_c_level<R: Read>(mut source: R, level: i32) -> Vec<u8> {
     let mut input = Vec::new();
     source.read_to_end(&mut input).unwrap();
@@ -107,19 +118,93 @@ pub fn compress_to_vec_c_level<R: Read>(mut source: R, level: i32) -> Vec<u8> {
 ///
 /// This avoids the extra staging copy required by the generic `Read` entry
 /// point when the caller already has the full source in memory.
+#[cfg(any(test, feature = "c-port-validation"))]
 pub fn compress_slice_c_level(source: &[u8], level: i32) -> Vec<u8> {
     levels::c_port::encode_frame_no_dict(source, level)
 }
 
+/// Compress a complete in-memory source with an explicit C `targetCBlockSize`.
+///
+/// This is a narrow validation hook for the faithful C-port path. It returns
+/// `None` when the requested target size is outside C's accepted range.
+#[cfg(any(test, feature = "c-port-validation"))]
+pub fn compress_slice_c_level_with_target_c_block_size(
+    source: &[u8],
+    level: i32,
+    target_c_block_size: usize,
+) -> Option<Vec<u8>> {
+    levels::c_port::encode_frame_no_dict_with_target_c_block_size(
+        source,
+        level,
+        target_c_block_size,
+    )
+}
+
 /// Errors returned while preparing a C-level dictionary compression.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "c-port-validation"))]
 pub enum CLevelDictionaryError {
     WrongDictionary,
     CorruptedDictionary,
 }
 
+/// A dictionary parsed and owned for repeated C-level compression.
+///
+/// Like upstream `ZSTD_CDict`, this binds dictionary parsing and compression
+/// parameters to one numeric compression level. Reuse the value when
+/// compressing multiple independent sources with the same dictionary.
+#[derive(Clone)]
+#[cfg(any(test, feature = "c-port-validation"))]
+pub struct CLevelEncoderDictionary {
+    level: i32,
+    dictionary: Option<levels::c_port::PreparedDictionary>,
+}
+
+#[cfg(any(test, feature = "c-port-validation"))]
+impl CLevelEncoderDictionary {
+    /// Copies and prepares a dictionary for the supplied numeric C level.
+    pub fn copy(dictionary: &[u8], level: i32) -> Result<Self, CLevelDictionaryError> {
+        let dictionary = levels::c_port::PreparedDictionary::from_bytes(dictionary)
+            .map_err(map_c_level_dictionary_error)?;
+        Ok(Self { level, dictionary })
+    }
+
+    /// Returns the numeric compression level fixed at preparation time.
+    pub fn level(&self) -> i32 {
+        self.level
+    }
+}
+
+/// Compress a complete in-memory source using a prepared C-level dictionary.
+#[cfg(any(test, feature = "c-port-validation"))]
+pub fn compress_slice_c_level_with_prepared_dictionary(
+    source: &[u8],
+    dictionary: &CLevelEncoderDictionary,
+) -> Vec<u8> {
+    match dictionary.dictionary.as_ref() {
+        Some(prepared) => levels::c_port::encode_frame_with_prepared_dictionary(
+            source,
+            dictionary.level,
+            prepared,
+        ),
+        None => levels::c_port::encode_frame_no_dict(source, dictionary.level),
+    }
+}
+
+/// Compress a full source into a Vec using a prepared C-level dictionary.
+#[cfg(any(test, feature = "c-port-validation"))]
+pub fn compress_to_vec_c_level_with_prepared_dictionary<R: Read>(
+    mut source: R,
+    dictionary: &CLevelEncoderDictionary,
+) -> Vec<u8> {
+    let mut input = Vec::new();
+    source.read_to_end(&mut input).unwrap();
+    compress_slice_c_level_with_prepared_dictionary(&input, dictionary)
+}
+
 /// Compress a full source into a target using the faithful C level table and
 /// C-style automatic dictionary parsing.
+#[cfg(any(test, feature = "c-port-validation"))]
 pub fn compress_c_level_with_dictionary<R: Read, W: Write>(
     mut source: R,
     mut target: W,
@@ -136,6 +221,7 @@ pub fn compress_c_level_with_dictionary<R: Read, W: Write>(
 
 /// Compress a full source into a Vec using the faithful C level table and
 /// C-style automatic dictionary parsing.
+#[cfg(any(test, feature = "c-port-validation"))]
 pub fn compress_to_vec_c_level_with_dictionary<R: Read>(
     mut source: R,
     level: i32,
@@ -148,6 +234,7 @@ pub fn compress_to_vec_c_level_with_dictionary<R: Read>(
 
 /// Compress a complete in-memory source into a Vec using the faithful C level
 /// table and C-style automatic dictionary parsing.
+#[cfg(any(test, feature = "c-port-validation"))]
 pub fn compress_slice_c_level_with_dictionary(
     source: &[u8],
     level: i32,
@@ -157,6 +244,28 @@ pub fn compress_slice_c_level_with_dictionary(
         .map_err(map_c_level_dictionary_error)
 }
 
+/// Compress a complete in-memory source with both a C-style dictionary and
+/// explicit C `targetCBlockSize`.
+///
+/// This is a validation hook for the combined dictionary+target surface. It
+/// returns `Ok(None)` when the target size is outside C's accepted range.
+#[cfg(any(test, feature = "c-port-validation"))]
+pub fn compress_slice_c_level_with_dictionary_and_target_c_block_size(
+    source: &[u8],
+    level: i32,
+    dictionary: &[u8],
+    target_c_block_size: usize,
+) -> Result<Option<Vec<u8>>, CLevelDictionaryError> {
+    levels::c_port::encode_frame_with_dictionary_and_target_c_block_size(
+        source,
+        level,
+        dictionary,
+        target_c_block_size,
+    )
+    .map_err(map_c_level_dictionary_error)
+}
+
+#[cfg(any(test, feature = "c-port-validation"))]
 fn map_c_level_dictionary_error(
     error: levels::c_port::DictionaryParseError,
 ) -> CLevelDictionaryError {
@@ -191,32 +300,6 @@ pub fn compress_to_vec_with_path<R: Read>(
     let mut vec = Vec::new();
     compress_with_path(source, &mut vec, path, level);
     vec
-}
-
-/// The compression mode used impacts the speed of compression,
-/// and resulting compression ratios. Faster compression will result
-/// in worse compression ratios, and vice versa.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum CompressionLevel {
-    /// This level does not compress the data at all, and simply wraps
-    /// it in a Zstandard frame.
-    Uncompressed,
-    /// This level is roughly equivalent to Zstd compression level 1
-    Fastest,
-    /// This level is roughly equivalent to Zstd level 3,
-    /// or the one used by the official compressor when no level
-    /// is specified.
-    ///
-    /// UNIMPLEMENTED
-    Default,
-    /// This level is roughly equivalent to Zstd level 7.
-    ///
-    /// UNIMPLEMENTED
-    Better,
-    /// This level is roughly equivalent to Zstd level 11.
-    ///
-    /// UNIMPLEMENTED
-    Best,
 }
 
 /// Trait used by the encoder that users can use to extend the matching facilities with their own algorithm
@@ -303,7 +386,8 @@ pub enum Sequence<'data> {
 mod tests {
     use super::{
         compress_c_level, compress_c_level_with_dictionary, compress_slice_c_level,
-        compress_slice_c_level_with_dictionary, compress_to_vec_c_level,
+        compress_slice_c_level_with_dictionary,
+        compress_slice_c_level_with_dictionary_and_target_c_block_size, compress_to_vec_c_level,
         compress_to_vec_c_level_with_dictionary, CLevelDictionaryError, CompressionLevel,
     };
     use crate::decoding::{dictionary::Dictionary, FrameDecoder};
@@ -363,6 +447,67 @@ mod tests {
         compress_c_level_with_dictionary(data.as_slice(), &mut encoded, 13, &dict).unwrap();
 
         assert_round_trips_with_dictionary(&encoded, &data, &dict);
+    }
+
+    #[test]
+    fn c_level_dictionary_target_c_block_size_round_trips_optimal_strategy() {
+        let dict = full_dictionary_fixture();
+        let data = dictionary_payload();
+
+        let encoded =
+            compress_slice_c_level_with_dictionary_and_target_c_block_size(&data, 16, &dict, 2048)
+                .unwrap()
+                .expect("level 16 dictionary target mode is target-wired");
+
+        assert_round_trips_with_dictionary(&encoded, &data, &dict);
+    }
+
+    #[test]
+    fn c_level_dictionary_target_c_block_size_round_trips_hash_chain_strategy() {
+        let dict = full_dictionary_fixture();
+        let data = dictionary_payload();
+
+        let encoded =
+            compress_slice_c_level_with_dictionary_and_target_c_block_size(&data, 5, &dict, 2048)
+                .unwrap()
+                .expect("level 5 dictionary target mode is target-wired");
+
+        assert_round_trips_with_dictionary(&encoded, &data, &dict);
+    }
+
+    #[test]
+    fn c_level_dictionary_target_c_block_size_round_trips_fast_strategies() {
+        let dict = full_dictionary_fixture();
+        let data = dictionary_payload();
+
+        for level in [1, 3] {
+            let encoded = compress_slice_c_level_with_dictionary_and_target_c_block_size(
+                &data, level, &dict, 2048,
+            )
+            .unwrap();
+
+            assert_round_trips_with_dictionary(
+                &encoded.expect("fast dictionary target mode is target-wired"),
+                &data,
+                &dict,
+            );
+        }
+    }
+
+    #[test]
+    fn c_level_dictionary_target_c_block_size_rejects_invalid_sizes() {
+        let dict = full_dictionary_fixture();
+        let data = dictionary_payload();
+
+        let encoded = compress_slice_c_level_with_dictionary_and_target_c_block_size(
+            &data,
+            1,
+            &dict,
+            128 * 1024 + 1,
+        )
+        .unwrap();
+
+        assert_eq!(encoded, None);
     }
 
     #[test]

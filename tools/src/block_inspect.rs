@@ -1,6 +1,7 @@
 use std::io;
 
-use ruzstd::decoding::{BlockDecodingStrategy, FrameDecoder};
+use ruzstd::decoding::{BlockDecodingStrategy, Dictionary, FrameDecoder};
+use ruzstd::huff0::HuffmanTable;
 
 const ZSTD_MAGIC: u32 = 0xfd2f_b528;
 
@@ -45,6 +46,7 @@ pub struct CompressedSectionInfo {
     pub literal_type: LiteralSectionType,
     pub literal_regenerated_size: usize,
     pub literal_payload_size: usize,
+    pub literal_table_size: Option<usize>,
     pub literal_streams: Option<u8>,
     pub sequences: usize,
     pub ll_mode: Option<SequenceMode>,
@@ -117,8 +119,22 @@ pub fn inspect_frame(encoded: &[u8]) -> io::Result<Vec<BlockInfo>> {
 }
 
 pub fn inspect_frame_with_decoded_sizes(encoded: &[u8]) -> io::Result<Vec<BlockInfo>> {
+    inspect_frame_with_decoded_sizes_and_dictionary(encoded, None)
+}
+
+pub fn inspect_frame_with_decoded_sizes_and_dictionary(
+    encoded: &[u8],
+    dictionary: Option<&[u8]>,
+) -> io::Result<Vec<BlockInfo>> {
     let mut blocks = inspect_frame(encoded)?;
     let mut decoder = FrameDecoder::new();
+    if let Some(dictionary) = dictionary {
+        let dictionary = Dictionary::decode_dict(dictionary)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+        decoder
+            .add_dict(dictionary)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+    }
     let mut source = encoded;
     decoder
         .reset(&mut source)
@@ -153,6 +169,7 @@ fn inspect_compressed_sections(payload: &[u8]) -> io::Result<CompressedSectionIn
         literal_type: literal.section_type,
         literal_regenerated_size: literal.regenerated_size,
         literal_payload_size: literal.payload_size,
+        literal_table_size: literal.table_size,
         literal_streams: literal.streams,
         sequences: sequence.sequences,
         ll_mode: sequence.modes.map(|modes| decode_sequence_mode(modes >> 6)),
@@ -169,6 +186,7 @@ struct LiteralSectionHeader {
     section_type: LiteralSectionType,
     regenerated_size: usize,
     payload_size: usize,
+    table_size: Option<usize>,
     header_size: usize,
     streams: Option<u8>,
 }
@@ -255,10 +273,26 @@ fn parse_literal_section(payload: &[u8]) -> io::Result<LiteralSectionHeader> {
         LiteralSectionType::Raw => regenerated_size,
         LiteralSectionType::Compressed | LiteralSectionType::Treeless => unreachable!(),
     });
+    let table_size = match section_type {
+        LiteralSectionType::Compressed => {
+            let table_source = &payload[header_size..header_size + payload_size];
+            let mut table = HuffmanTable::new();
+            Some(table.build_decoder(table_source).map_err(|err| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("invalid Huffman table description: {err:?}"),
+                )
+            })? as usize)
+        }
+        LiteralSectionType::Treeless => Some(0),
+        LiteralSectionType::Raw | LiteralSectionType::Rle => None,
+    };
+
     Ok(LiteralSectionHeader {
         section_type,
         regenerated_size,
         payload_size,
+        table_size,
         header_size,
         streams,
     })

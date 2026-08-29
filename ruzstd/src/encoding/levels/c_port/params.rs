@@ -13,6 +13,7 @@ const ZSTD_WINDOWLOG_ABSOLUTE_MIN: u32 = 10;
 const ZSTD_HASHLOG_MIN: u32 = 6;
 const ZSTD_ROW_HASH_TAG_BITS: u32 = 8;
 const ZSTD_SHORT_CACHE_TAG_BITS: u32 = 8;
+const KIB_USIZE: usize = 1024;
 
 #[cfg(target_pointer_width = "64")]
 const ZSTD_WINDOWLOG_MAX: u32 = 31;
@@ -123,6 +124,17 @@ impl CompressionParameters {
         params.adjust(src_size_hint, dict_size, mode)
     }
 
+    /// Port of applying `ZSTD_adjustCParams_internal()` to an already selected
+    /// C parameter row.
+    pub(crate) fn adjusted_for_mode(
+        self,
+        src_size_hint: u64,
+        dict_size: usize,
+        mode: CParamMode,
+    ) -> Self {
+        self.adjust(src_size_hint, dict_size, mode)
+    }
+
     fn adjust(mut self, mut src_size: u64, mut dict_size: usize, mode: CParamMode) -> Self {
         match mode {
             CParamMode::Unknown | CParamMode::NoAttachDict => {}
@@ -226,6 +238,29 @@ fn row_match_finder_used(strategy: Strategy) -> bool {
 
 fn cdict_indices_are_tagged(strategy: Strategy) -> bool {
     matches!(strategy, Strategy::Fast | Strategy::DFast)
+}
+
+/// Default `ZSTD_shouldAttachDict()` decision, excluding force modes and
+/// dedicated dictionary search which are not currently exposed by this port.
+pub(crate) fn should_attach_dict_by_default(
+    cdict_strategy: Strategy,
+    pledged_src_size: u64,
+) -> bool {
+    pledged_src_size == ZSTD_CONTENTSIZE_UNKNOWN
+        || pledged_src_size <= attach_dict_size_cutoff(cdict_strategy) as u64
+}
+
+fn attach_dict_size_cutoff(strategy: Strategy) -> usize {
+    match strategy {
+        Strategy::Fast => 8 * KIB_USIZE,
+        Strategy::DFast => 16 * KIB_USIZE,
+        Strategy::Greedy
+        | Strategy::Lazy
+        | Strategy::Lazy2
+        | Strategy::BtLazy2
+        | Strategy::BtOpt => 32 * KIB_USIZE,
+        Strategy::BtUltra | Strategy::BtUltra2 => 8 * KIB_USIZE,
+    }
 }
 
 const fn p(

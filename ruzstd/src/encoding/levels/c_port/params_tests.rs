@@ -1,5 +1,5 @@
 use super::{
-    params::{CParamMode, ZSTD_CONTENTSIZE_UNKNOWN},
+    params::{should_attach_dict_by_default, CParamMode, ZSTD_CONTENTSIZE_UNKNOWN},
     CompressionParameters, Strategy, MAX_COMPRESSION_LEVEL, MIN_COMPRESSION_LEVEL,
 };
 
@@ -126,4 +126,61 @@ fn create_cdict_mode_assumes_small_source_when_size_is_unknown() {
         ),
         params(14, 14, 15, 2, 4, 0, Strategy::DFast)
     );
+}
+
+#[test]
+fn default_attach_dict_mode_uses_c_strategy_cutoffs() {
+    assert!(should_attach_dict_by_default(Strategy::Fast, 8 * 1024));
+    assert!(!should_attach_dict_by_default(Strategy::Fast, 8 * 1024 + 1));
+
+    assert!(should_attach_dict_by_default(Strategy::DFast, 16 * 1024));
+    assert!(!should_attach_dict_by_default(
+        Strategy::DFast,
+        16 * 1024 + 1
+    ));
+
+    for strategy in [
+        Strategy::Greedy,
+        Strategy::Lazy,
+        Strategy::Lazy2,
+        Strategy::BtLazy2,
+        Strategy::BtOpt,
+    ] {
+        assert!(should_attach_dict_by_default(strategy, 32 * 1024));
+        assert!(!should_attach_dict_by_default(strategy, 32 * 1024 + 1));
+    }
+
+    assert!(should_attach_dict_by_default(Strategy::BtUltra, 8 * 1024));
+    assert!(!should_attach_dict_by_default(
+        Strategy::BtUltra,
+        8 * 1024 + 1
+    ));
+    assert!(should_attach_dict_by_default(Strategy::BtUltra2, 8 * 1024));
+    assert!(!should_attach_dict_by_default(
+        Strategy::BtUltra2,
+        8 * 1024 + 1
+    ));
+}
+
+#[test]
+fn default_attach_dict_mode_accepts_unknown_size_and_focused_greedy_case() {
+    assert!(should_attach_dict_by_default(
+        Strategy::Fast,
+        ZSTD_CONTENTSIZE_UNKNOWN
+    ));
+    assert!(should_attach_dict_by_default(Strategy::Greedy, 31_858));
+}
+
+#[test]
+fn attach_adjustment_preserves_cdict_selected_strategy() {
+    let cdict = CompressionParameters::for_level_with_mode(
+        5,
+        ZSTD_CONTENTSIZE_UNKNOWN,
+        64 * 1024,
+        CParamMode::CreateCDict,
+    );
+    let attached = cdict.adjusted_for_mode(31_858, 64 * 1024, CParamMode::AttachDict);
+
+    assert_eq!(attached.strategy, cdict.strategy);
+    assert_eq!(attached.strategy, Strategy::Greedy);
 }

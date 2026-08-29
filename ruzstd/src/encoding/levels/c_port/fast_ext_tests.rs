@@ -34,7 +34,7 @@ fn ext_dict_invalidates_repeat_equal_to_dictionary_size_like_c() {
     assert!(!output
         .sequences
         .first()
-        .is_some_and(|seq| matches!(seq.off_base, OffBase::Repeat(RepeatCode::First))));
+        .is_some_and(|seq| matches!(seq.off_base(), OffBase::Repeat(RepeatCode::First))));
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn ext_dict_finds_dictionary_offset_match() {
     assert!(output
         .sequences
         .iter()
-        .any(|seq| matches!(seq.off_base, OffBase::Offset(_))));
+        .any(|seq| matches!(seq.off_base(), OffBase::Offset(_))));
 }
 
 #[test]
