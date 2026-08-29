@@ -28,8 +28,8 @@ version 0.1.0. This is a working release gate, not authorization to publish.
 - CI now describes native Windows and Apple-Silicon tests, AArch64 and wasm
   `no_std` checks, forced-scalar execution, focused Miri coverage, and package
   content/license checks. Cross-builds pass locally for Windows x86-64, macOS
-  x86-64/AArch64, Linux AArch64 `no_std`, and wasm `no_std`; the new hosted
-  native jobs have not yet run on a pushed implementation branch.
+  x86-64/AArch64, Linux AArch64 `no_std`, and wasm `no_std`. Native Windows
+  and Apple-Silicon execution has also passed on the pushed draft PR.
 - The local library gate passes 758 tests with five diagnostic tests ignored;
   strict Clippy, wasm `no_std`, forced-scalar, rustdoc, formatting, and
   `git diff --check` pass. A focused AddressSanitizer run of the unaligned-read
@@ -168,11 +168,9 @@ retained.
 
 ## Remaining release blockers
 
-1. Run the new CI matrix on hosted Windows, macOS/Apple Silicon, and AArch64.
-   Cross-build success is already recorded, but native execution is required.
-2. Prepare and push a clean release commit, require the hosted matrix to pass,
-   set the changelog date, and create the release tag only from that reviewed
-   commit.
+1. Require the complete hosted matrix to pass on the final release commit.
+2. Review the clean release commit, set the changelog date, and create the
+   release tag only from that reviewed commit.
 3. Obtain the required human decision on publication and disclose explicitly
    that no human source assessment was performed despite extensive automated,
    differential, interoperability, and benchmark validation.

@@ -40,10 +40,11 @@ budget, and underlying I/O failures. It defaults to level 3, 8 MiB input
 frames, and a conservative 96 MiB working-memory budget.
 
 ```rust,no_run
+# #[cfg(feature = "std")]
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 use std::{fs::File, io::Write};
 use zstd_complete::encoding::{CompressionLevel, Encoder, EncoderOptions};
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
 let input = b"data can be supplied in any number of writes";
 let output = File::create("archive.zst")?;
 let options = EncoderOptions::new(CompressionLevel::DEFAULT)
@@ -53,6 +54,8 @@ encoder.write_all(input)?;
 encoder.finish()?;
 # Ok(())
 # }
+# #[cfg(not(feature = "std"))]
+# fn main() {}
 ```
 
 Each configured input chunk is emitted as an independent Zstandard frame.
@@ -71,16 +74,19 @@ bounded, fallible API is preferred for new `std` applications.
 `StreamingDecoder` implements the crate's `Read` interface for one frame:
 
 ```rust,no_run
+# #[cfg(feature = "std")]
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 use std::{fs::File, io::Read};
 use zstd_complete::decoding::StreamingDecoder;
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
 let input = File::open("archive.zst")?;
 let mut decoder = StreamingDecoder::new(input)?;
 let mut decoded = Vec::new();
 decoder.read_to_end(&mut decoded)?;
 # Ok(())
 # }
+# #[cfg(not(feature = "std"))]
+# fn main() {}
 ```
 
 Use `FrameDecoder` when you need incremental buffer collection, dictionary
