@@ -39,7 +39,7 @@ fn single_literal_cost_matches_slice_cost() {
     let mut state = OptPriceState::new();
     state.rescale_freqs(b"abcabcabcabc", OptLevel::BtOpt);
 
-    for literal in [b'a', b'b', b'z'] {
+    for &literal in b"abz" {
         assert_eq!(
             state.raw_literal_cost(literal, OptLevel::BtOpt),
             state.raw_literals_cost(&[literal], OptLevel::BtOpt)
@@ -53,7 +53,7 @@ fn dynamic_single_literal_cost_matches_general_dynamic_cost() {
         let mut state = OptPriceState::new();
         state.rescale_freqs(b"abcabcabcabcabcabcabcabc", opt_level);
 
-        for literal in [b'a', b'b', b'c', b'z'] {
+        for &literal in b"abcz" {
             assert_eq!(
                 state.dynamic_raw_literal_cost(literal, opt_level),
                 state.raw_literal_cost(literal, opt_level),

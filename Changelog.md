@@ -9,6 +9,8 @@ First release as `zstd-complete`, forked from `ruzstd`.
 * Add the complete standard compression-level table (levels 1 through 22) and
   a bounded `std::io::Write` encoder with validated levels, typed errors,
   configurable frame chunks, and an explicit memory budget.
+* Add opt-in bounded multithreaded compression of ordered independent frames,
+  with aggregate memory-budget enforcement and a zero-overhead default path.
 * Add portable scalar execution and optimized runtime-selected x86-64 paths,
   plus release checks for Windows, Apple Silicon, AArch64, wasm `no_std`, and
   forced-scalar builds.

@@ -1,6 +1,6 @@
 # Multithreaded compression design and initial baseline
 
-Status: issue #6 implementation branch, 2026-08-30.
+Status: merged for the initial `zstd-complete` release, 2026-08-30.
 
 ## Boundary
 

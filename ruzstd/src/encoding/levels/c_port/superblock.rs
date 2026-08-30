@@ -89,6 +89,7 @@ pub(super) struct SubBlockEmission {
 }
 
 // Preserve the C-shaped guarded division used by this benchmark-sensitive path.
+#[allow(unknown_lints)]
 #[allow(clippy::manual_checked_ops)]
 pub(super) fn sub_block_budget_plan(
     estimate: EstimatedSubBlockSize,
