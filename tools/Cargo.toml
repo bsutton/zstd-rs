@@ -10,3 +10,22 @@ publish = false
 ruzstd = { package = "zstd-complete", path = "../ruzstd", features = ["std", "fuzz_exports", "c-port-validation"] }
 serde_json = "1"
 zstd-safe = { version = "7.2.4", features = ["std"] }
+
+[features]
+c-multithreading = ["zstd-safe/zstdmt"]
+multithreading = ["ruzstd/multithreading"]
+
+[[bin]]
+name = "profile_c_parallel_api"
+path = "src/bin/profile_c_parallel_api.rs"
+required-features = ["c-multithreading"]
+
+[[bin]]
+name = "profile_parallel_api"
+path = "src/bin/profile_parallel_api.rs"
+required-features = ["multithreading"]
+
+[[bin]]
+name = "profile_parallel_streaming_api"
+path = "src/bin/profile_parallel_streaming_api.rs"
+required-features = ["multithreading"]
