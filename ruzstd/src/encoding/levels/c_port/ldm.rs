@@ -1,12 +1,61 @@
 //! Long-distance matching primitives ported from `zstd_ldm.c`.
 
 use super::cctx_params::LdmParameters;
+use crate::workspace::{Arena, ArenaError, ArenaSize, ReusableVec};
 
 pub(crate) mod opt;
 pub(crate) mod sequence;
 mod table;
 
 pub(crate) use table::{LdmEntry, LdmHashTable};
+
+pub(crate) struct LdmWorkspace {
+    table: LdmHashTable,
+    sequences: ReusableVec<sequence::LdmRawSequence>,
+}
+
+impl LdmWorkspace {
+    pub(crate) fn add_workspace_size(
+        size: &mut ArenaSize,
+        params: LdmParameters,
+        maximum_input: usize,
+    ) -> Result<(), ArenaError> {
+        LdmHashTable::add_workspace_size(size, params)?;
+        let max_sequences = maximum_input / params.min_match_length as usize + 1;
+        size.add::<sequence::LdmRawSequence>(max_sequences)
+    }
+
+    pub(crate) fn new_in(
+        arena: &mut Arena<'_>,
+        params: LdmParameters,
+        maximum_input: usize,
+    ) -> Result<Self, ArenaError> {
+        let max_sequences = maximum_input / params.min_match_length as usize + 1;
+        Ok(Self {
+            table: LdmHashTable::new_in(arena, params)?,
+            sequences: arena.allocate_reusable_vec(max_sequences)?,
+        })
+    }
+
+    pub(crate) fn generate(
+        &mut self,
+        src: &[u8],
+        params: LdmParameters,
+    ) -> sequence::LdmSequenceResult {
+        self.table.reset();
+        sequence::generate_sequences_no_dict_in(
+            src,
+            params,
+            &mut self.table,
+            core::mem::take(&mut self.sequences),
+        )
+    }
+
+    pub(crate) fn recycle(&mut self, mut result: sequence::LdmSequenceResult) {
+        result.sequences.clear();
+        self.sequences = result.sequences;
+    }
+}
 
 pub(crate) const LDM_BATCH_SIZE: usize = 64;
 

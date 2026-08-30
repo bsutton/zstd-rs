@@ -15,6 +15,7 @@ use crate::{
     },
     fse::fse_encoder::FSETableBuildScratch,
     huff0::huff0_encoder::{HuffmanBuildScratch, HuffmanTable},
+    workspace::{Arena, ArenaError, ArenaSize},
 };
 
 pub(crate) struct FrameBlockState {
@@ -62,6 +63,31 @@ impl BlockEncodeMode {
 }
 
 impl FrameBlockState {
+    pub(crate) fn add_workspace_size(size: &mut ArenaSize) -> Result<(), ArenaError> {
+        FSETableBuildScratch::add_workspace_size(size)?;
+        HuffmanBuildScratch::add_workspace_size(size)
+    }
+
+    pub(crate) fn new_in(
+        arena: &mut Arena<'_>,
+        params: CompressionParameters,
+        block_size_max: usize,
+    ) -> Result<Self, ArenaError> {
+        let mut fse_build_scratch = FSETableBuildScratch::new_in(arena)?;
+        let fse_tables = FseTables::new_in(&mut fse_build_scratch);
+        Ok(Self {
+            fse_tables,
+            offset_history: OffsetHistory::new(),
+            last_huff_table: None,
+            huffman_build_scratch: HuffmanBuildScratch::new_in(arena)?,
+            fse_build_scratch,
+            repeat_offsets: RepeatOffsets::new(),
+            block_config: block_config(params),
+            block_size_max,
+            progress: FrameProgress::new(),
+        })
+    }
+
     pub(crate) fn new(params: CompressionParameters, block_size_max: usize) -> Self {
         let block_config = block_config(params);
         Self {
@@ -75,6 +101,37 @@ impl FrameBlockState {
             block_size_max,
             progress: FrameProgress::new(),
         }
+    }
+
+    pub(crate) fn reset_for_frame(&mut self, params: CompressionParameters, block_size_max: usize) {
+        self.reset_for_frame_with_huffman_scratch(params, block_size_max, None);
+    }
+
+    pub(crate) fn reset_for_frame_with_huffman_scratch(
+        &mut self,
+        params: CompressionParameters,
+        block_size_max: usize,
+        mut external_huffman_scratch: Option<&mut HuffmanBuildScratch>,
+    ) {
+        self.fse_tables.reset();
+        if let Some(table) = self.last_huff_table.take() {
+            external_huffman_scratch
+                .as_deref_mut()
+                .unwrap_or(&mut self.huffman_build_scratch)
+                .recycle_table(table);
+        }
+        self.offset_history = OffsetHistory::new();
+        self.repeat_offsets = RepeatOffsets::new();
+        self.block_config = block_config(params);
+        if self.huffman_build_scratch.is_workspace_backed()
+            || external_huffman_scratch
+                .as_deref()
+                .is_some_and(HuffmanBuildScratch::is_workspace_backed)
+        {
+            self.block_config.prepare_for_allocation_free_workspace();
+        }
+        self.block_size_max = block_size_max;
+        self.progress = FrameProgress::new();
     }
 
     pub(crate) fn with_dictionary(
@@ -129,13 +186,32 @@ impl FrameBlockState {
         repeat_offsets: RepeatOffsets,
         new_huffman_table: Option<HuffmanTable>,
     ) {
+        self.record_encoded_block_with_huffman_scratch(
+            block_size,
+            encoded_size,
+            repeat_offsets,
+            new_huffman_table,
+            None,
+        );
+    }
+
+    pub(crate) fn record_encoded_block_with_huffman_scratch(
+        &mut self,
+        block_size: usize,
+        encoded_size: usize,
+        repeat_offsets: RepeatOffsets,
+        new_huffman_table: Option<HuffmanTable>,
+        external_huffman_scratch: Option<&mut HuffmanBuildScratch>,
+    ) {
         self.fse_tables.downgrade_offset_repeat_validity();
         self.repeat_offsets = repeat_offsets;
         if let Some(table) = new_huffman_table {
             let previous = self.last_huff_table.replace(table);
             if self.block_config.uses_c_fast_entropy_path() {
                 if let Some(previous) = previous {
-                    self.huffman_build_scratch.recycle_table(previous);
+                    external_huffman_scratch
+                        .unwrap_or(&mut self.huffman_build_scratch)
+                        .recycle_table(previous);
                 }
             }
             self.block_config.set_prefer_valid_repeat_huffman(false);

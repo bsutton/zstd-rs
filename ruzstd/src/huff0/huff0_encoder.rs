@@ -3,7 +3,10 @@ use core::convert::TryFrom;
 #[cfg(feature = "std")]
 use std::sync::OnceLock;
 
-use crate::bit_io::BitWriter;
+use crate::{
+    bit_io::BitWriter,
+    workspace::{Arena, ArenaError, ArenaSize, ReusableVec},
+};
 
 mod lengths;
 mod metrics;
@@ -24,14 +27,44 @@ const HUFFMAN_RANK_NONE: usize = usize::MAX;
 
 #[derive(Clone, Default)]
 pub(crate) struct HuffmanBuildScratch {
-    nodes: Vec<tree::HuffmanNode>,
+    nodes: ReusableVec<tree::HuffmanNode>,
     generated: crate::kernel::huff0::HuffmanBuildScratch,
-    recycled_tables: Vec<HuffmanTable>,
+    recycled_tables: ReusableVec<HuffmanTable>,
+    workspace_backed: bool,
 }
 
 impl HuffmanBuildScratch {
     pub(crate) fn new() -> Self {
         Self::default()
+    }
+
+    pub(crate) const fn is_workspace_backed(&self) -> bool {
+        self.workspace_backed
+    }
+
+    pub(crate) fn add_workspace_size(size: &mut ArenaSize) -> Result<(), ArenaError> {
+        size.add::<tree::HuffmanNode>(513)?;
+        crate::kernel::huff0::HuffmanBuildScratch::add_workspace_size(size)?;
+        size.add::<HuffmanTable>(2)?;
+        size.add::<(u32, u8)>(2 * 256)?;
+        size.add::<u8>(2 * 512)
+    }
+
+    pub(crate) fn new_in(arena: &mut Arena<'_>) -> Result<Self, ArenaError> {
+        let mut recycled_tables = arena.allocate_reusable_vec(2)?;
+        for _ in 0..2 {
+            recycled_tables.push(HuffmanTable {
+                codes: arena.allocate_reusable_vec(256)?,
+                max_num_bits: 0,
+                table_description: arena.allocate_reusable_vec(512)?,
+            });
+        }
+        Ok(Self {
+            nodes: arena.allocate_reusable_vec(513)?,
+            generated: crate::kernel::huff0::HuffmanBuildScratch::new_in(arena)?,
+            recycled_tables,
+            workspace_backed: true,
+        })
     }
 
     #[cfg(test)]

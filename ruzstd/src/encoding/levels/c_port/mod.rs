@@ -70,8 +70,27 @@ mod unaligned;
 #[cfg(target_arch = "x86_64")]
 mod x86;
 
+pub(crate) use cctx_params::{
+    CctxParameters as WorkspaceCctxParameters, ParamSwitch as WorkspaceParamSwitch,
+};
+pub(crate) use compress_bound::compress_bound as workspace_compress_bound;
+pub(crate) use dfast::DFastMatchState as WorkspaceDFastMatchState;
+pub(crate) use dfast_frame::encode_frame_double_fast_no_dict_with_cctx_in as workspace_encode_dfast;
+pub(crate) use fast::FastMatchState as WorkspaceFastMatchState;
+pub(crate) use fast_frame::encode_frame_fast_no_dict_with_cctx_in as workspace_encode_fast;
+pub(crate) use frame_state::FrameBlockState as WorkspaceFrameBlockState;
+pub(crate) use greedy::GreedyMatchState as WorkspaceGreedyMatchState;
+pub(crate) use greedy_block::LazyBlockStrategy as WorkspaceLazyBlockStrategy;
+pub(crate) use greedy_frame::encode_frame_hash_chain_no_dict_with_cctx_in as workspace_encode_greedy;
+pub(crate) use ldm::LdmWorkspace as WorkspaceLdmWorkspace;
 #[cfg(feature = "std")]
 pub(crate) use memory::estimated_frame_memory;
+pub(crate) use opt_frame::{
+    encode_frame_opt_no_dict_with_cctx_in as workspace_encode_opt,
+    OptFrameStrategy as WorkspaceOptFrameStrategy,
+};
+pub(crate) use opt_state::OptBlockState as WorkspaceOptBlockState;
+pub(crate) use params::Strategy as WorkspaceStrategy;
 #[cfg(any(feature = "std", feature = "c-port-validation", test))]
 pub(crate) use strategy_frame::encode_frame_no_dict;
 #[cfg(any(feature = "c-port-validation", test))]

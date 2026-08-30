@@ -18,8 +18,9 @@ pub(super) use selection::{
     choose_c_fast_sequence_table_modes_from_stored,
     choose_c_fast_sequence_table_modes_from_stored_with_final_history,
     choose_c_sequence_table_modes_from_prepared, choose_c_sequence_table_modes_from_stored,
-    choose_sequence_table_modes, choose_sequence_table_modes_for_estimate,
-    choose_sequence_table_modes_for_estimate_from_counts,
+    choose_c_sequence_table_modes_from_stored_with_scratch, choose_sequence_table_modes,
+    choose_sequence_table_modes_for_estimate,
+    choose_sequence_table_modes_for_estimate_from_counts_with_scratch,
 };
 
 #[derive(Clone)]

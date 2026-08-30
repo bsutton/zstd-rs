@@ -31,7 +31,53 @@ The package name contains a hyphen, so Rust code imports it as
 
 The default features are `std` and `hash`. Disable default features for the
 lower-level `no_std` compressor and decompressor. Enable `dict_builder` to
-train raw-content dictionaries.
+train raw-content or self-describing formatted dictionaries.
+
+## Reusable and caller-backed workspaces
+
+For repeated bounded in-memory operations, `EncoderWorkspace` and
+`DecoderWorkspace` allocate their working state once and then encode or decode
+into caller-owned output slices without further allocation. Their `Static*`
+counterparts place the same typed state in an arbitrary caller-provided byte
+slice, which is useful for `no_std`, embedded, and tightly controlled-memory
+applications.
+
+```rust
+use zstd_complete::{
+    decoding::StaticDecoderWorkspace,
+    encoding::{CompressionLevel, EncoderWorkspace, StaticEncoderWorkspace},
+};
+
+let input = b"repeated records repeated records repeated records";
+let level = CompressionLevel::DEFAULT;
+let mut encoder_memory = vec![
+    0_u8;
+    EncoderWorkspace::required_size(level, input.len()).unwrap()
+];
+let mut encoded = vec![
+    0_u8;
+    EncoderWorkspace::required_output_size(input.len()).unwrap()
+];
+let mut encoder =
+    StaticEncoderWorkspace::new(&mut encoder_memory, level, input.len()).unwrap();
+let encoded = encoder.encode_into(input, &mut encoded).unwrap();
+
+let mut decoder_memory = vec![
+    0_u8;
+    StaticDecoderWorkspace::required_size(1 << 20, 0).unwrap()
+];
+let mut decoded = vec![0_u8; input.len()];
+let mut decoder = StaticDecoderWorkspace::new(&mut decoder_memory, 1 << 20, 0).unwrap();
+let decoded_len = decoder.decode_into(encoded, &mut decoded).unwrap();
+assert_eq!(&decoded[..decoded_len], input);
+```
+
+The capacity queries are deterministic and constructors report the exact
+required bound when storage is too small. The allocation-free guarantee begins
+after construction, applies to valid inputs within the configured bounds, and
+requires a sufficiently large output slice. Use one mutable workspace per
+concurrent operation; the existing `ParallelEncoder` remains the higher-level
+ordered multithreaded interface.
 
 ## Bounded streaming compression
 
@@ -138,7 +184,7 @@ buffer control.
 | Zstandard decompression | Yes | Raw, RLE, compressed blocks, checksums, and dictionaries |
 | Raw-content and formatted dictionaries | Yes | Reusable prepared encoder dictionaries and decoder dictionaries |
 | Bounded compression of arbitrarily large input | Yes | Emits independent frames at configurable chunk boundaries |
-| `no_std` with `alloc` | Yes | Lower-level encode/decode APIs; the `std::io` encoder requires `std` |
+| `no_std` with `alloc` | Yes | Includes reusable and caller-byte-buffer slice-to-slice workspaces; the `std::io` encoder requires `std` |
 | Portable scalar implementation | Yes | Used on non-x86 targets and available as a forced release gate |
 | Runtime-selected x86-64 acceleration | Yes | BMI2 paths are selected at runtime; distributed binaries need not use `target-cpu=native` |
 | Multithreaded compression | Opt-in | The `multithreading` feature parallelizes ordered independent frames |
@@ -146,7 +192,7 @@ buffer control.
 | Typed advanced compression controls | Yes | Strategy/search/window/LDM tuning, target block size, pledged input size, and content-size policy |
 | Formatted dictionary training | Opt-in | `dict_builder` trains standard ID-bearing dictionaries from sample sets |
 | zstd C ABI/API compatibility | No | This is an idiomatic Rust API, not a drop-in C replacement |
-| Experimental and C ABI controls | Out of scope | Stable APIs expose portable format capabilities, not C contexts, custom allocators, or experimental parameter numbers |
+| Experimental and C ABI controls | Out of scope | Stable APIs expose typed Rust workspaces rather than C contexts, custom allocator callbacks, or experimental parameter numbers |
 | Stable byte identity with zstd C | No | Output is format-compatible and can legitimately differ in block and match choices |
 
 The compressor implements the nine zstd strategy families used by the positive

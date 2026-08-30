@@ -1,6 +1,8 @@
 //! No-dictionary fast block compressor ported from `zstd_fast.c`.
 
-use alloc::{vec, vec::Vec};
+use alloc::vec;
+#[cfg(test)]
+use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::fast_helpers::{hash_ptr, hash_small_ptr, lowest_prefix_index_with_loaded_dict, read32};
@@ -9,6 +11,7 @@ use super::params::CompressionParameters;
 use super::sequence_store::{
     OffBase, PreparedStoreWords, RepeatCode, RepeatOffsets, StoredSequence,
 };
+use crate::workspace::{Arena, ArenaError, ArenaSize, ReusableVec};
 
 const HASH_READ_SIZE: usize = 8;
 const SEARCH_STRENGTH: usize = 8;
@@ -19,7 +22,7 @@ const FAST_HASH_FILL_STEP: usize = 3;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FastBlockOutput {
-    pub(crate) sequences: Vec<StoredSequence>,
+    pub(crate) sequences: ReusableVec<StoredSequence>,
     pub(crate) last_literals: u32,
     pub(crate) repeat_offsets: RepeatOffsets,
 }
@@ -27,17 +30,67 @@ pub(crate) struct FastBlockOutput {
 #[repr(C)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FastMatchState {
-    hash_table: Vec<u32>,
+    hash_table: ReusableVec<u32>,
     hash_log: u32,
     prepared_store: PreparedStoreWords,
+    sequence_store: ReusableVec<StoredSequence>,
 }
 
 impl FastMatchState {
     pub(crate) fn new() -> Self {
         Self {
-            hash_table: Vec::new(),
+            hash_table: ReusableVec::new(),
             hash_log: 0,
             prepared_store: PreparedStoreWords::default(),
+            sequence_store: ReusableVec::new(),
+        }
+    }
+
+    pub(crate) fn add_workspace_size(
+        size: &mut ArenaSize,
+        params: CompressionParameters,
+        block_size: usize,
+    ) -> Result<(), ArenaError> {
+        let sequence_capacity = block_size / 3 + 1;
+        size.add::<u32>(1_usize << params.hash_log)?;
+        size.add::<StoredSequence>(sequence_capacity)?;
+        PreparedStoreWords::add_workspace_size(
+            size,
+            block_size.saturating_add(64),
+            sequence_capacity,
+        )
+    }
+
+    pub(crate) fn new_in(
+        arena: &mut Arena<'_>,
+        params: CompressionParameters,
+        block_size: usize,
+    ) -> Result<Self, ArenaError> {
+        let sequence_capacity = block_size / 3 + 1;
+        let mut hash_table = arena.allocate_reusable_vec(1_usize << params.hash_log)?;
+        hash_table.resize(1_usize << params.hash_log, INVALID_INDEX);
+        Ok(Self {
+            hash_table,
+            hash_log: params.hash_log,
+            prepared_store: PreparedStoreWords::new_in(
+                arena,
+                block_size.saturating_add(64),
+                sequence_capacity,
+            )?,
+            sequence_store: arena.allocate_reusable_vec(sequence_capacity)?,
+        })
+    }
+
+    pub(super) fn take_sequence_store(&mut self) -> ReusableVec<StoredSequence> {
+        let mut sequences = core::mem::take(&mut self.sequence_store);
+        sequences.clear();
+        sequences
+    }
+
+    pub(super) fn recycle_sequence_store(&mut self, mut sequences: ReusableVec<StoredSequence>) {
+        sequences.clear();
+        if sequences.capacity() > self.sequence_store.capacity() {
+            self.sequence_store = sequences;
         }
     }
 
@@ -69,6 +122,12 @@ impl FastMatchState {
         }
 
         &mut self.hash_table
+    }
+
+    pub(crate) fn reset_for_frame(&mut self, params: CompressionParameters) {
+        self.table_for(params.hash_log).fill(INVALID_INDEX);
+        self.prepared_store.clear();
+        self.sequence_store.clear();
     }
 
     pub(crate) fn load_prefix(
@@ -203,14 +262,15 @@ fn compress_block_fast_no_dict_codegen(
     let block_len = block_range.end - block_range.start;
     if block_len <= HASH_READ_SIZE {
         return FastBlockOutput {
-            sequences: Vec::new(),
+            sequences: state.take_sequence_store(),
             last_literals: block_len as u32,
             repeat_offsets,
         };
     }
 
     let maximum_sequences = block_len / 4 + 1;
-    let mut sequences = Vec::<StoredSequence>::with_capacity(maximum_sequences);
+    let mut sequences = state.take_sequence_store();
+    sequences.reserve(maximum_sequences);
     let spare = sequences.spare_capacity_mut();
     // SAFETY: `StoredSequence` has a compile-time-proven `[u32; 3]` layout;
     // the leaf transaction initializes only the returned spare prefix.
@@ -319,7 +379,7 @@ fn compress_block_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
     debug_assert!(block_range.end <= src.len());
 
     let mut rep = repeat_offsets.as_offsets();
-    let mut sequences = Vec::new();
+    let mut sequences = state.take_sequence_store();
     let block_start = block_range.start;
     let block_end = block_range.end;
     let block_len = block_end - block_start;
@@ -546,7 +606,7 @@ fn compress_block_fast_no_dict_with_state_mls<const MIN_MATCH: u32>(
 #[allow(clippy::too_many_arguments)]
 fn store_match(
     src: &[u8],
-    sequences: &mut Vec<StoredSequence>,
+    sequences: &mut ReusableVec<StoredSequence>,
     anchor: &mut usize,
     ip: &mut usize,
     match_pos: usize,
@@ -593,7 +653,7 @@ fn fill_after_match<const MIN_MATCH: u32>(
 fn consume_immediate_repcodes<const MIN_MATCH: u32>(
     src: &[u8],
     hash_table: &mut [u32],
-    sequences: &mut Vec<StoredSequence>,
+    sequences: &mut ReusableVec<StoredSequence>,
     hlog: u32,
     anchor: &mut usize,
     ip: &mut usize,

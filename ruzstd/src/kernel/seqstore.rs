@@ -1,5 +1,8 @@
+#[cfg(test)]
 use alloc::vec::Vec;
-use core::{mem::ManuallyDrop, mem::MaybeUninit, ptr};
+use core::{mem::MaybeUninit, ptr};
+
+use crate::workspace::{Arena, ArenaError, ArenaSize, ReusableVec};
 
 pub type StoredSequenceWords = [u32; 3];
 pub type PreparedSequenceWords = [u32; 4];
@@ -9,11 +12,31 @@ const LITERAL_WILDCOPY_MAX: usize = 64;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PreparedStoreWords {
-    pub literals: Vec<u8>,
-    pub sequences: Vec<PreparedSequenceWords>,
+    pub literals: ReusableVec<u8>,
+    pub sequences: ReusableVec<PreparedSequenceWords>,
 }
 
 impl PreparedStoreWords {
+    pub(crate) fn add_workspace_size(
+        size: &mut ArenaSize,
+        literal_capacity: usize,
+        sequence_capacity: usize,
+    ) -> Result<(), ArenaError> {
+        size.add::<u8>(literal_capacity)?;
+        size.add::<PreparedSequenceWords>(sequence_capacity)
+    }
+
+    pub(crate) fn new_in(
+        arena: &mut Arena<'_>,
+        literal_capacity: usize,
+        sequence_capacity: usize,
+    ) -> Result<Self, ArenaError> {
+        Ok(Self {
+            literals: arena.allocate_reusable_vec(literal_capacity)?,
+            sequences: arena.allocate_reusable_vec(sequence_capacity)?,
+        })
+    }
+
     pub fn clear(&mut self) {
         self.literals.clear();
         self.sequences.clear();
@@ -157,9 +180,9 @@ fn resolve_and_update(offsets: &mut [u32; 3], off_base: u32, lit_len: u32) -> u3
 }
 
 struct PreparedStoreWriter {
-    literals: Vec<MaybeUninit<u8>>,
+    literals: ReusableVec<MaybeUninit<u8>>,
     literal_len: usize,
-    sequences: Vec<MaybeUninit<PreparedSequenceWords>>,
+    sequences: ReusableVec<MaybeUninit<PreparedSequenceWords>>,
     sequence_len: usize,
 }
 
@@ -254,26 +277,20 @@ impl PreparedStoreWriter {
     }
 }
 
-fn into_uninit<T>(mut values: Vec<T>) -> Vec<MaybeUninit<T>> {
+fn into_uninit<T>(mut values: ReusableVec<T>) -> ReusableVec<MaybeUninit<T>> {
     values.clear();
-    let mut values = ManuallyDrop::new(values);
-    // SAFETY: `MaybeUninit<T>` has identical size/alignment to `T`; the source
-    // length is zero, so no initialized elements change ownership state.
-    unsafe { Vec::from_raw_parts(values.as_mut_ptr().cast(), 0, values.capacity()) }
+    values.into_uninit()
 }
 
-unsafe fn assume_init_prefix<T>(values: Vec<MaybeUninit<T>>, initialized_len: usize) -> Vec<T> {
+unsafe fn assume_init_prefix<T>(
+    mut values: ReusableVec<MaybeUninit<T>>,
+    initialized_len: usize,
+) -> ReusableVec<T> {
     debug_assert!(initialized_len <= values.capacity());
-    let mut values = ManuallyDrop::new(values);
-    // SAFETY: the caller proves every exposed prefix element is initialized;
-    // `MaybeUninit<T>` has identical layout and alignment to `T`.
-    unsafe {
-        Vec::from_raw_parts(
-            values.as_mut_ptr().cast::<T>(),
-            initialized_len,
-            values.capacity(),
-        )
-    }
+    // SAFETY: the caller proves every exposed prefix element is initialized.
+    unsafe { values.set_len(initialized_len) };
+    // SAFETY: the initialized prefix invariant was established above.
+    unsafe { values.assume_init() }
 }
 
 #[cfg(test)]
@@ -290,7 +307,7 @@ mod tests {
             let prepared = unsafe {
                 prepare_stored_sequences(&src[..len as usize + 4], [1, 4, 8], &sequences, 0)
             };
-            assert_eq!(prepared.literals, src[..len as usize]);
+            assert_eq!(prepared.literals.as_slice(), &src[..len as usize]);
             assert_eq!(prepared.sequences, [[len, 4, 1, 4]]);
         }
     }
@@ -304,7 +321,7 @@ mod tests {
             let prepared = unsafe {
                 prepare_stored_sequences(&src[..len as usize], [1, 4, 8], &[[len, 0, 4]], 0)
             };
-            assert_eq!(prepared.literals, src[..len as usize]);
+            assert_eq!(prepared.literals.as_slice(), &src[..len as usize]);
         }
     }
 

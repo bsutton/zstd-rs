@@ -1,6 +1,5 @@
 //! External-dictionary double-fast block compressor ported from `zstd_double_fast.c`.
 
-use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::{
@@ -300,7 +299,7 @@ fn consume_immediate_repcodes<const MIN_MATCH: u32>(
     hash_small: &mut [u32],
     h_bits_l: u32,
     h_bits_s: u32,
-    sequences: &mut Vec<StoredSequence>,
+    sequences: &mut crate::workspace::ReusableVec<StoredSequence>,
     anchor: &mut usize,
     ip: &mut usize,
     ilimit: usize,

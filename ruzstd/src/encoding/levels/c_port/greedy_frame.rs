@@ -13,13 +13,15 @@ use super::{
     greedy::GreedyMatchState,
     greedy_block::{
         encode_block_hash_chain_no_dict,
-        encode_block_hash_chain_no_dict_with_state_and_policy_in_mode, GreedyBlockEncodeContext,
-        GreedyBlockSource, LazyBlockStrategy,
+        encode_block_hash_chain_no_dict_with_state_and_policy_in_mode,
+        encode_block_hash_chain_no_dict_with_state_and_policy_in_mode_into,
+        GreedyBlockEncodeContext, GreedyBlockSource, LazyBlockStrategy,
     },
     greedy_dict::{load_binary_tree_prefix, load_prefix},
     greedy_ext_block::{
         encode_block_attached_dict_with_state_and_policy_in_mode,
         encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode,
+        encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode_into,
         GreedyAttachedDictBlockSource, GreedyExtDictBlockSource,
     },
     params::{should_attach_dict_by_default, CParamMode, CompressionParameters},
@@ -129,30 +131,71 @@ pub(crate) fn encode_frame_hash_chain_no_dict_with_cctx(
 ) -> Vec<u8> {
     let mut output = Vec::with_capacity(compress_bound(src.len()));
     cctx.assert_resolved();
-    let block_encode_mode = BlockEncodeMode::from_cctx(cctx);
     let params = cctx.compression;
-    write_frame_header_no_dict(&mut output, src.len(), params);
     let mut frame_state = FrameBlockState::new(params, cctx.max_block_size);
     let mut match_state = GreedyMatchState::new();
+    encode_frame_hash_chain_no_dict_with_cctx_in(
+        src,
+        cctx,
+        depth,
+        &mut frame_state,
+        &mut match_state,
+        &mut output,
+    );
+    output
+}
+
+pub(crate) fn encode_frame_hash_chain_no_dict_with_cctx_in(
+    src: &[u8],
+    cctx: CctxParameters,
+    depth: LazyBlockStrategy,
+    frame_state: &mut FrameBlockState,
+    match_state: &mut GreedyMatchState,
+    output: &mut Vec<u8>,
+) {
+    cctx.assert_resolved();
+    let block_encode_mode = BlockEncodeMode::from_cctx(cctx);
+    let params = cctx.compression;
+    output.clear();
+    frame_state.reset_for_frame_with_huffman_scratch(
+        params,
+        cctx.max_block_size,
+        Some(&mut match_state.entropy_huffman_scratch),
+    );
     match_state.reset_for_frame(params);
+    write_frame_header_no_dict(output, src.len(), params);
     let mut dict_limit = 0_usize;
 
     if src.is_empty() {
-        let encoded_block = encode_block_hash_chain_no_dict(
-            src,
+        let reusable_bytes = match_state.take_block_bytes();
+        let (block_bytes, block_bytes_lease) = reusable_bytes.lease_vec();
+        let encoded_block = encode_block_hash_chain_no_dict_with_state_and_policy_in_mode_into(
+            GreedyBlockSource {
+                src,
+                block_range: 0..0,
+                loaded_dict_end: 0,
+            },
             true,
             params,
             frame_state.block_config,
             frame_state.repeat_offsets,
+            match_state,
             GreedyBlockEncodeContext {
                 previous_huff_table: None,
                 fse_tables: &mut frame_state.fse_tables,
                 offset_history: &mut frame_state.offset_history,
             },
             depth,
+            FrameBlockState::block_policy(true),
+            block_encode_mode,
+            block_bytes,
         );
         output.extend_from_slice(&encoded_block.bytes);
-        return output;
+        match_state.recycle_block_bytes(crate::workspace::ReusableVec::recover_vec(
+            encoded_block.bytes,
+            block_bytes_lease,
+        ));
+        return;
     }
 
     let mut block_start = 0;
@@ -170,8 +213,10 @@ pub(crate) fn encode_frame_hash_chain_no_dict_with_cctx(
             fse_tables: &mut frame_state.fse_tables,
             offset_history: &mut frame_state.offset_history,
         };
+        let reusable_bytes = match_state.take_block_bytes();
+        let (block_bytes, block_bytes_lease) = reusable_bytes.lease_vec();
         let encoded_block = if dict_limit == 0 {
-            encode_block_hash_chain_no_dict_with_state_and_policy_in_mode(
+            encode_block_hash_chain_no_dict_with_state_and_policy_in_mode_into(
                 GreedyBlockSource {
                     src,
                     block_range: block_start..block_end,
@@ -181,14 +226,15 @@ pub(crate) fn encode_frame_hash_chain_no_dict_with_cctx(
                 params,
                 frame_state.block_config,
                 frame_state.repeat_offsets,
-                &mut match_state,
+                match_state,
                 block_context,
                 depth,
                 policy,
                 block_encode_mode,
+                block_bytes,
             )
         } else {
-            encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode(
+            encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode_into(
                 GreedyExtDictBlockSource {
                     src,
                     block_range: block_start..block_end,
@@ -199,24 +245,28 @@ pub(crate) fn encode_frame_hash_chain_no_dict_with_cctx(
                 params,
                 frame_state.block_config,
                 frame_state.repeat_offsets,
-                &mut match_state,
+                match_state,
                 block_context,
                 depth,
                 policy,
                 block_encode_mode,
+                block_bytes,
             )
         };
-        frame_state.record_encoded_block(
+        let encoded_size = encoded_block.bytes.len();
+        output.extend_from_slice(&encoded_block.bytes);
+        let reusable_bytes =
+            crate::workspace::ReusableVec::recover_vec(encoded_block.bytes, block_bytes_lease);
+        match_state.recycle_block_bytes(reusable_bytes);
+        frame_state.record_encoded_block_with_huffman_scratch(
             block_size,
-            encoded_block.bytes.len(),
+            encoded_size,
             encoded_block.repeat_offsets,
             encoded_block.new_huffman_table,
+            Some(&mut match_state.entropy_huffman_scratch),
         );
-        output.extend_from_slice(&encoded_block.bytes);
         block_start = block_end;
     }
-
-    output
 }
 
 fn encode_frame_hash_chain_with_dictionary(

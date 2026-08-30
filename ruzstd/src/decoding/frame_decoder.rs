@@ -74,6 +74,7 @@ pub const DEFAULT_MAX_WINDOW_SIZE: u64 = 1024 * 1024 * 100;
 /// ```
 pub struct FrameDecoder {
     state: Option<FrameDecoderState>,
+    prepared_scratch: Option<DecoderScratch>,
     dicts: BTreeMap<u32, Dictionary>,
 }
 
@@ -88,6 +89,12 @@ struct FrameDecoderState {
     using_dict: Option<u32>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum PreparedDictionaryBytes<'a> {
+    Formatted(&'a [u8]),
+    Raw(&'a [u8]),
+}
+
 pub enum BlockDecodingStrategy {
     All,
     UptoBlocks(usize),
@@ -95,27 +102,24 @@ pub enum BlockDecodingStrategy {
 }
 
 impl FrameDecoderState {
-    pub fn new(
-        source: impl Read,
-        max_window_size: u64,
-    ) -> Result<FrameDecoderState, FrameDecoderError> {
-        let (frame, header_size) = frame::read_frame_header(source)?;
-        let window_size = frame.window_size()?;
-        if window_size > max_window_size {
-            return Err(FrameDecoderError::WindowSizeTooBig {
-                requested: window_size,
-            });
-        }
-        Ok(FrameDecoderState {
+    fn from_header(
+        frame: frame::FrameHeader,
+        header_size: u8,
+        window_size: usize,
+        scratch: Option<DecoderScratch>,
+    ) -> FrameDecoderState {
+        let mut decoder_scratch = scratch.unwrap_or_else(|| DecoderScratch::new(window_size));
+        decoder_scratch.reset(window_size);
+        FrameDecoderState {
             frame_header: frame,
             frame_finished: false,
             block_counter: 0,
-            decoder_scratch: DecoderScratch::new(window_size as usize),
+            decoder_scratch,
             bytes_read_counter: u64::from(header_size),
             decoded_size_counter: 0,
             check_sum: None,
             using_dict: None,
-        })
+        }
     }
 
     pub fn reset(
@@ -157,8 +161,26 @@ impl FrameDecoder {
     pub fn new() -> FrameDecoder {
         FrameDecoder {
             state: None,
+            prepared_scratch: None,
             dicts: BTreeMap::new(),
         }
+    }
+
+    pub(crate) fn prepare_workspace(&mut self, max_window_size: usize, max_dictionary_size: usize) {
+        let mut scratch = self
+            .state
+            .take()
+            .map(|state| state.decoder_scratch)
+            .or_else(|| self.prepared_scratch.take())
+            .unwrap_or_else(|| DecoderScratch::new(0));
+        scratch.reset(0);
+        scratch.reserve_workspace(max_window_size, max_dictionary_size);
+        self.prepared_scratch = Some(scratch);
+    }
+
+    pub(crate) fn install_prepared_scratch(&mut self, scratch: DecoderScratch) {
+        self.state = None;
+        self.prepared_scratch = Some(scratch);
     }
 
     /// init() will allocate all needed buffers if it is the first time this decoder is used
@@ -186,6 +208,15 @@ impl FrameDecoder {
         source: impl Read,
         max_window_size: u64,
     ) -> Result<(), FrameDecoderError> {
+        self.reset_with_window_limit_and_dictionary(source, max_window_size, None)
+    }
+
+    fn reset_with_window_limit_and_dictionary(
+        &mut self,
+        source: impl Read,
+        max_window_size: u64,
+        dictionary: Option<PreparedDictionaryBytes<'_>>,
+    ) -> Result<(), FrameDecoderError> {
         use FrameDecoderError as err;
         let state = match &mut self.state {
             Some(s) => {
@@ -193,17 +224,43 @@ impl FrameDecoder {
                 s
             }
             None => {
-                self.state = Some(FrameDecoderState::new(source, max_window_size)?);
+                // Parse and validate the header before taking prepared storage.
+                // A malformed frame must not consume an allocation-free
+                // workspace and make the next operation allocate.
+                let (frame_header, header_size) = frame::read_frame_header(source)?;
+                let window_size = frame_header.window_size()?;
+                if window_size > max_window_size {
+                    return Err(FrameDecoderError::WindowSizeTooBig {
+                        requested: window_size,
+                    });
+                }
+                self.state = Some(FrameDecoderState::from_header(
+                    frame_header,
+                    header_size,
+                    window_size as usize,
+                    self.prepared_scratch.take(),
+                ));
                 self.state.as_mut().unwrap()
             }
         };
         if let Some(dict_id) = state.frame_header.dictionary_id() {
-            let dict = self
-                .dicts
-                .get(&dict_id)
-                .ok_or(err::DictNotProvided { dict_id })?;
-            state.decoder_scratch.init_from_dict(dict);
+            if let Some(PreparedDictionaryBytes::Formatted(dictionary)) = dictionary {
+                let provided_id = state.decoder_scratch.init_from_dict_bytes(dictionary)?;
+                if provided_id != dict_id {
+                    return Err(err::DictNotProvided { dict_id });
+                }
+            } else if dictionary.is_some() {
+                return Err(err::DictNotProvided { dict_id });
+            } else {
+                let dict = self
+                    .dicts
+                    .get(&dict_id)
+                    .ok_or(err::DictNotProvided { dict_id })?;
+                state.decoder_scratch.init_from_dict(dict);
+            }
             state.using_dict = Some(dict_id);
+        } else if let Some(PreparedDictionaryBytes::Raw(dictionary)) = dictionary {
+            state.decoder_scratch.init_from_raw_dictionary(dictionary);
         }
         Ok(())
     }
@@ -540,12 +597,35 @@ impl FrameDecoder {
     /// Returns the number of bytes written to `output`.
     pub fn decode_all(
         &mut self,
+        input: &[u8],
+        output: &mut [u8],
+    ) -> Result<usize, FrameDecoderError> {
+        self.decode_all_with_window_limit(input, output, DEFAULT_MAX_WINDOW_SIZE)
+    }
+
+    pub(crate) fn decode_all_with_window_limit(
+        &mut self,
+        input: &[u8],
+        output: &mut [u8],
+        max_window_size: u64,
+    ) -> Result<usize, FrameDecoderError> {
+        self.decode_all_with_window_limit_and_dictionary(input, output, max_window_size, None)
+    }
+
+    pub(crate) fn decode_all_with_window_limit_and_dictionary(
+        &mut self,
         mut input: &[u8],
         mut output: &mut [u8],
+        max_window_size: u64,
+        dictionary: Option<PreparedDictionaryBytes<'_>>,
     ) -> Result<usize, FrameDecoderError> {
         let mut total_bytes_written = 0;
         while !input.is_empty() {
-            match self.init(&mut input) {
+            match self.reset_with_window_limit_and_dictionary(
+                &mut input,
+                max_window_size,
+                dictionary,
+            ) {
                 Ok(_) => {}
                 Err(FrameDecoderError::ReadFrameHeaderError(
                     crate::decoding::errors::ReadFrameHeaderError::SkipFrame { length, .. },

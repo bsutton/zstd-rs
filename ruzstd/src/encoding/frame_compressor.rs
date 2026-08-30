@@ -19,8 +19,9 @@ use super::{
     match_generator::MatchGeneratorDriver, CompressionFileProfile, CompressionFileType,
     CompressionLevel, Matcher,
 };
-use crate::fse::fse_encoder::{default_ll_table, default_ml_table, default_of_table, FSETable};
-use alloc::rc::Rc;
+use crate::fse::fse_encoder::{
+    default_ll_table, default_ml_table, default_of_table, FSETable, SharedFSETable,
+};
 
 use crate::io::{Read, Write};
 
@@ -57,23 +58,23 @@ pub struct FrameCompressor<R: Read, W: Write, M: Matcher> {
 #[derive(Clone)]
 pub(crate) struct FseTables {
     pub(crate) ll_default: FSETable,
-    pub(crate) ll_previous: Option<Rc<FSETable>>,
+    pub(crate) ll_previous: Option<SharedFSETable>,
     pub(crate) ll_repeat_valid: bool,
     pub(crate) ml_default: FSETable,
-    pub(crate) ml_previous: Option<Rc<FSETable>>,
+    pub(crate) ml_previous: Option<SharedFSETable>,
     pub(crate) ml_repeat_valid: bool,
     pub(crate) of_default: FSETable,
-    pub(crate) of_previous: Option<Rc<FSETable>>,
+    pub(crate) of_previous: Option<SharedFSETable>,
     pub(crate) of_repeat_valid: bool,
 }
 
 #[derive(Clone)]
 pub(crate) struct FseTableSnapshot {
-    ll_previous: Option<Rc<FSETable>>,
+    ll_previous: Option<SharedFSETable>,
     ll_repeat_valid: bool,
-    ml_previous: Option<Rc<FSETable>>,
+    ml_previous: Option<SharedFSETable>,
     ml_repeat_valid: bool,
-    of_previous: Option<Rc<FSETable>>,
+    of_previous: Option<SharedFSETable>,
     of_repeat_valid: bool,
 }
 
@@ -87,6 +88,20 @@ impl FseTables {
             ml_previous: None,
             ml_repeat_valid: false,
             of_default: default_of_table(),
+            of_previous: None,
+            of_repeat_valid: false,
+        }
+    }
+
+    pub(crate) fn new_in(scratch: &mut crate::fse::fse_encoder::FSETableBuildScratch) -> Self {
+        Self {
+            ll_default: crate::fse::fse_encoder::default_ll_table_with_scratch(scratch),
+            ll_previous: None,
+            ll_repeat_valid: false,
+            ml_default: crate::fse::fse_encoder::default_ml_table_with_scratch(scratch),
+            ml_previous: None,
+            ml_repeat_valid: false,
+            of_default: crate::fse::fse_encoder::default_of_table_with_scratch(scratch),
             of_previous: None,
             of_repeat_valid: false,
         }

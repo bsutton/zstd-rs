@@ -1,10 +1,10 @@
-use alloc::{rc::Rc, vec::Vec};
+use alloc::vec::Vec;
 use core::convert::TryFrom;
 
 use crate::{
     bit_io::BitWriter,
     encoding::{frame_compressor::OffsetHistory, levels::c_port::sequence_store::StoredSequence},
-    fse::fse_encoder::{FSETable, FSETableBuildScratch},
+    fse::fse_encoder::{FSETable, FSETableBuildScratch, SharedFSETable},
 };
 
 use super::{
@@ -45,19 +45,19 @@ pub(super) fn should_emit_raw_for_legacy_decoder(
 pub(super) enum FseTableUpdate {
     Keep,
     Clear,
-    Replace(Rc<FSETable>),
+    Replace(FSETable),
 }
 
 pub(super) fn fse_table_update(mode: FseTableMode<'_>) -> FseTableUpdate {
     match mode {
-        FseTableMode::Encoded(table) => FseTableUpdate::Replace(Rc::new(table)),
+        FseTableMode::Encoded(table) => FseTableUpdate::Replace(table),
         FseTableMode::Predefined(_) | FseTableMode::Rle(_) => FseTableUpdate::Clear,
         FseTableMode::RepeatLast(_) => FseTableUpdate::Keep,
     }
 }
 
 pub(super) fn apply_fse_table_update(
-    previous: &mut Option<Rc<FSETable>>,
+    previous: &mut Option<SharedFSETable>,
     repeat_valid: &mut bool,
     update: FseTableUpdate,
 ) {
@@ -68,19 +68,23 @@ pub(super) fn apply_fse_table_update(
             *repeat_valid = false;
         }
         FseTableUpdate::Replace(table) => {
-            *previous = Some(table);
+            *previous = Some(SharedFSETable::new(table));
             *repeat_valid = false;
         }
     }
 }
 
 pub(super) fn apply_fse_table_update_with_scratch(
-    previous: &mut Option<Rc<FSETable>>,
+    previous: &mut Option<SharedFSETable>,
     repeat_valid: &mut bool,
     update: FseTableUpdate,
-    scratch: Option<&mut FSETableBuildScratch>,
+    mut scratch: Option<&mut FSETableBuildScratch>,
 ) {
-    if !crate::fse::fse_encoder::recycles_fast_fse_tables() {
+    if !crate::fse::fse_encoder::recycles_fast_fse_tables()
+        && !scratch
+            .as_deref()
+            .is_some_and(FSETableBuildScratch::has_shared_pool)
+    {
         apply_fse_table_update(previous, repeat_valid, update);
         return;
     }
@@ -92,6 +96,10 @@ pub(super) fn apply_fse_table_update_with_scratch(
             *repeat_valid = false;
         }
         FseTableUpdate::Replace(table) => {
+            let table = match scratch.as_deref_mut() {
+                Some(scratch) => scratch.share_table(table),
+                None => SharedFSETable::new(table),
+            };
             let old = previous.replace(table);
             recycle_previous_table(old, scratch);
             *repeat_valid = false;
@@ -107,15 +115,20 @@ pub(super) fn recycle_fse_table_update(
         return;
     }
     if let FseTableUpdate::Replace(table) = update {
-        recycle_previous_table(Some(table), scratch);
+        if let Some(scratch) = scratch {
+            scratch.recycle_table(table);
+        }
     }
 }
 
-fn recycle_previous_table(table: Option<Rc<FSETable>>, scratch: Option<&mut FSETableBuildScratch>) {
+fn recycle_previous_table(
+    table: Option<SharedFSETable>,
+    scratch: Option<&mut FSETableBuildScratch>,
+) {
     let (Some(table), Some(scratch)) = (table, scratch) else {
         return;
     };
-    if let Ok(table) = Rc::try_unwrap(table) {
+    if let Ok(table) = SharedFSETable::try_unwrap(table) {
         scratch.recycle_table(table);
     }
 }

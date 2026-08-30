@@ -1,6 +1,6 @@
 use crate::io::Read;
 use alloc::alloc::{alloc, dealloc};
-use core::{alloc::Layout, ptr::NonNull, slice};
+use core::{alloc::Layout, mem::MaybeUninit, ptr::NonNull, slice};
 
 pub struct RingBuffer {
     // Safety invariants:
@@ -18,6 +18,7 @@ pub struct RingBuffer {
     cap: usize,
     head: usize,
     tail: usize,
+    owned: bool,
 }
 
 // SAFETY: RingBuffer does not hold any thread specific values -> it can be sent to another thread -> RingBuffer is Send
@@ -35,6 +36,17 @@ impl RingBuffer {
             // SAFETY: Upholds invariant 2-4
             head: 0,
             tail: 0,
+            owned: true,
+        }
+    }
+
+    pub(crate) fn from_static_storage(storage: &mut [MaybeUninit<u8>]) -> Self {
+        Self {
+            buf: NonNull::new(storage.as_mut_ptr().cast()).unwrap_or_else(NonNull::dangling),
+            cap: storage.len(),
+            head: 0,
+            tail: 0,
+            owned: false,
         }
     }
 
@@ -71,6 +83,10 @@ impl RingBuffer {
     #[inline(never)]
     #[cold]
     fn reserve_amortized(&mut self, amount: usize) {
+        assert!(
+            self.owned,
+            "prepared static decode workspace capacity was exceeded"
+        );
         // SAFETY: if we were succesfully able to construct this layout when we allocated then it's also valid do so now
         let current_layout = unsafe { Layout::array::<u8>(self.cap).unwrap_unchecked() };
 
@@ -565,7 +581,7 @@ impl RingBuffer {
 
 impl Drop for RingBuffer {
     fn drop(&mut self) {
-        if self.cap == 0 {
+        if self.cap == 0 || !self.owned {
             return;
         }
 

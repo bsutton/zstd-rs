@@ -21,7 +21,7 @@ use crate::common::MAX_BLOCK_SIZE;
 use crate::encoding::blocks::{BlockCompressionConfig, PreparedBlock, PreparedSequence};
 use crate::encoding::frame_compressor::{FseTables, OffsetHistory};
 use crate::encoding::CompressionLevel;
-use alloc::rc::Rc;
+use crate::fse::fse_encoder::SharedFSETable;
 
 fn greedy_params(src_len: usize) -> CompressionParameters {
     CompressionParameters::for_level(greedy_level(src_len), src_len as u64, 0)
@@ -820,9 +820,9 @@ fn target_block_preserves_previous_fse_tables_for_repeat_sequence_metadata() {
         repeat_offsets: RepeatOffsets::new(),
     };
     let mut fse_tables = FseTables::new();
-    fse_tables.ll_previous = Some(Rc::new(fse_tables.ll_default.clone()));
-    fse_tables.ml_previous = Some(Rc::new(fse_tables.ml_default.clone()));
-    fse_tables.of_previous = Some(Rc::new(fse_tables.of_default.clone()));
+    fse_tables.ll_previous = Some(SharedFSETable::new(fse_tables.ll_default.clone()));
+    fse_tables.ml_previous = Some(SharedFSETable::new(fse_tables.ml_default.clone()));
+    fse_tables.of_previous = Some(SharedFSETable::new(fse_tables.of_default.clone()));
     let mut offset_history = OffsetHistory::new();
 
     let encoded = encode_target_block_with_superblock_fallback(

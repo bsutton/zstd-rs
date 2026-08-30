@@ -5,6 +5,7 @@ mod frame_decoder;
 #[cfg(feature = "std")]
 mod multi_frame_decoder;
 mod streaming_decoder;
+mod workspace;
 
 pub use dictionary::Dictionary;
 pub use frame_decoder::{BlockDecodingStrategy, FrameDecoder, DEFAULT_MAX_WINDOW_SIZE};
@@ -13,6 +14,7 @@ pub use multi_frame_decoder::{
     MultiFrameDecoder, MultiFrameDecoderError, MultiFrameDecoderOptions, SkippableFramePolicy,
 };
 pub use streaming_decoder::StreamingDecoder;
+pub use workspace::{DecoderWorkspace, DecoderWorkspaceError, StaticDecoderWorkspace};
 
 pub(crate) mod block_decoder;
 pub(crate) mod decode_buffer;

@@ -1,14 +1,16 @@
 use crate::io::{Error, Read, Write};
+use crate::workspace::ReusableVec;
 use alloc::vec::Vec;
 #[cfg(feature = "hash")]
 use core::hash::Hasher;
+use core::mem::MaybeUninit;
 
 use super::ringbuffer::RingBuffer;
 use crate::decoding::errors::DecodeBufferError;
 
 pub struct DecodeBuffer {
     buffer: RingBuffer,
-    pub dict_content: Vec<u8>,
+    pub dict_content: ReusableVec<u8>,
 
     pub window_size: usize,
     total_output_counter: u64,
@@ -35,8 +37,22 @@ impl DecodeBuffer {
     pub fn new(window_size: usize) -> DecodeBuffer {
         DecodeBuffer {
             buffer: RingBuffer::new(),
-            dict_content: Vec::new(),
+            dict_content: ReusableVec::new(),
             window_size,
+            total_output_counter: 0,
+            #[cfg(feature = "hash")]
+            hash: twox_hash::XxHash64::with_seed(0),
+        }
+    }
+
+    pub(crate) fn from_static_storage(
+        history: &mut [MaybeUninit<u8>],
+        dictionary: ReusableVec<u8>,
+    ) -> Self {
+        Self {
+            buffer: RingBuffer::from_static_storage(history),
+            dict_content: dictionary,
+            window_size: 0,
             total_output_counter: 0,
             #[cfg(feature = "hash")]
             hash: twox_hash::XxHash64::with_seed(0),
@@ -53,6 +69,16 @@ impl DecodeBuffer {
         {
             self.hash = twox_hash::XxHash64::with_seed(0);
         }
+    }
+
+    pub(crate) fn reserve_workspace(
+        &mut self,
+        history_capacity: usize,
+        dictionary_capacity: usize,
+    ) {
+        self.buffer.reserve(history_capacity);
+        let additional = dictionary_capacity.saturating_sub(self.dict_content.len());
+        self.dict_content.reserve(additional);
     }
 
     pub fn len(&self) -> usize {

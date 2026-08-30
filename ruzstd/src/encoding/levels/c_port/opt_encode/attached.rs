@@ -127,7 +127,7 @@ pub(crate) fn encode_block_opt_attached_dict_with_state_and_policy_and_ldm_in_mo
         return encoded;
     }
     if block_encode_mode.split_block_enabled() {
-        if let Some(encoded) = encode_split_block(
+        match encode_split_block(
             block,
             last_block,
             policy,
@@ -137,10 +137,16 @@ pub(crate) fn encode_block_opt_attached_dict_with_state_and_policy_and_ldm_in_mo
             &prepared,
             previous_offsets,
             &mut context,
-            &mut opt_state.post_split_estimate_scratch,
+            &mut opt_state.post_split_scratch,
+            &mut opt_state.entropy_huffman_scratch,
+            &mut opt_state.entropy_fse_scratch,
+            bytes,
         ) {
-            opt_state.recycle_prepared_block(prepared.prepared);
-            return encoded;
+            Ok(encoded) => {
+                opt_state.recycle_prepared_block(prepared.prepared);
+                return encoded;
+            }
+            Err(returned) => bytes = returned,
         }
     }
 

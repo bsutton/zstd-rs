@@ -22,8 +22,8 @@ pub(in crate::encoding::blocks::compressed) use c_fast::{
     choose_c_dfast_compact_sequence_table_modes_from_stored_with_final_history,
 };
 use policy::{
-    choose_c_cost_table, choose_c_fast_table, choose_c_fast_table_with_scratch,
-    sequence_table_selection_policy,
+    choose_c_cost_table, choose_c_cost_table_with_scratch, choose_c_fast_table,
+    choose_c_fast_table_with_scratch, sequence_table_selection_policy,
 };
 
 #[derive(Clone, Copy)]
@@ -242,33 +242,62 @@ fn choose_table_with_policy_from_counts<'a>(
     predefined_max_sequences: usize,
     selection_policy: TableSelectionPolicy,
     table_builder: TableBuilder,
+    scratch: Option<&mut FSETableBuildScratch>,
 ) -> FseTableMode<'a> {
     match selection_policy {
         TableSelectionPolicy::CFast { default_norm_log } => {
-            return choose_c_fast_table(
-                previous,
-                previous_repeat_valid,
-                default_table,
-                sequence_count,
-                last_code,
-                counts,
-                max_log,
-                repeat_table_max_sequences,
-                predefined_max_sequences,
-                default_norm_log,
-                table_builder,
-            );
+            return match scratch {
+                Some(scratch) => choose_c_fast_table_with_scratch(
+                    previous,
+                    previous_repeat_valid,
+                    default_table,
+                    sequence_count,
+                    last_code,
+                    counts,
+                    max_log,
+                    repeat_table_max_sequences,
+                    predefined_max_sequences,
+                    default_norm_log,
+                    table_builder,
+                    scratch,
+                ),
+                None => choose_c_fast_table(
+                    previous,
+                    previous_repeat_valid,
+                    default_table,
+                    sequence_count,
+                    last_code,
+                    counts,
+                    max_log,
+                    repeat_table_max_sequences,
+                    predefined_max_sequences,
+                    default_norm_log,
+                    table_builder,
+                ),
+            };
         }
         TableSelectionPolicy::CCost => {
-            return choose_c_cost_table(
-                previous,
-                default_table,
-                sequence_count,
-                last_code,
-                counts,
-                max_log,
-                table_builder,
-            );
+            return match scratch {
+                Some(scratch) => choose_c_cost_table_with_scratch(
+                    previous,
+                    default_table,
+                    sequence_count,
+                    last_code,
+                    counts,
+                    max_log,
+                    table_builder,
+                    scratch,
+                ),
+                None => choose_c_cost_table(
+                    previous,
+                    default_table,
+                    sequence_count,
+                    last_code,
+                    counts,
+                    max_log,
+                    table_builder,
+                ),
+            };
         }
         TableSelectionPolicy::Legacy => {}
     }
@@ -375,19 +404,30 @@ pub(in crate::encoding::blocks::compressed) fn choose_c_sequence_table_modes_fro
     sequences: &[PreparedSequence],
     config: SequenceModeSearchConfig<'a>,
 ) -> (FseTableMode<'a>, FseTableMode<'a>, FseTableMode<'a>) {
-    choose_c_sequence_table_modes(sequences, config)
+    choose_c_sequence_table_modes(sequences, config, None)
 }
 
 pub(in crate::encoding::blocks::compressed) fn choose_c_sequence_table_modes_from_stored<'a>(
     sequences: &[StoredSequence],
     config: SequenceModeSearchConfig<'a>,
 ) -> (FseTableMode<'a>, FseTableMode<'a>, FseTableMode<'a>) {
-    choose_c_sequence_table_modes(sequences, config)
+    choose_c_sequence_table_modes(sequences, config, None)
+}
+
+pub(in crate::encoding::blocks::compressed) fn choose_c_sequence_table_modes_from_stored_with_scratch<
+    'a,
+>(
+    sequences: &[StoredSequence],
+    config: SequenceModeSearchConfig<'a>,
+    scratch: &mut FSETableBuildScratch,
+) -> (FseTableMode<'a>, FseTableMode<'a>, FseTableMode<'a>) {
+    choose_c_sequence_table_modes(sequences, config, Some(scratch))
 }
 
 fn choose_c_sequence_table_modes<'a, S: CSequenceValues>(
     sequences: &[S],
     config: SequenceModeSearchConfig<'a>,
+    mut scratch: Option<&mut FSETableBuildScratch>,
 ) -> (FseTableMode<'a>, FseTableMode<'a>, FseTableMode<'a>) {
     debug_assert!(!config.exact_sequence_mode_search);
     debug_assert!(!sequences.is_empty());
@@ -413,6 +453,7 @@ fn choose_c_sequence_table_modes<'a, S: CSequenceValues>(
         config.llml_predefined_max_sequences,
         llml_policy,
         TableBuilder::Full,
+        scratch.as_deref_mut(),
     );
 
     let ml_counts = CodeCounts::from_codes(
@@ -432,6 +473,7 @@ fn choose_c_sequence_table_modes<'a, S: CSequenceValues>(
         config.llml_predefined_max_sequences,
         llml_policy,
         TableBuilder::Full,
+        scratch.as_deref_mut(),
     );
 
     let of_counts = CodeCounts::from_codes(sequences.iter().map(|sequence| {
@@ -453,6 +495,7 @@ fn choose_c_sequence_table_modes<'a, S: CSequenceValues>(
         config.of_predefined_max_sequences,
         offset_policy,
         TableBuilder::Full,
+        scratch,
     );
     (ll_mode, ml_mode, of_mode)
 }
@@ -675,7 +718,7 @@ pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes_for_e
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes_for_estimate_from_counts<
+pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes_for_estimate_from_counts_with_scratch<
     'a,
 >(
     sequence_count: usize,
@@ -686,6 +729,7 @@ pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes_for_e
     of_counts: &CodeCounts,
     of_last_code: u8,
     config: SequenceModeSearchConfig<'a>,
+    scratch: &mut FSETableBuildScratch,
 ) -> (FseTableMode<'a>, FseTableMode<'a>, FseTableMode<'a>) {
     debug_assert!(!config.exact_sequence_mode_search);
     let table_builder = TableBuilder::ProbabilityOnly;
@@ -694,47 +738,49 @@ pub(in crate::encoding::blocks::compressed) fn choose_sequence_table_modes_for_e
     let offset_policy =
         sequence_table_selection_policy(config.c_fast_heuristics, config.c_cost_model, 5);
 
-    (
-        choose_table_with_policy_from_counts(
-            config.ll_previous,
-            config.ll_repeat_valid,
-            config.ll_default,
-            sequence_count,
-            ll_last_code,
-            ll_counts,
-            9,
-            config.repeat_table_max_sequences,
-            config.llml_predefined_max_sequences,
-            llml_policy,
-            table_builder,
-        ),
-        choose_table_with_policy_from_counts(
-            config.ml_previous,
-            config.ml_repeat_valid,
-            config.ml_default,
-            sequence_count,
-            ml_last_code,
-            ml_counts,
-            9,
-            config.repeat_table_max_sequences,
-            config.llml_predefined_max_sequences,
-            llml_policy,
-            table_builder,
-        ),
-        choose_table_with_policy_from_counts(
-            config.of_previous,
-            config.of_repeat_valid,
-            config.of_default,
-            sequence_count,
-            of_last_code,
-            of_counts,
-            config.of_max_log,
-            config.repeat_table_max_sequences,
-            config.of_predefined_max_sequences,
-            offset_policy,
-            table_builder,
-        ),
-    )
+    let ll = choose_table_with_policy_from_counts(
+        config.ll_previous,
+        config.ll_repeat_valid,
+        config.ll_default,
+        sequence_count,
+        ll_last_code,
+        ll_counts,
+        9,
+        config.repeat_table_max_sequences,
+        config.llml_predefined_max_sequences,
+        llml_policy,
+        table_builder,
+        Some(&mut *scratch),
+    );
+    let ml = choose_table_with_policy_from_counts(
+        config.ml_previous,
+        config.ml_repeat_valid,
+        config.ml_default,
+        sequence_count,
+        ml_last_code,
+        ml_counts,
+        9,
+        config.repeat_table_max_sequences,
+        config.llml_predefined_max_sequences,
+        llml_policy,
+        table_builder,
+        Some(&mut *scratch),
+    );
+    let of = choose_table_with_policy_from_counts(
+        config.of_previous,
+        config.of_repeat_valid,
+        config.of_default,
+        sequence_count,
+        of_last_code,
+        of_counts,
+        config.of_max_log,
+        config.repeat_table_max_sequences,
+        config.of_predefined_max_sequences,
+        offset_policy,
+        table_builder,
+        Some(scratch),
+    );
+    (ll, ml, of)
 }
 
 fn choose_sequence_table_modes_with_builder<'a>(

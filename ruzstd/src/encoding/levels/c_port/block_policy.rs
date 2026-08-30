@@ -5,7 +5,7 @@ use super::params::Strategy;
 pub(super) const MIN_SEQUENCE_BUILD_SRC_SIZE: usize = 7;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct BlockEncodingPolicy {
+pub(crate) struct BlockEncodingPolicy {
     allow_rle: bool,
 }
 

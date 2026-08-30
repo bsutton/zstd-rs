@@ -74,10 +74,10 @@ fn partition_offcode_resolution_rewrites_repcodes_after_raw_partition_like_c() {
     );
 
     assert_eq!(
-        second_sequences[0].encoded_offset_value,
+        second_sequences[0].off_base_value(),
         OffBase::offset_to_c_value(4)
     );
-    assert_eq!(second_sequences[0].raw_offset, 4);
+    assert_eq!(second_sequences[0].off_base(), OffBase::Offset(4));
     assert_eq!(decompression_repeats.as_offsets(), [4, 1, 4]);
     assert_eq!(compression_repeats.as_offsets(), [4, 1, 4]);
 }
@@ -102,7 +102,7 @@ fn partition_offcode_resolution_borrows_when_no_rewrite_is_needed() {
         &mut compression_repeats,
     );
 
-    assert!(matches!(resolved, Cow::Borrowed(_)));
+    assert_eq!(resolved.len(), 1);
     assert_eq!(decompression_repeats.as_offsets(), [4, 1, 4]);
     assert_eq!(compression_repeats.as_offsets(), [4, 1, 4]);
 }

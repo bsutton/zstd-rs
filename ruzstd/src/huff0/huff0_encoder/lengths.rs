@@ -183,6 +183,48 @@ pub(super) fn rank_limited_weights(counts: &[usize]) -> Vec<usize> {
     weights_distributed
 }
 
+/// Writes the rank-limited fallback into caller-provided storage.
+///
+/// Huffman alphabets contain at most 256 symbols, so prepared workspaces can
+/// keep this uncommon fallback allocation-free without retaining another
+/// heap vector in every encoder context.
+pub(super) fn rank_limited_weights_into<'a>(
+    counts: &[usize],
+    output: &'a mut [usize; 256],
+) -> &'a [usize] {
+    #[derive(Clone, Copy, Default)]
+    struct RankedSymbol {
+        symbol: usize,
+        count: usize,
+    }
+
+    debug_assert!(counts.len() <= output.len());
+    let mut ranked = [RankedSymbol::default(); 256];
+    let mut ranked_len = 0;
+    for (symbol, &count) in counts.iter().enumerate() {
+        if count != 0 {
+            ranked[ranked_len] = RankedSymbol { symbol, count };
+            ranked_len += 1;
+        }
+    }
+    ranked[..ranked_len].sort_unstable_by(|left, right| {
+        left.count
+            .cmp(&right.count)
+            .then_with(|| left.symbol.cmp(&right.symbol))
+    });
+
+    let mut weights = [0u8; 256];
+    let weight_sum_log = distribute_weights_with_sum_log_into(ranked_len, &mut weights);
+    let limit = ranked_len.ilog2() as usize + 2;
+    redistribute_weights_with_sum_log(&mut weights[..ranked_len], limit, weight_sum_log);
+
+    output[..counts.len()].fill(0);
+    for (rank, symbol) in ranked[..ranked_len].iter().enumerate() {
+        output[symbol.symbol] = usize::from(weights[rank]);
+    }
+    &output[..counts.len()]
+}
+
 pub(super) fn rank_limited_weights_from_sorted_symbols(
     count_len: usize,
     symbols_by_desc_count: &[LengthLimitedSymbol],
@@ -271,6 +313,32 @@ fn distribute_weights_with_sum_log(amount: usize) -> (Vec<u8>, usize) {
         .sum::<usize>()
         .ilog2() as usize;
     (weights, weight_sum_log)
+}
+
+fn distribute_weights_with_sum_log_into(amount: usize, weights: &mut [u8; 256]) -> usize {
+    assert!((2..=256).contains(&amount));
+    weights[0] = 1;
+    weights[1] = 1;
+    let mut len = 2;
+    let mut target_weight = 1usize;
+    let mut weight_counter = 2usize;
+    while len < amount {
+        let mut add_new = 1usize << (weight_counter - target_weight);
+        let available_space = amount - len;
+        if add_new > available_space {
+            target_weight = weight_counter;
+            add_new = 1;
+        }
+        weights[len..len + add_new].fill(target_weight as u8);
+        len += add_new;
+        weight_counter += 1;
+    }
+    weights[..amount]
+        .iter()
+        .copied()
+        .map(|weight| 1usize << weight)
+        .sum::<usize>()
+        .ilog2() as usize
 }
 
 #[cfg(test)]

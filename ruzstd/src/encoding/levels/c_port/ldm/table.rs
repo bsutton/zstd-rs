@@ -1,6 +1,5 @@
-use alloc::{vec, vec::Vec};
-
 use super::super::cctx_params::LdmParameters;
+use crate::workspace::{Arena, ArenaError, ArenaSize, ReusableVec};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct LdmEntry {
@@ -10,8 +9,8 @@ pub(crate) struct LdmEntry {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LdmHashTable {
-    hash_table: Vec<LdmEntry>,
-    bucket_offsets: Vec<u8>,
+    hash_table: ReusableVec<LdmEntry>,
+    bucket_offsets: ReusableVec<u8>,
     bucket_size_log: u32,
 }
 
@@ -21,11 +20,37 @@ impl LdmHashTable {
         let table_entries = 1_usize << params.hash_log;
         let bucket_count = 1_usize << (params.hash_log - params.bucket_size_log);
 
+        let mut hash_table = ReusableVec::with_capacity(table_entries);
+        hash_table.resize(table_entries, LdmEntry::default());
+        let mut bucket_offsets = ReusableVec::with_capacity(bucket_count);
+        bucket_offsets.resize(bucket_count, 0);
         Self {
-            hash_table: vec![LdmEntry::default(); table_entries],
-            bucket_offsets: vec![0; bucket_count],
+            hash_table,
+            bucket_offsets,
             bucket_size_log: params.bucket_size_log,
         }
+    }
+
+    pub(crate) fn add_workspace_size(
+        size: &mut ArenaSize,
+        params: LdmParameters,
+    ) -> Result<(), ArenaError> {
+        size.add::<LdmEntry>(1_usize << params.hash_log)?;
+        size.add::<u8>(1_usize << (params.hash_log - params.bucket_size_log))
+    }
+
+    pub(crate) fn new_in(arena: &mut Arena<'_>, params: LdmParameters) -> Result<Self, ArenaError> {
+        let table_entries = 1_usize << params.hash_log;
+        let bucket_count = 1_usize << (params.hash_log - params.bucket_size_log);
+        let mut hash_table = arena.allocate_reusable_vec(table_entries)?;
+        hash_table.resize(table_entries, LdmEntry::default());
+        let mut bucket_offsets = arena.allocate_reusable_vec(bucket_count)?;
+        bucket_offsets.resize(bucket_count, 0);
+        Ok(Self {
+            hash_table,
+            bucket_offsets,
+            bucket_size_log: params.bucket_size_log,
+        })
     }
 
     pub(crate) fn insert_entry(&mut self, hash: usize, entry: LdmEntry) {
@@ -55,5 +80,10 @@ impl LdmHashTable {
 
     pub(crate) fn bucket_count(&self) -> usize {
         self.bucket_offsets.len()
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.hash_table.fill(LdmEntry::default());
+        self.bucket_offsets.fill(0);
     }
 }

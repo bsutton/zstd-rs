@@ -1,14 +1,152 @@
 use crate::bit_io::BitWriter;
-use alloc::vec::Vec;
+use crate::workspace::{Arena, ArenaError, ArenaSize, ReusableVec};
+use alloc::{rc::Rc, vec::Vec};
+use core::{
+    cell::{Cell, UnsafeCell},
+    marker::PhantomData,
+    mem::ManuallyDrop,
+    ops::Deref,
+    ptr::NonNull,
+};
 
 use super::write_normalized_probabilities;
 
 #[derive(Debug, Clone)]
 pub struct FSETable {
-    state_table: Vec<u16>,
+    state_table: ReusableVec<u16>,
     /// Indexed by symbol.
-    symbols: Vec<SymbolTransform>,
+    symbols: ReusableVec<SymbolTransform>,
     acc_log: u8,
+}
+
+pub(crate) struct SharedFSETable {
+    table: NonNull<FSETable>,
+    storage: SharedFSEStorage,
+    not_send: PhantomData<Rc<()>>,
+}
+
+enum SharedFSEStorage {
+    Owned(Rc<FSETable>),
+    Pooled(NonNull<FseSharedCell>),
+}
+
+#[derive(Debug)]
+struct FseSharedCell {
+    references: Cell<usize>,
+    table: UnsafeCell<Option<FSETable>>,
+}
+
+#[derive(Debug)]
+struct FseSharedPool {
+    cells: ReusableVec<FseSharedCell>,
+}
+
+impl SharedFSETable {
+    pub(crate) fn new(table: FSETable) -> Self {
+        let table = Rc::new(table);
+        Self {
+            table: NonNull::from(table.as_ref()),
+            storage: SharedFSEStorage::Owned(table),
+            not_send: PhantomData,
+        }
+    }
+
+    fn new_pooled(table: FSETable, pool: &mut FseSharedPool) -> (Self, Option<FSETable>) {
+        let cell = pool
+            .cells
+            .iter_mut()
+            .find(|cell| cell.references.get() == 0)
+            .expect("FSE shared-table workspace exhausted");
+        // SAFETY: the zero reference count gives the pool exclusive access.
+        let recycled = unsafe { (&mut *cell.table.get()).replace(table) };
+        cell.references.set(1);
+        // SAFETY: the table was installed above and remains in this stable
+        // arena cell while any shared handle is live.
+        let table = NonNull::from(unsafe {
+            (&mut *cell.table.get())
+                .as_mut()
+                .expect("installed pooled table")
+        });
+        (
+            Self {
+                table,
+                storage: SharedFSEStorage::Pooled(NonNull::from(cell)),
+                not_send: PhantomData,
+            },
+            recycled,
+        )
+    }
+
+    pub(crate) fn try_unwrap(value: Self) -> Result<FSETable, Self> {
+        match &value.storage {
+            SharedFSEStorage::Owned(table) if Rc::strong_count(table) == 1 => {
+                let value = ManuallyDrop::new(value);
+                let SharedFSEStorage::Owned(table) = (unsafe { core::ptr::read(&value.storage) })
+                else {
+                    unreachable!()
+                };
+                match Rc::try_unwrap(table) {
+                    Ok(table) => Ok(table),
+                    Err(_) => unreachable!("unique Rc count changed"),
+                }
+            }
+            SharedFSEStorage::Pooled(cell) if unsafe { cell.as_ref() }.references.get() == 1 => {
+                let value = ManuallyDrop::new(value);
+                let SharedFSEStorage::Pooled(cell) = value.storage else {
+                    unreachable!()
+                };
+                // SAFETY: the sole handle is consumed, so the cell is exclusive.
+                let cell = unsafe { cell.as_ref() };
+                cell.references.set(0);
+                Ok(unsafe { (&mut *cell.table.get()).take().expect("live pooled table") })
+            }
+            _ => Err(value),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn as_ptr(&self) -> *const FSETable {
+        &**self
+    }
+}
+
+impl Clone for SharedFSETable {
+    fn clone(&self) -> Self {
+        let storage = match &self.storage {
+            SharedFSEStorage::Owned(table) => SharedFSEStorage::Owned(table.clone()),
+            SharedFSEStorage::Pooled(cell) => {
+                // SAFETY: every live pooled handle points at its originating cell.
+                let count = unsafe { cell.as_ref() }.references.get();
+                unsafe { cell.as_ref() }.references.set(count + 1);
+                SharedFSEStorage::Pooled(*cell)
+            }
+        };
+        Self {
+            table: self.table,
+            storage,
+            not_send: PhantomData,
+        }
+    }
+}
+
+impl Deref for SharedFSETable {
+    type Target = FSETable;
+
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: both storage variants keep the pointed-to allocation stable
+        // and alive for the lifetime of this handle.
+        unsafe { self.table.as_ref() }
+    }
+}
+
+impl Drop for SharedFSETable {
+    fn drop(&mut self) {
+        if let SharedFSEStorage::Pooled(cell) = self.storage {
+            // SAFETY: pooled handles are single-threaded and update this count serially.
+            let cell = unsafe { cell.as_ref() };
+            cell.references.set(cell.references.get() - 1);
+        }
+    }
 }
 
 impl FSETable {
@@ -133,22 +271,88 @@ struct SymbolTransform {
 /// source blocks.
 #[derive(Debug, Default)]
 pub(crate) struct FSETableBuildScratch {
-    cumulative: Vec<usize>,
-    table_symbols: Vec<u8>,
-    recycled_tables: Vec<FSETable>,
+    cumulative: ReusableVec<usize>,
+    table_symbols: ReusableVec<u8>,
+    recycled_tables: ReusableVec<FSETable>,
+    shared_pool: Option<FseSharedPool>,
 }
 
 impl FSETableBuildScratch {
     pub(crate) const fn new() -> Self {
         Self {
-            cumulative: Vec::new(),
-            table_symbols: Vec::new(),
-            recycled_tables: Vec::new(),
+            cumulative: ReusableVec::new(),
+            table_symbols: ReusableVec::new(),
+            recycled_tables: ReusableVec::new(),
+            shared_pool: None,
         }
     }
 
+    pub(crate) fn add_workspace_size(size: &mut ArenaSize) -> Result<(), ArenaError> {
+        size.add::<usize>(257)?;
+        size.add::<u8>(1 << 12)?;
+        size.add::<FSETable>(9)?;
+        // A deferred transaction can temporarily retain the three previous
+        // tables, three candidate tables, and cloned mode handles while the
+        // accepted state is committed. Keep one cell per recyclable table so
+        // an arena-backed context never falls back to ownership allocation.
+        size.add::<FseSharedCell>(9)?;
+        for _ in 0..9 {
+            size.add::<u16>(1 << 12)?;
+            size.add::<SymbolTransform>(256)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn new_in(arena: &mut Arena<'_>) -> Result<Self, ArenaError> {
+        let cumulative = arena.allocate_reusable_vec(257)?;
+        let table_symbols = arena.allocate_reusable_vec(1 << 12)?;
+        let mut recycled_tables = arena.allocate_reusable_vec(9)?;
+        for _ in 0..9 {
+            recycled_tables.push(FSETable {
+                state_table: arena.allocate_reusable_vec(1 << 12)?,
+                symbols: arena.allocate_reusable_vec(256)?,
+                acc_log: 0,
+            });
+        }
+        let mut cells = arena.allocate_reusable_vec(9)?;
+        for _ in 0..9 {
+            cells.push(FseSharedCell {
+                references: Cell::new(0),
+                table: UnsafeCell::new(None),
+            });
+        }
+        Ok(Self {
+            cumulative,
+            table_symbols,
+            recycled_tables,
+            shared_pool: Some(FseSharedPool { cells }),
+        })
+    }
+
+    pub(crate) fn share_table(&mut self, table: FSETable) -> SharedFSETable {
+        match self.shared_pool.as_mut() {
+            Some(pool) => {
+                let (shared, recycled) = SharedFSETable::new_pooled(table, pool);
+                if let Some(recycled) = recycled {
+                    self.recycle_table(recycled);
+                }
+                shared
+            }
+            None => SharedFSETable::new(table),
+        }
+    }
+
+    pub(crate) fn has_shared_pool(&self) -> bool {
+        self.shared_pool.is_some()
+    }
+
     pub(crate) fn recycle_table(&mut self, table: FSETable) {
-        if self.recycled_tables.len() < 3 {
+        let limit = if self.shared_pool.is_some() {
+            self.recycled_tables.capacity()
+        } else {
+            3
+        };
+        if self.recycled_tables.len() < limit {
             self.recycled_tables.push(table);
         }
     }
@@ -163,8 +367,21 @@ impl FSETableBuildScratch {
             })
             .min_by_key(|(_, table)| table.state_table.capacity() + table.symbols.capacity())
             .map(|(index, _)| index)
-            .or_else(|| (!self.recycled_tables.is_empty()).then_some(0))?;
-        Some(self.recycled_tables.swap_remove(best))
+            .or_else(|| (!self.recycled_tables.is_empty()).then_some(0));
+        match best {
+            Some(index) => Some(self.recycled_tables.swap_remove(index)),
+            None => self.take_pooled_table(),
+        }
+    }
+
+    fn take_pooled_table(&mut self) -> Option<FSETable> {
+        let pool = self.shared_pool.as_mut()?;
+        let cell = pool
+            .cells
+            .iter_mut()
+            .find(|cell| cell.references.get() == 0 && unsafe { (&*cell.table.get()).is_some() })?;
+        // SAFETY: no shared handle references this cell.
+        unsafe { (&mut *cell.table.get()).take() }
     }
 
     #[cfg(test)]
@@ -226,8 +443,8 @@ pub(crate) fn build_table_from_probabilities_with_scratch(
     let mut table = scratch
         .take_recycled_table(table_size, probs.len())
         .unwrap_or_else(|| FSETable {
-            state_table: Vec::new(),
-            symbols: Vec::new(),
+            state_table: ReusableVec::new(),
+            symbols: ReusableVec::new(),
             acc_log,
         });
     let cumulative = &mut scratch.cumulative;
@@ -270,19 +487,37 @@ pub(crate) fn build_table_from_probabilities_with_scratch(
 
 pub(crate) fn build_probability_table_for_estimate(probs: &[i32], acc_log: u8) -> FSETable {
     FSETable {
-        state_table: Vec::new(),
+        state_table: ReusableVec::new(),
         symbols: symbol_transforms(probs, acc_log),
         acc_log,
     }
 }
 
-fn symbol_transforms(probs: &[i32], acc_log: u8) -> Vec<SymbolTransform> {
-    let mut symbols = Vec::with_capacity(probs.len());
+pub(crate) fn build_probability_table_for_estimate_with_scratch(
+    probs: &[i32],
+    acc_log: u8,
+    scratch: &mut FSETableBuildScratch,
+) -> FSETable {
+    let mut table = scratch
+        .take_recycled_table(0, probs.len())
+        .unwrap_or_else(|| FSETable {
+            state_table: ReusableVec::new(),
+            symbols: ReusableVec::new(),
+            acc_log: 0,
+        });
+    table.state_table.clear();
+    fill_symbol_transforms(probs, acc_log, &mut table.symbols);
+    table.acc_log = acc_log;
+    table
+}
+
+fn symbol_transforms(probs: &[i32], acc_log: u8) -> ReusableVec<SymbolTransform> {
+    let mut symbols = ReusableVec::with_capacity(probs.len());
     fill_symbol_transforms(probs, acc_log, &mut symbols);
     symbols
 }
 
-fn fill_symbol_transforms(probs: &[i32], acc_log: u8, symbols: &mut Vec<SymbolTransform>) {
+fn fill_symbol_transforms(probs: &[i32], acc_log: u8, symbols: &mut ReusableVec<SymbolTransform>) {
     let table_log = u32::from(acc_log);
     let table_size = 1u32 << table_log;
     let mut total = 0u32;
@@ -347,12 +582,24 @@ pub(crate) fn default_ml_table() -> FSETable {
     build_table_from_probabilities(ML_DIST, 6)
 }
 
+pub(crate) fn default_ml_table_with_scratch(scratch: &mut FSETableBuildScratch) -> FSETable {
+    build_table_from_probabilities_with_scratch(ML_DIST, 6, scratch)
+}
+
 pub(crate) fn default_ll_table() -> FSETable {
     build_table_from_probabilities(LL_DIST, 6)
 }
 
+pub(crate) fn default_ll_table_with_scratch(scratch: &mut FSETableBuildScratch) -> FSETable {
+    build_table_from_probabilities_with_scratch(LL_DIST, 6, scratch)
+}
+
 pub(crate) fn default_of_table() -> FSETable {
     build_table_from_probabilities(OF_DIST, 5)
+}
+
+pub(crate) fn default_of_table_with_scratch(scratch: &mut FSETableBuildScratch) -> FSETable {
+    build_table_from_probabilities_with_scratch(OF_DIST, 5, scratch)
 }
 
 #[cfg(test)]

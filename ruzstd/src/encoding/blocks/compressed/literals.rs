@@ -96,7 +96,12 @@ pub(super) fn compress_literals_with_scratch(
     fse_build_scratch: Option<&mut FSETableBuildScratch>,
     writer: &mut BitWriter<&mut Vec<u8>>,
 ) -> Option<huff0_encoder::HuffmanTable> {
-    if huffman_scratch.is_some() && !huff0_encoder::reuses_fast_huffman_scratch() {
+    if huffman_scratch.is_some()
+        && !huff0_encoder::reuses_fast_huffman_scratch()
+        && !huffman_scratch
+            .as_deref()
+            .is_some_and(huff0_encoder::HuffmanBuildScratch::is_workspace_backed)
+    {
         huffman_scratch = None;
     }
     let reset_idx = writer.index();

@@ -550,7 +550,7 @@ pub(super) fn encode_stored_words_block(
     params: CompressionParameters,
     config: BlockCompressionConfig,
     repeat_offsets: RepeatOffsets,
-    stored: FastStoredWords,
+    mut stored: FastStoredWords,
     policy: BlockEncodingPolicy,
     context: FastBlockEncodeContext<'_, '_>,
     match_state: &mut FastMatchState,
@@ -576,6 +576,7 @@ pub(super) fn encode_stored_words_block(
         output,
     );
     match_state.recycle_prepared_store(stored.literals);
+    match_state.recycle_sequence_store(core::mem::take(&mut stored.matcher_output.sequences));
 
     match emission {
         PreparedBlockEmission::Raw | PreparedBlockEmission::Rle => FastBlockEncoding {

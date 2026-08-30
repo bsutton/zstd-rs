@@ -122,6 +122,11 @@ impl BlockCompressionTuningOverrides {
 }
 
 impl BlockCompressionConfig {
+    pub(crate) fn prepare_for_allocation_free_workspace(&mut self) {
+        self.huffman_table_search = HuffmanTableSearch::Heuristic;
+        self.exact_sequence_mode_search = false;
+    }
+
     pub(crate) fn uses_c_fast_entropy_path(self) -> bool {
         self.c_fast_sequence_emission
     }

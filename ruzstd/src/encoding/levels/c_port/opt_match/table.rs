@@ -1,4 +1,4 @@
-use alloc::boxed::Box;
+use crate::workspace::{Arena, ArenaError, ArenaSize, ReusableVec};
 use core::ops::Index;
 
 const ZSTD_OPT_NUM: usize = 1 << 12;
@@ -18,16 +18,29 @@ impl OptMatch {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::encoding::levels::c_port) struct OptMatchTable {
-    entries: Box<[OptMatch; ZSTD_OPT_NUM]>,
+    entries: ReusableVec<OptMatch>,
     len: usize,
 }
 
 impl OptMatchTable {
+    pub(in crate::encoding::levels::c_port) fn add_workspace_size(
+        size: &mut ArenaSize,
+    ) -> Result<(), ArenaError> {
+        size.add::<OptMatch>(ZSTD_OPT_NUM)
+    }
+
+    pub(in crate::encoding::levels::c_port) fn new_in(
+        arena: &mut Arena<'_>,
+    ) -> Result<Self, ArenaError> {
+        let mut entries = arena.allocate_reusable_vec(ZSTD_OPT_NUM)?;
+        entries.resize(ZSTD_OPT_NUM, OptMatch::EMPTY);
+        Ok(Self { entries, len: 0 })
+    }
+
     pub(in crate::encoding::levels::c_port) fn new() -> Self {
-        Self {
-            entries: Box::new([OptMatch::EMPTY; ZSTD_OPT_NUM]),
-            len: 0,
-        }
+        let mut entries = ReusableVec::with_capacity(ZSTD_OPT_NUM);
+        entries.resize(ZSTD_OPT_NUM, OptMatch::EMPTY);
+        Self { entries, len: 0 }
     }
 
     #[inline(always)]

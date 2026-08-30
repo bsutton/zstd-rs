@@ -13,6 +13,39 @@ Restart anchor: if a future session starts cold, use this file as the canonical
 handoff and continue from the "Next Resume Action" section before doing new
 analysis or code changes.
 
+Workspace-context checkpoint as of August 30, 2026: issue #11 is implemented
+directly on `master` under the user's explicit override of the issue-worktree
+default. `EncoderWorkspace`/`DecoderWorkspace` own reusable typed state;
+`StaticEncoderWorkspace`/`StaticDecoderWorkspace` place the same state in an
+arbitrary caller byte slice. Valid bounded operations write into caller output
+without allocation, including raw/formatted decoder dictionaries,
+uncompressed and negative-fast encoder modes, all positive strategies, the
+level-16 post-block splitter, and automatic level-22 long-distance matching.
+The multithreaded encoder prepares one reusable workspace per eligible worker;
+the default single-thread entry points remain unchanged.
+
+Counting-allocator, C-decode, repeated-operation, no-default, multithreaded,
+dictionary-builder, strict Clippy, doctest, wasm, and large level-22 LDM gates
+pass. The forced LDM test uses a 64 MiB bound, performs two zero-allocation
+operations, and peaks near 740 MiB RSS. The final preserved-binary comparison
+at levels 1/3/5/8/16 is recorded in
+`benchmarks/WORKSPACE_CONTEXTS_2026-08-30.md`: ordinary instruction changes
+are -0.012%/+0.123%/-0.622%/-0.454%/-0.581%, workspace operations are another
+0.09-0.51% cheaper, and all measured output is byte-identical. Retain the
+arena implementation. This validated transaction completes issue #11. The next
+release must choose and set a version newer than the already-published 0.1.0;
+do not attempt to republish 0.1.0.
+
+Publishing correction as of August 30, 2026: `zstd-complete` 0.1.0 is live on
+crates.io and the exact published commit is tagged `zstd-complete-v0.1.0`.
+Earlier release notes below saying that the name is still available or that
+the upload remains pending are stale historical checkpoints. The repository
+now contains `.github/workflows/release.yml` for subsequent OIDC releases; it
+uses the exact Trusted Publisher claims owner `bsutton`, repository `zstd-rs`,
+workflow `release.yml`, and GitHub environment `release`. The crate owner must
+register those claims in the crate's crates.io Settings page. Do not create or
+retain a long-lived Cargo registry secret after Trusted Publishing is enabled.
+
 Feature-parity checkpoint as of August 30, 2026: roadmap issue #5's remaining
 application-level gaps are implemented directly on `master`. The standard
 library API now has a bounded `MultiFrameDecoder` for concatenated and

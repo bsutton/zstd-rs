@@ -4,8 +4,6 @@
 
 use super::sequence_store::{OffBase, StoredSequence};
 pub(super) use super::unaligned::{read32, read64};
-use alloc::vec::Vec;
-
 pub(super) const HASH_READ_SIZE: usize = 8;
 
 pub(super) fn lowest_prefix_index_with_loaded_dict(
@@ -57,7 +55,7 @@ pub(super) use super::match_count::count_match_behind as count_match;
 
 #[inline(always)]
 pub(super) fn store_match(
-    sequences: &mut Vec<StoredSequence>,
+    sequences: &mut crate::workspace::ReusableVec<StoredSequence>,
     anchor: &mut usize,
     ip: &mut usize,
     off_base: OffBase,

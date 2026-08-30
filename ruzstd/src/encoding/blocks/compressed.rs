@@ -58,7 +58,8 @@ use sequence_tables::{
     choose_c_fast_sequence_table_modes_from_stored,
     choose_c_fast_sequence_table_modes_from_stored_with_final_history,
     choose_c_sequence_table_modes_from_prepared, choose_c_sequence_table_modes_from_stored,
-    choose_sequence_table_modes, encode_fse_table_modes, SequenceModeSearchConfig,
+    choose_c_sequence_table_modes_from_stored_with_scratch, choose_sequence_table_modes,
+    encode_fse_table_modes, SequenceModeSearchConfig,
 };
 #[cfg(test)]
 use sequence_tables::{choose_table, encode_table, exact_sequence_section_size, FseTableMode};
@@ -727,7 +728,12 @@ fn compress_c_stored_block_with_stats_impl<const MATCHER_HISTORY: bool>(
     mut pending_state: Option<&mut PendingStoredEntropyState>,
 ) -> CompressedBlockResult {
     debug_assert!(!config.exact_sequence_mode_search);
-    if fse_build_scratch.is_some() && !crate::fse::fse_encoder::reuses_fast_fse_build_scratch() {
+    if fse_build_scratch.is_some()
+        && !crate::fse::fse_encoder::reuses_fast_fse_build_scratch()
+        && !fse_build_scratch
+            .as_deref()
+            .is_some_and(FSETableBuildScratch::has_shared_pool)
+    {
         fse_build_scratch = None;
     }
     let mut result = CompressedBlockResult {
@@ -844,6 +850,12 @@ fn compress_c_stored_block_with_stats_impl<const MATCHER_HISTORY: bool>(
                 };
             next_offset_history = final_offset_history;
             (ll_mode, ml_mode, of_mode)
+        } else if let Some(scratch) = fse_build_scratch {
+            choose_c_sequence_table_modes_from_stored_with_scratch(
+                stored.sequences,
+                sequence_mode_config,
+                scratch,
+            )
         } else {
             choose_c_sequence_table_modes_from_stored(stored.sequences, sequence_mode_config)
         };

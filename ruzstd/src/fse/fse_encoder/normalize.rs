@@ -47,17 +47,25 @@ fn build_table_from_counts_with_scratch(
     avoid_0_numbit: bool,
     scratch: &mut FSETableBuildScratch,
 ) -> FSETable {
-    let (probs, acc_log) = normalized_probabilities_from_counts(counts, max_log, avoid_0_numbit);
-    build_table_from_probabilities_with_scratch(&probs, acc_log, scratch)
+    let mut probabilities = [0_i32; 256];
+    let acc_log = normalized_probabilities_from_counts_into(
+        counts,
+        max_log,
+        avoid_0_numbit,
+        &mut probabilities[..counts.len()],
+    );
+    build_table_from_probabilities_with_scratch(&probabilities[..counts.len()], acc_log, scratch)
 }
 
-pub(crate) fn normalized_probabilities_from_counts(
+pub(crate) fn normalized_probabilities_from_counts_into(
     counts: &[usize],
     max_log: u8,
     avoid_0_numbit: bool,
-) -> (Vec<i32>, u8) {
+    probabilities: &mut [i32],
+) -> u8 {
+    assert_eq!(counts.len(), probabilities.len());
     if max_log <= 6 {
-        return old_normalize_counts(counts, max_log, avoid_0_numbit);
+        return old_normalize_counts_into(counts, max_log, avoid_0_numbit, probabilities);
     }
 
     let total = counts.iter().sum::<usize>();
@@ -65,11 +73,26 @@ pub(crate) fn normalized_probabilities_from_counts(
     let max_symbol = counts.iter().rposition(|count| *count > 0).unwrap_or(0);
     let acc_log = optimal_table_log(max_log, total, max_symbol);
     let low_prob_count = if total >= 2048 { -1 } else { 1 };
-    if let Some(probs) = normalize_counts_with_total(counts, total, acc_log, low_prob_count) {
-        (probs, acc_log)
+    if normalize_counts_with_total_into(counts, total, acc_log, low_prob_count, probabilities) {
+        acc_log
     } else {
-        old_normalize_counts(counts, max_log, avoid_0_numbit)
+        old_normalize_counts_into(counts, max_log, avoid_0_numbit, probabilities)
     }
+}
+
+pub(crate) fn normalized_probabilities_from_counts(
+    counts: &[usize],
+    max_log: u8,
+    avoid_0_numbit: bool,
+) -> (Vec<i32>, u8) {
+    let mut probabilities = alloc::vec![0_i32; counts.len()];
+    let acc_log = normalized_probabilities_from_counts_into(
+        counts,
+        max_log,
+        avoid_0_numbit,
+        &mut probabilities,
+    );
+    (probabilities, acc_log)
 }
 
 pub(crate) fn normalize_counts_with_table_log(
@@ -85,8 +108,26 @@ pub(crate) fn normalize_counts_with_table_log(
         .unwrap_or_else(|| old_normalize_counts(counts, max_log, avoid_0_numbit))
 }
 
+pub(crate) fn normalize_counts_with_table_log_into(
+    counts: &[usize],
+    total: usize,
+    table_log: u8,
+    max_log: u8,
+    low_prob_count: i32,
+    avoid_0_numbit: bool,
+    probabilities: &mut [i32],
+) -> u8 {
+    assert_eq!(counts.len(), probabilities.len());
+    if normalize_counts_with_total_into(counts, total, table_log, low_prob_count, probabilities) {
+        table_log
+    } else {
+        old_normalize_counts_into(counts, max_log, avoid_0_numbit, probabilities)
+    }
+}
+
 /// C-width counterpart used by the native sequence-count transaction.
 /// zstd keeps these bounded histograms as `unsigned` through normalization.
+#[cfg(test)]
 pub(crate) fn normalize_u32_counts_with_table_log(
     counts: &[u32],
     total: u32,
@@ -105,6 +146,33 @@ pub(crate) fn normalize_u32_counts_with_table_log(
                 .collect::<Vec<_>>();
             old_normalize_counts(&widened, max_log, avoid_0_numbit)
         })
+}
+
+pub(crate) fn normalize_u32_counts_with_table_log_into(
+    counts: &[u32],
+    total: u32,
+    table_log: u8,
+    max_log: u8,
+    low_prob_count: i32,
+    avoid_0_numbit: bool,
+    probabilities: &mut [i32],
+) -> u8 {
+    assert_eq!(counts.len(), probabilities.len());
+    if normalize_u32_counts_with_total_into(counts, total, table_log, low_prob_count, probabilities)
+    {
+        table_log
+    } else {
+        let mut widened = [0_usize; 256];
+        for (destination, source) in widened.iter_mut().zip(counts.iter().copied()) {
+            *destination = source as usize;
+        }
+        old_normalize_counts_into(
+            &widened[..counts.len()],
+            max_log,
+            avoid_0_numbit,
+            probabilities,
+        )
+    }
 }
 
 /// Build the FSE table used for Huffman weight descriptions.
@@ -146,10 +214,14 @@ pub(crate) fn build_huffman_weight_table_from_data_with_scratch(
     let counts = &counts[..=max_symbol];
     let total = data.len();
     let acc_log = optimal_table_log(max_log, total, max_symbol);
-    let (probs, acc_log) = normalize_counts_with_total(counts, total, acc_log, 1)
-        .map(|probs| (probs, acc_log))
-        .unwrap_or_else(|| old_normalize_counts(counts, max_log, false));
-    build_table_from_probabilities_with_scratch(&probs, acc_log, scratch)
+    let mut probabilities = [0_i32; 256];
+    let probabilities = &mut probabilities[..counts.len()];
+    let acc_log = if normalize_counts_with_total_into(counts, total, acc_log, 1, probabilities) {
+        acc_log
+    } else {
+        old_normalize_counts_into(counts, max_log, false, probabilities)
+    };
+    build_table_from_probabilities_with_scratch(probabilities, acc_log, scratch)
 }
 
 pub(crate) fn optimal_table_log(max_log: u8, total: usize, max_symbol: usize) -> u8 {
@@ -201,7 +273,21 @@ fn normalize_counts_with_total(
     table_log: u8,
     low_prob_count: i32,
 ) -> Option<Vec<i32>> {
+    let mut normalized = alloc::vec![0_i32; counts.len()];
+    normalize_counts_with_total_into(counts, total, table_log, low_prob_count, &mut normalized)
+        .then_some(normalized)
+}
+
+fn normalize_counts_with_total_into(
+    counts: &[usize],
+    total: usize,
+    table_log: u8,
+    low_prob_count: i32,
+    normalized: &mut [i32],
+) -> bool {
     debug_assert_eq!(total, counts.iter().sum::<usize>());
+    debug_assert_eq!(counts.len(), normalized.len());
+    normalized.fill(0);
     let table_size = 1i32 << table_log;
     let low_threshold = total >> table_log;
     let scale = 62 - table_log;
@@ -211,7 +297,6 @@ fn normalize_counts_with_total(
         0u64, 473_195, 504_333, 520_860, 550_000, 700_000, 750_000, 830_000,
     ];
 
-    let mut normalized = alloc::vec![0i32; counts.len()];
     let mut still_to_distribute = table_size;
     let mut largest = 0usize;
     let mut largest_probability = 0i32;
@@ -222,7 +307,7 @@ fn normalize_counts_with_total(
         }
         if count == total {
             normalized[symbol] = table_size;
-            return Some(normalized);
+            return true;
         }
         if count <= low_threshold {
             normalized[symbol] = low_prob_count;
@@ -247,20 +332,35 @@ fn normalize_counts_with_total(
     }
 
     if -still_to_distribute >= normalized[largest] >> 1 {
-        normalize_counts_slow(counts, total, table_log, low_prob_count)
+        normalize_counts_slow_into(counts, total, table_log, low_prob_count, normalized)
     } else {
         normalized[largest] += still_to_distribute;
-        Some(normalized)
+        true
     }
 }
 
+#[cfg(test)]
 fn normalize_u32_counts_with_total(
     counts: &[u32],
     total: u32,
     table_log: u8,
     low_prob_count: i32,
 ) -> Option<Vec<i32>> {
+    let mut normalized = alloc::vec![0_i32; counts.len()];
+    normalize_u32_counts_with_total_into(counts, total, table_log, low_prob_count, &mut normalized)
+        .then_some(normalized)
+}
+
+fn normalize_u32_counts_with_total_into(
+    counts: &[u32],
+    total: u32,
+    table_log: u8,
+    low_prob_count: i32,
+    normalized: &mut [i32],
+) -> bool {
     debug_assert_eq!(total, counts.iter().sum::<u32>());
+    debug_assert_eq!(counts.len(), normalized.len());
+    normalized.fill(0);
     let table_size = 1i32 << table_log;
     let low_threshold = total >> table_log;
     let scale = 62 - table_log;
@@ -270,7 +370,6 @@ fn normalize_u32_counts_with_total(
         0u64, 473_195, 504_333, 520_860, 550_000, 700_000, 750_000, 830_000,
     ];
 
-    let mut normalized = alloc::vec![0i32; counts.len()];
     let mut still_to_distribute = table_size;
     let mut largest = 0usize;
     let mut largest_probability = 0i32;
@@ -281,7 +380,7 @@ fn normalize_u32_counts_with_total(
         }
         if count == total {
             normalized[symbol] = table_size;
-            return Some(normalized);
+            return true;
         }
         if count <= low_threshold {
             normalized[symbol] = low_prob_count;
@@ -306,22 +405,23 @@ fn normalize_u32_counts_with_total(
     }
 
     if -still_to_distribute >= normalized[largest] >> 1 {
-        normalize_u32_counts_slow(counts, total, table_log, low_prob_count)
+        normalize_u32_counts_slow_into(counts, total, table_log, low_prob_count, normalized)
     } else {
         normalized[largest] += still_to_distribute;
-        Some(normalized)
+        true
     }
 }
 
-fn normalize_u32_counts_slow(
+fn normalize_u32_counts_slow_into(
     counts: &[u32],
     total: u32,
     table_log: u8,
     low_prob_count: i32,
-) -> Option<Vec<i32>> {
+    normalized: &mut [i32],
+) -> bool {
     const NOT_YET_ASSIGNED: i32 = -2;
 
-    let mut normalized = alloc::vec![0i32; counts.len()];
+    normalized.fill(0);
     let mut distributed = 0u32;
     let mut remaining_total = total;
     let mut low_one = (remaining_total * 3) >> (table_log + 1);
@@ -348,7 +448,7 @@ fn normalize_u32_counts_slow(
 
     let mut to_distribute = (1u32 << table_log) - distributed;
     if to_distribute == 0 {
-        return Some(normalized);
+        return true;
     }
 
     if remaining_total / to_distribute > low_one {
@@ -369,9 +469,10 @@ fn normalize_u32_counts_slow(
             .copied()
             .enumerate()
             .max_by_key(|(_, count)| *count)
-            .map(|(symbol, _)| symbol)?;
+            .map(|(symbol, _)| symbol)
+            .expect("a non-empty histogram has a maximum");
         normalized[max_symbol] += to_distribute as i32;
-        return Some(normalized);
+        return true;
     }
 
     if remaining_total == 0 {
@@ -383,7 +484,7 @@ fn normalize_u32_counts_slow(
             }
             symbol = (symbol + 1) % counts.len();
         }
-        return Some(normalized);
+        return true;
     }
 
     let v_step_log = 62 - table_log;
@@ -398,25 +499,26 @@ fn normalize_u32_counts_slow(
             let finish = end >> v_step_log;
             let weight = finish - start;
             if weight < 1 {
-                return None;
+                return false;
             }
             normalized[symbol] = weight as i32;
             tmp_total = end;
         }
     }
 
-    Some(normalized)
+    true
 }
 
-fn normalize_counts_slow(
+fn normalize_counts_slow_into(
     counts: &[usize],
     total: usize,
     table_log: u8,
     low_prob_count: i32,
-) -> Option<Vec<i32>> {
+    normalized: &mut [i32],
+) -> bool {
     const NOT_YET_ASSIGNED: i32 = -2;
 
-    let mut normalized = alloc::vec![0i32; counts.len()];
+    normalized.fill(0);
     let mut distributed = 0usize;
     let mut remaining_total = total;
     let mut low_one = (remaining_total * 3) >> (table_log + 1);
@@ -443,7 +545,7 @@ fn normalize_counts_slow(
 
     let mut to_distribute = (1usize << table_log) - distributed;
     if to_distribute == 0 {
-        return Some(normalized);
+        return true;
     }
 
     if remaining_total / to_distribute > low_one {
@@ -464,9 +566,10 @@ fn normalize_counts_slow(
             .copied()
             .enumerate()
             .max_by_key(|(_, count)| *count)
-            .map(|(symbol, _)| symbol)?;
+            .map(|(symbol, _)| symbol)
+            .expect("a non-empty histogram has a maximum");
         normalized[max_symbol] += to_distribute as i32;
-        return Some(normalized);
+        return true;
     }
 
     if remaining_total == 0 {
@@ -478,7 +581,7 @@ fn normalize_counts_slow(
             }
             symbol = (symbol + 1) % counts.len();
         }
-        return Some(normalized);
+        return true;
     }
 
     let v_step_log = 62 - table_log;
@@ -492,18 +595,30 @@ fn normalize_counts_slow(
             let finish = end >> v_step_log;
             let weight = finish - start;
             if weight < 1 {
-                return None;
+                return false;
             }
             normalized[symbol] = weight as i32;
             tmp_total = end;
         }
     }
 
-    Some(normalized)
+    true
 }
 
 fn old_normalize_counts(counts: &[usize], max_log: u8, avoid_0_numbit: bool) -> (Vec<i32>, u8) {
     let mut probs = alloc::vec![0i32; counts.len()];
+    let acc_log = old_normalize_counts_into(counts, max_log, avoid_0_numbit, &mut probs);
+    (probs, acc_log)
+}
+
+fn old_normalize_counts_into(
+    counts: &[usize],
+    max_log: u8,
+    avoid_0_numbit: bool,
+    probs: &mut [i32],
+) -> u8 {
+    debug_assert_eq!(counts.len(), probs.len());
+    probs.fill(0);
     let mut min_count = 0;
     for (idx, count) in counts.iter().copied().enumerate() {
         probs[idx] = count as i32;
@@ -561,5 +676,5 @@ fn old_normalize_counts(counts: &[usize], max_log: u8, avoid_0_numbit: bool) -> 
         assert!(*second_max <= max);
     }
 
-    (probs, acc_log)
+    acc_log
 }

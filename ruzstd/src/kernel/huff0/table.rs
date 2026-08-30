@@ -4,6 +4,7 @@ use alloc::{vec, vec::Vec};
 use core::convert::TryFrom;
 
 use super::HuffmanCode;
+use crate::workspace::{Arena, ArenaError, ArenaSize, ReusableVec};
 
 const MAX_HUFFMAN_BITS: usize = 11;
 const NODE_NONE: u16 = u16::MAX;
@@ -11,10 +12,20 @@ const RANK_NONE: usize = usize::MAX;
 
 #[derive(Clone, Default)]
 pub struct HuffmanBuildScratch {
-    nodes: Vec<Node>,
+    nodes: ReusableVec<Node>,
 }
 
 impl HuffmanBuildScratch {
+    pub(crate) fn add_workspace_size(size: &mut ArenaSize) -> Result<(), ArenaError> {
+        size.add::<Node>(513)
+    }
+
+    pub(crate) fn new_in(arena: &mut Arena<'_>) -> Result<Self, ArenaError> {
+        Ok(Self {
+            nodes: arena.allocate_reusable_vec(513)?,
+        })
+    }
+
     #[doc(hidden)]
     #[cfg(test)]
     pub fn retained_node_capacity(&self) -> usize {
@@ -114,19 +125,15 @@ pub fn build_described_huffman_table_reusing(
     counts: &[usize],
     max_bits: usize,
     scratch: &mut HuffmanBuildScratch,
-    mut codes: Vec<HuffmanCode>,
-    mut table_description: Vec<u8>,
+    codes: &mut Vec<HuffmanCode>,
+    table_description: &mut Vec<u8>,
     describe_weights: fn(&[u8], &mut Vec<u8>),
-) -> Option<DescribedHuffmanTable> {
-    let max_num_bits = build_codes_reusing(counts, max_bits, scratch, &mut codes)?;
-    with_weights(&codes, max_num_bits, |weights| {
-        describe_weights(weights, &mut table_description)
+) -> Option<u8> {
+    let max_num_bits = build_codes_reusing(counts, max_bits, scratch, codes)?;
+    with_weights(codes, max_num_bits, |weights| {
+        describe_weights(weights, table_description)
     });
-    Some(DescribedHuffmanTable {
-        codes,
-        max_num_bits,
-        table_description,
-    })
+    Some(max_num_bits)
 }
 
 /// Builds the same caller-owned table while allowing its description callback
@@ -147,20 +154,16 @@ pub fn build_described_huffman_table_reusing_with_context<Context>(
     counts: &[usize],
     max_bits: usize,
     scratch: &mut HuffmanBuildScratch,
-    mut codes: Vec<HuffmanCode>,
-    mut table_description: Vec<u8>,
+    codes: &mut Vec<HuffmanCode>,
+    table_description: &mut Vec<u8>,
     context: &mut Context,
     describe_weights: fn(&[u8], &mut Vec<u8>, &mut Context),
-) -> Option<DescribedHuffmanTable> {
-    let max_num_bits = build_codes_reusing(counts, max_bits, scratch, &mut codes)?;
-    with_weights(&codes, max_num_bits, |weights| {
-        describe_weights(weights, &mut table_description, context)
+) -> Option<u8> {
+    let max_num_bits = build_codes_reusing(counts, max_bits, scratch, codes)?;
+    with_weights(codes, max_num_bits, |weights| {
+        describe_weights(weights, table_description, context)
     });
-    Some(DescribedHuffmanTable {
-        codes,
-        max_num_bits,
-        table_description,
-    })
+    Some(max_num_bits)
 }
 
 fn build_codes_reusing(

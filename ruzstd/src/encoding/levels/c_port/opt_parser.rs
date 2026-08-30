@@ -1,7 +1,5 @@
 //! No-dictionary optimal parser ported from `zstd_opt.c`.
 
-use alloc::vec::Vec;
-
 use super::{
     greedy::GreedyBlockOutput,
     ldm::opt::LdmOptCursor,
@@ -365,7 +363,7 @@ fn compress_block_opt_with_state_and_ldm_mls_level<
     let block_len = block_end - block_start;
     if block_len <= HASH_READ_SIZE {
         return GreedyBlockOutput {
-            sequences: Vec::new(),
+            sequences: crate::workspace::ReusableVec::new(),
             last_literals: block_len as u32,
             repeat_offsets,
         };

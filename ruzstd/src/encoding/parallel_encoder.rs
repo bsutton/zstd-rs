@@ -1,6 +1,6 @@
 //! Opt-in bounded parallel compression of independent Zstandard frames.
 
-use alloc::{collections::BTreeMap, format, vec::Vec};
+use alloc::{collections::BTreeMap, format, vec, vec::Vec};
 use core::{convert::TryFrom, fmt, num::NonZeroUsize};
 use std::{
     io::{self, Read, Write},
@@ -10,7 +10,7 @@ use std::{
 
 use super::{
     streaming_encoder::{encode_frame_for_options, EncodeError, Encoder, EncoderOptions},
-    CompressionLevel, EncoderDictionary,
+    CompressionLevel, EncoderDictionary, EncoderWorkspace,
 };
 
 /// A bounded streaming encoder that compresses independent frames in parallel.
@@ -418,6 +418,7 @@ impl Drop for Worker {
 
 struct WorkerOptions {
     level: CompressionLevel,
+    frame_chunk_size: usize,
     dictionary: Option<Vec<u8>>,
     checksum: bool,
     tuning: super::CompressionTuning,
@@ -428,6 +429,7 @@ impl WorkerOptions {
     fn from_options(options: &EncoderOptions) -> Self {
         Self {
             level: options.level(),
+            frame_chunk_size: options.frame_chunk_size(),
             dictionary: options
                 .dictionary()
                 .map(|dictionary| dictionary.raw().to_vec()),
@@ -439,6 +441,7 @@ impl WorkerOptions {
 
     fn prepare(self) -> Result<EncoderOptions, EncodeError> {
         let mut options = EncoderOptions::new(self.level)
+            .with_frame_chunk_size(self.frame_chunk_size)
             .with_checksum(self.checksum)
             .with_tuning(self.tuning)
             .with_content_size_policy(self.content_size_policy);
@@ -474,6 +477,16 @@ fn worker_loop(
     results: mpsc::Sender<WorkerResult>,
 ) {
     let options = options.prepare();
+    let mut workspace = options.as_ref().ok().and_then(|options| {
+        (options.dictionary().is_none()
+            && !options.checksum()
+            && options.tuning() == super::CompressionTuning::new()
+            && options.content_size_policy() == super::ContentSizePolicy::Include)
+            .then(|| EncoderWorkspace::new(options.level(), options.frame_chunk_size()))
+            .transpose()
+            .ok()
+            .flatten()
+    });
     while let Ok(message) = jobs.recv() {
         let WorkerMessage::Frame(job) = message else {
             break;
@@ -484,9 +497,22 @@ fn worker_loop(
                 if job.panic_before_compression {
                     panic!("injected worker panic");
                 }
-                encode_frame_for_options(&job.input, options)
+                if let Some(workspace) = workspace.as_mut() {
+                    let output_size = EncoderWorkspace::required_output_size(job.input.len())
+                        .map_err(|_| EncodeError::WorkerFailed)?;
+                    let mut frame = vec![0_u8; output_size];
+                    let length = workspace
+                        .encode_into(&job.input, &mut frame)
+                        .map_err(|_| EncodeError::WorkerFailed)?
+                        .len();
+                    frame.truncate(length);
+                    Ok(frame)
+                } else {
+                    Ok(encode_frame_for_options(&job.input, options))
+                }
             }))
-            .map_err(|_| EncodeError::WorkerFailed),
+            .map_err(|_| EncodeError::WorkerFailed)
+            .and_then(|frame| frame),
             Err(_) => Err(EncodeError::WorkerFailed),
         };
         if results

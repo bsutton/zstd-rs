@@ -73,7 +73,11 @@ pub(super) fn append_stored_block_or_raw(
     offset_history: &mut OffsetHistory,
     output: &mut Vec<u8>,
 ) -> PreparedBlockEmission {
-    if defers_stored_entropy_commit() {
+    if defers_stored_entropy_commit()
+        || fse_build_scratch
+            .as_deref()
+            .is_some_and(FSETableBuildScratch::has_shared_pool)
+    {
         append_stored_block_or_raw_deferred(
             block,
             last_block,

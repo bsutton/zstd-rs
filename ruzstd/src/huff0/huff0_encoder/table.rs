@@ -6,7 +6,7 @@ use crate::fse::fse_encoder::FSETableBuildScratch;
 use super::{
     lengths::{
         high_bit, highest_bit_set, invalid_huffman_tree, length_units, rank_limited_weights,
-        rank_limited_weights_from_sorted_symbols,
+        rank_limited_weights_from_sorted_symbols, rank_limited_weights_into,
     },
     tree::{
         base_code_lengths, build_huffman_tree, is_flat_distribution, length_limited_code_lengths,
@@ -18,6 +18,7 @@ use super::{
     },
     HuffmanBuildScratch, MAX_HUFFMAN_BITS,
 };
+use crate::workspace::ReusableVec;
 
 #[cfg(test)]
 use super::tests::four_stream_counts;
@@ -25,9 +26,9 @@ use super::tests::four_stream_counts;
 #[derive(Clone)]
 pub struct HuffmanTable {
     /// Index is the symbol, values are the bitstring in the lower bits of the u32 and the amount of bits in the u8
-    pub(super) codes: Vec<(u32, u8)>,
+    pub(super) codes: ReusableVec<(u32, u8)>,
     pub(super) max_num_bits: u8,
-    pub(super) table_description: Vec<u8>,
+    pub(super) table_description: ReusableVec<u8>,
 }
 
 impl HuffmanTable {
@@ -91,24 +92,34 @@ impl HuffmanTable {
         counts: &[usize],
         max_bits: usize,
         scratch: &mut HuffmanBuildScratch,
-        fse_scratch: Option<&mut FSETableBuildScratch>,
+        mut fse_scratch: Option<&mut FSETableBuildScratch>,
     ) -> Self {
         assert!(counts.len() <= 256);
         let max_bits = max_bits.clamp(1, MAX_HUFFMAN_BITS);
-        let c_table =
-            if super::uses_generated_huffman_table() && super::recycles_fast_huffman_tables() {
-                Self::build_c_table_generated_reusing(counts, max_bits, scratch, fse_scratch)
-            } else if super::uses_generated_huffman_table() {
-                Self::build_c_table_generated(counts, max_bits, &mut scratch.generated)
-            } else {
-                Self::build_c_table_with_nodes(counts, max_bits, &mut scratch.nodes)
-            };
-        let weights = if let Some(table) = c_table {
-            return table;
+        let c_table = if scratch.workspace_backed
+            || (super::uses_generated_huffman_table() && super::recycles_fast_huffman_tables())
+        {
+            Self::build_c_table_generated_reusing(
+                counts,
+                max_bits,
+                scratch,
+                fse_scratch.as_deref_mut(),
+            )
+        } else if super::uses_generated_huffman_table() {
+            Self::build_c_table_generated(counts, max_bits, &mut scratch.generated)
         } else {
-            rank_limited_weights(counts)
+            Self::build_c_table_with_nodes(counts, max_bits, &mut scratch.nodes)
         };
-        Self::build_from_weights(&weights)
+        if let Some(table) = c_table {
+            return table;
+        }
+        if scratch.workspace_backed {
+            let mut weights = [0usize; 256];
+            let weights = rank_limited_weights_into(counts, &mut weights);
+            Self::build_from_weights_reusing(weights, scratch, fse_scratch)
+        } else {
+            Self::build_from_weights(&rank_limited_weights(counts))
+        }
     }
 
     pub(crate) fn c_fast_table_log(src_size: usize, max_symbol_value: usize) -> usize {
@@ -288,10 +299,12 @@ impl HuffmanTable {
 
     pub fn build_from_weights(weights: &[usize]) -> Self {
         // Prepare huffman table with placeholders
+        let mut codes = ReusableVec::with_capacity(weights.len());
+        codes.resize(weights.len(), (0, 0));
         let mut table = HuffmanTable {
-            codes: alloc::vec![(0, 0); weights.len()],
+            codes,
             max_num_bits: 0,
-            table_description: Vec::new(),
+            table_description: ReusableVec::new(),
         };
 
         // Determine the number of bits needed for codes with the lowest weight
@@ -346,19 +359,105 @@ impl HuffmanTable {
             table.codes[symbol] = (*current_code, current_num_bits);
             *current_code += 1;
         }
-        table.table_description = table_description_bytes_from_weights(&weights_from_codes(
-            &table.codes,
-            table.max_num_bits,
+        table.table_description = ReusableVec::from_owned(table_description_bytes_from_weights(
+            &weights_from_codes(&table.codes, table.max_num_bits),
         ));
 
         table
     }
 
-    pub(super) fn build_from_code_lengths(lengths: &[usize], max_bits: usize) -> Self {
-        let mut table = HuffmanTable {
-            codes: alloc::vec![(0, 0); lengths.len()],
+    fn build_from_weights_reusing(
+        weights: &[usize],
+        scratch: &mut HuffmanBuildScratch,
+        fse_scratch: Option<&mut FSETableBuildScratch>,
+    ) -> Self {
+        let mut table = scratch.take_recycled_table().unwrap_or_else(|| Self {
+            codes: ReusableVec::new(),
             max_num_bits: 0,
-            table_description: Vec::new(),
+            table_description: ReusableVec::new(),
+        });
+        table.codes.clear();
+        table.codes.resize(weights.len(), (0, 0));
+
+        let mut weight_sum = 0usize;
+        let mut max_weight = 0usize;
+        let mut min_weight = usize::MAX;
+        let mut weight_counts = [0usize; MAX_HUFFMAN_BITS + 1];
+        for weight in weights.iter().copied() {
+            if weight == 0 {
+                continue;
+            }
+            if weight > MAX_HUFFMAN_BITS {
+                invalid_huffman_tree();
+            }
+            weight_sum += 1 << (weight - 1);
+            max_weight = max_weight.max(weight);
+            min_weight = min_weight.min(weight);
+            weight_counts[weight] += 1;
+        }
+        if !weight_sum.is_power_of_two() {
+            panic!("This is an internal error");
+        }
+        let max_num_bits = highest_bit_set(weight_sum) - 1;
+        debug_assert!(min_weight != usize::MAX);
+        table.max_num_bits = (max_num_bits - min_weight + 1) as u8;
+
+        let mut next_code_by_weight = [0u32; MAX_HUFFMAN_BITS + 1];
+        let mut current_code = 0u32;
+        let mut current_weight = 0;
+        for (weight, count) in weight_counts
+            .iter()
+            .copied()
+            .enumerate()
+            .take(max_weight + 1)
+            .skip(1)
+        {
+            if count == 0 {
+                continue;
+            }
+            current_code >>= weight - current_weight;
+            next_code_by_weight[weight] = current_code;
+            current_code += count as u32;
+            current_weight = weight;
+        }
+        for (symbol, weight) in weights.iter().copied().enumerate() {
+            if weight == 0 {
+                continue;
+            }
+            let current_code = &mut next_code_by_weight[weight];
+            let current_num_bits = (max_num_bits - weight + 1) as u8;
+            table.codes[symbol] = (*current_code, current_num_bits);
+            *current_code += 1;
+        }
+
+        let mut byte_weights = [0u8; 256];
+        for (destination, &weight) in byte_weights.iter_mut().zip(weights) {
+            *destination = weight as u8;
+        }
+        let (mut description, lease) = table.table_description.lease_vec();
+        if let Some(fse_scratch) = fse_scratch {
+            table_description_bytes_from_weights_reusing_with_fse_scratch(
+                &byte_weights[..weights.len()],
+                &mut description,
+                fse_scratch,
+            );
+        } else {
+            table_description_bytes_from_weights_reusing(
+                &byte_weights[..weights.len()],
+                &mut description,
+            );
+        }
+        table.table_description = ReusableVec::recover_vec(description, lease);
+        table
+    }
+
+    pub(super) fn build_from_code_lengths(lengths: &[usize], max_bits: usize) -> Self {
+        let mut codes = ReusableVec::with_capacity(lengths.len());
+        codes.resize(lengths.len(), (0, 0));
+        let mut table = HuffmanTable {
+            codes,
+            max_num_bits: 0,
+            table_description: ReusableVec::new(),
         };
 
         let mut weight_sum = 0usize;
@@ -413,9 +512,8 @@ impl HuffmanTable {
             table.codes[symbol] = (*current_code, len as u8);
             *current_code += 1;
         }
-        table.table_description = table_description_bytes_from_weights(&weights_from_codes(
-            &table.codes,
-            table.max_num_bits,
+        table.table_description = ReusableVec::from_owned(table_description_bytes_from_weights(
+            &weights_from_codes(&table.codes, table.max_num_bits),
         ));
 
         table
@@ -429,7 +527,8 @@ impl HuffmanTable {
         let leaf_count = build_huffman_tree(counts, nodes)?;
         let max_num_bits = limit_huffman_tree_height(nodes, leaf_count, max_bits)?;
 
-        let mut codes = alloc::vec![(0, 0); counts.len()];
+        let mut codes = ReusableVec::with_capacity(counts.len());
+        codes.resize(counts.len(), (0, 0));
         // C indexes compact rank tables after trusting the validated tree depth.
         // Covering every `u8` value makes the same access statically safe and
         // lets LLVM remove the per-node bounds checks without unchecked indexing.
@@ -460,7 +559,7 @@ impl HuffmanTable {
         Some(Self {
             codes,
             max_num_bits,
-            table_description,
+            table_description: ReusableVec::from_owned(table_description),
         })
     }
 
@@ -476,9 +575,9 @@ impl HuffmanTable {
             table_description_bytes_from_weights,
         )?;
         Some(Self {
-            codes: generated.codes,
+            codes: ReusableVec::from_owned(generated.codes),
             max_num_bits: generated.max_num_bits,
-            table_description: generated.table_description,
+            table_description: ReusableVec::from_owned(generated.table_description),
         })
     }
 
@@ -489,57 +588,72 @@ impl HuffmanTable {
         fse_scratch: Option<&mut FSETableBuildScratch>,
     ) -> Option<Self> {
         let recycled = scratch.take_recycled_table().unwrap_or_else(|| Self {
-            codes: Vec::new(),
+            codes: ReusableVec::new(),
             max_num_bits: 0,
-            table_description: Vec::new(),
+            table_description: ReusableVec::new(),
         });
         let Self {
             codes,
             table_description,
             ..
         } = recycled;
-        let generated = if super::reuses_huffman_weight_fse_scratch() {
+        let (mut codes, codes_lease) = codes.lease_vec();
+        let (mut table_description, description_lease) = table_description.lease_vec();
+        let max_num_bits = if super::reuses_huffman_weight_fse_scratch() {
             if let Some(fse_scratch) = fse_scratch {
                 crate::kernel::huff0::build_described_huffman_table_reusing_with_context(
                     counts,
                     max_bits,
                     &mut scratch.generated,
-                    codes,
-                    table_description,
+                    &mut codes,
+                    &mut table_description,
                     fse_scratch,
                     table_description_bytes_from_weights_reusing_with_fse_scratch,
-                )?
+                )
             } else {
                 crate::kernel::huff0::build_described_huffman_table_reusing(
                     counts,
                     max_bits,
                     &mut scratch.generated,
-                    codes,
-                    table_description,
+                    &mut codes,
+                    &mut table_description,
                     table_description_bytes_from_weights_reusing,
-                )?
+                )
             }
         } else {
             crate::kernel::huff0::build_described_huffman_table_reusing(
                 counts,
                 max_bits,
                 &mut scratch.generated,
-                codes,
-                table_description,
+                &mut codes,
+                &mut table_description,
                 table_description_bytes_from_weights_reusing,
-            )?
+            )
         };
-        Some(Self {
-            codes: generated.codes,
-            max_num_bits: generated.max_num_bits,
-            table_description: generated.table_description,
-        })
+        let codes = ReusableVec::recover_vec(codes, codes_lease);
+        let table_description = ReusableVec::recover_vec(table_description, description_lease);
+        let table = Self {
+            codes,
+            max_num_bits: max_num_bits.unwrap_or(0),
+            table_description,
+        };
+        if max_num_bits.is_some() {
+            Some(table)
+        } else {
+            scratch.recycle_table(table);
+            None
+        }
     }
 }
 
 impl HuffmanBuildScratch {
     pub(crate) fn recycle_table(&mut self, table: HuffmanTable) {
-        if super::recycles_fast_huffman_tables() && self.recycled_tables.is_empty() {
+        let retains_table = if self.workspace_backed {
+            self.recycled_tables.len() < self.recycled_tables.capacity()
+        } else {
+            super::recycles_fast_huffman_tables() && self.recycled_tables.is_empty()
+        };
+        if retains_table {
             self.recycled_tables.push(table);
         }
     }

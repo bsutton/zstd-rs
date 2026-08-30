@@ -1,7 +1,8 @@
 use crate::fse::fse_encoder::{
-    build_probability_table_for_estimate, build_table_from_probabilities,
-    build_table_from_probabilities_with_scratch, normalize_counts_with_table_log,
-    normalize_u32_counts_with_table_log, optimal_table_log, optimal_table_log_u32, FSETable,
+    build_probability_table_for_estimate, build_probability_table_for_estimate_with_scratch,
+    build_table_from_probabilities, build_table_from_probabilities_with_scratch,
+    normalize_counts_with_table_log, normalize_counts_with_table_log_into,
+    normalize_u32_counts_with_table_log_into, optimal_table_log, optimal_table_log_u32, FSETable,
     FSETableBuildScratch,
 };
 
@@ -132,15 +133,24 @@ fn build_c_fast_sequence_table_from_u32_counts_impl(
         total
     };
     let low_prob_count = if adjusted_total >= 2048 { -1 } else { 1 };
-    let (probs, acc_log) = normalize_u32_counts_with_table_log(
-        &counts[..=max_symbol as usize],
+    let counts = &counts[..=max_symbol as usize];
+    let mut probabilities = [0_i32; 256];
+    let probabilities = &mut probabilities[..counts.len()];
+    let acc_log = normalize_u32_counts_with_table_log_into(
+        counts,
         adjusted_total,
         table_log,
         max_log,
         low_prob_count,
         true,
+        probabilities,
     );
-    build_table_from_probabilities_with_builder_and_scratch(&probs, acc_log, table_builder, scratch)
+    build_table_from_probabilities_with_builder_and_scratch(
+        probabilities,
+        acc_log,
+        table_builder,
+        scratch,
+    )
 }
 
 fn build_sequence_table_from_raw_counts(
@@ -167,15 +177,37 @@ fn build_sequence_table_from_raw_counts(
         .unwrap_or(last_code);
     let adjusted_total = counts[..=max_symbol].iter().sum::<usize>();
     let low_prob_count = if adjusted_total >= 2048 { -1 } else { 1 };
-    let (probs, acc_log) = normalize_counts_with_table_log(
-        &counts[..=max_symbol],
-        adjusted_total,
-        table_log,
-        max_log,
-        low_prob_count,
-        true,
-    );
-    build_table_from_probabilities_with_builder_and_scratch(&probs, acc_log, table_builder, scratch)
+    let counts = &counts[..=max_symbol];
+    let mut probabilities = [0_i32; 256];
+    let probabilities = &mut probabilities[..counts.len()];
+    let acc_log = if scratch.is_some() {
+        normalize_counts_with_table_log_into(
+            counts,
+            adjusted_total,
+            table_log,
+            max_log,
+            low_prob_count,
+            true,
+            probabilities,
+        )
+    } else {
+        let (owned, acc_log) = normalize_counts_with_table_log(
+            counts,
+            adjusted_total,
+            table_log,
+            max_log,
+            low_prob_count,
+            true,
+        );
+        probabilities.copy_from_slice(&owned);
+        acc_log
+    };
+    build_table_from_probabilities_with_builder_and_scratch(
+        probabilities,
+        acc_log,
+        table_builder,
+        scratch,
+    )
 }
 
 pub(in crate::encoding::blocks::compressed) fn build_table_from_probabilities_with_builder(
@@ -186,7 +218,7 @@ pub(in crate::encoding::blocks::compressed) fn build_table_from_probabilities_wi
     build_table_from_probabilities_with_builder_and_scratch(probs, acc_log, table_builder, None)
 }
 
-fn build_table_from_probabilities_with_builder_and_scratch(
+pub(in crate::encoding::blocks::compressed) fn build_table_from_probabilities_with_builder_and_scratch(
     probs: &[i32],
     acc_log: u8,
     table_builder: TableBuilder,
@@ -197,6 +229,11 @@ fn build_table_from_probabilities_with_builder_and_scratch(
             Some(scratch) => build_table_from_probabilities_with_scratch(probs, acc_log, scratch),
             None => build_table_from_probabilities(probs, acc_log),
         },
-        TableBuilder::ProbabilityOnly => build_probability_table_for_estimate(probs, acc_log),
+        TableBuilder::ProbabilityOnly => match scratch {
+            Some(scratch) => {
+                build_probability_table_for_estimate_with_scratch(probs, acc_log, scratch)
+            }
+            None => build_probability_table_for_estimate(probs, acc_log),
+        },
     }
 }

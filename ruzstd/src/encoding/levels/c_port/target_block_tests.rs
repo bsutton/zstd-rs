@@ -1,4 +1,4 @@
-use alloc::{rc::Rc, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 
 use super::{
     greedy_block::{GreedyBlockEncodeContext, GreedyEncodedBlock, GreedyPreparedBlock},
@@ -22,6 +22,7 @@ use crate::{
         blocks::{PreparedBlock, PreparedSequence},
         frame_compressor::{FseTables, OffsetHistory},
     },
+    fse::fse_encoder::SharedFSETable,
     huff0::huff0_encoder::HuffmanTable,
 };
 
@@ -359,9 +360,9 @@ fn target_acceptance_rejects_candidate_without_c_minimum_gain() {
     let data = vec![0xA5; 128 * 1024];
     let mut fse_tables = FseTables::new();
     let previous_fse = fse_tables.snapshot_previous();
-    fse_tables.ll_previous = Some(Rc::new(fse_tables.ll_default.clone()));
-    fse_tables.ml_previous = Some(Rc::new(fse_tables.ml_default.clone()));
-    fse_tables.of_previous = Some(Rc::new(fse_tables.of_default.clone()));
+    fse_tables.ll_previous = Some(SharedFSETable::new(fse_tables.ll_default.clone()));
+    fse_tables.ml_previous = Some(SharedFSETable::new(fse_tables.ml_default.clone()));
+    fse_tables.of_previous = Some(SharedFSETable::new(fse_tables.of_default.clone()));
     let mut offset_history = OffsetHistory::new();
     let previous_offsets = offset_history;
     let encoded = GreedyEncodedBlock {

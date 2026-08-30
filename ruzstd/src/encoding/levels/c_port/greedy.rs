@@ -1,12 +1,12 @@
 //! No-dictionary greedy block compressor ported from `zstd_lazy.c`.
 
-use alloc::vec::Vec;
 use core::ops::Range;
 
 pub(crate) use super::greedy_state::GreedyMatchState;
 use super::params::CompressionParameters;
 use super::row_match::row_match_finder_enabled;
 use super::sequence_store::{RepeatOffsets, StoredSequence};
+use crate::workspace::ReusableVec;
 
 mod lazy;
 
@@ -16,7 +16,7 @@ pub(super) use lazy::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GreedyBlockOutput {
-    pub(crate) sequences: Vec<StoredSequence>,
+    pub(crate) sequences: ReusableVec<StoredSequence>,
     pub(crate) last_literals: u32,
     pub(crate) repeat_offsets: RepeatOffsets,
 }

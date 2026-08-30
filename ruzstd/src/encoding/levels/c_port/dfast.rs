@@ -1,5 +1,6 @@
 //! No-dictionary double-fast block compressor ported from `zstd_double_fast.c`.
 
+#[cfg(test)]
 use alloc::vec::Vec;
 use core::ops::Range;
 
@@ -12,12 +13,13 @@ use super::params::CompressionParameters;
 use super::sequence_store::{
     OffBase, PreparedStoreWords, RepeatCode, RepeatOffsets, StoredSequence,
 };
+use crate::workspace::{Arena, ArenaError, ArenaSize, ReusableVec};
 
 const SEARCH_STRENGTH: usize = 8;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DFastBlockOutput {
-    pub(crate) sequences: Vec<StoredSequence>,
+    pub(crate) sequences: ReusableVec<StoredSequence>,
     pub(crate) last_literals: u32,
     pub(crate) repeat_offsets: RepeatOffsets,
 }
@@ -25,24 +27,64 @@ pub(crate) struct DFastBlockOutput {
 #[repr(C)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DFastMatchState {
-    pub(super) hash_long: Vec<u32>,
-    pub(super) hash_small: Vec<u32>,
+    pub(super) hash_long: ReusableVec<u32>,
+    pub(super) hash_small: ReusableVec<u32>,
     pub(super) hash_log: u32,
     pub(super) chain_log: u32,
-    sequence_store: Vec<StoredSequence>,
+    sequence_store: ReusableVec<StoredSequence>,
     prepared_store: PreparedStoreWords,
 }
 
 impl DFastMatchState {
     pub(crate) fn new() -> Self {
         Self {
-            hash_long: Vec::new(),
-            hash_small: Vec::new(),
+            hash_long: ReusableVec::new(),
+            hash_small: ReusableVec::new(),
             hash_log: 0,
             chain_log: 0,
-            sequence_store: Vec::new(),
+            sequence_store: ReusableVec::new(),
             prepared_store: PreparedStoreWords::default(),
         }
+    }
+
+    pub(crate) fn add_workspace_size(
+        size: &mut ArenaSize,
+        params: CompressionParameters,
+        block_size: usize,
+    ) -> Result<(), ArenaError> {
+        let sequence_capacity = block_size / 3 + 1;
+        size.add::<u32>(1_usize << params.hash_log)?;
+        size.add::<u32>(1_usize << params.chain_log)?;
+        size.add::<StoredSequence>(sequence_capacity)?;
+        PreparedStoreWords::add_workspace_size(
+            size,
+            block_size.saturating_add(64),
+            sequence_capacity,
+        )
+    }
+
+    pub(crate) fn new_in(
+        arena: &mut Arena<'_>,
+        params: CompressionParameters,
+        block_size: usize,
+    ) -> Result<Self, ArenaError> {
+        let sequence_capacity = block_size / 3 + 1;
+        let mut hash_long = arena.allocate_reusable_vec(1_usize << params.hash_log)?;
+        hash_long.resize(1_usize << params.hash_log, 0);
+        let mut hash_small = arena.allocate_reusable_vec(1_usize << params.chain_log)?;
+        hash_small.resize(1_usize << params.chain_log, 0);
+        Ok(Self {
+            hash_long,
+            hash_small,
+            hash_log: params.hash_log,
+            chain_log: params.chain_log,
+            sequence_store: arena.allocate_reusable_vec(sequence_capacity)?,
+            prepared_store: PreparedStoreWords::new_in(
+                arena,
+                block_size.saturating_add(64),
+                sequence_capacity,
+            )?,
+        })
     }
 
     pub(super) fn take_prepared_store(&mut self) -> PreparedStoreWords {
@@ -61,13 +103,13 @@ impl DFastMatchState {
         self.prepared_store.allocation()
     }
 
-    pub(super) fn take_sequence_store(&mut self) -> Vec<StoredSequence> {
+    pub(super) fn take_sequence_store(&mut self) -> ReusableVec<StoredSequence> {
         let mut sequences = core::mem::take(&mut self.sequence_store);
         sequences.clear();
         sequences
     }
 
-    pub(super) fn recycle_sequence_store(&mut self, mut sequences: Vec<StoredSequence>) {
+    pub(super) fn recycle_sequence_store(&mut self, mut sequences: ReusableVec<StoredSequence>) {
         sequences.clear();
         if sequences.capacity() > self.sequence_store.capacity() {
             self.sequence_store = sequences;
@@ -98,6 +140,14 @@ impl DFastMatchState {
         if self.hash_small.len() != small_size {
             self.hash_small.resize(small_size, 0);
         }
+    }
+
+    pub(crate) fn reset_for_frame(&mut self, params: CompressionParameters) {
+        self.ensure_tables(params);
+        self.hash_long.fill(0);
+        self.hash_small.fill(0);
+        self.prepared_store.clear();
+        self.sequence_store.clear();
     }
 }
 
@@ -579,7 +629,7 @@ fn consume_immediate_repcodes<const MIN_MATCH: u32>(
     hash_small: &mut [u32],
     h_bits_l: u32,
     h_bits_s: u32,
-    sequences: &mut Vec<StoredSequence>,
+    sequences: &mut ReusableVec<StoredSequence>,
     anchor: &mut usize,
     ip: &mut usize,
     ilimit: usize,
@@ -610,7 +660,7 @@ fn consume_immediate_repcodes<const MIN_MATCH: u32>(
 }
 
 fn store_offset_match(
-    sequences: &mut Vec<StoredSequence>,
+    sequences: &mut ReusableVec<StoredSequence>,
     anchor: &mut usize,
     ip: &mut usize,
     offset_1: &mut usize,

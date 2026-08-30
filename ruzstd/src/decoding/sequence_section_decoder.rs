@@ -326,7 +326,7 @@ fn maybe_update_fse_tables(
             vprintln!("Use predefined ll table");
             scratch.literal_lengths.build_from_probabilities(
                 LL_DEFAULT_ACC_LOG,
-                &Vec::from(&LITERALS_LENGTH_DEFAULT_DISTRIBUTION[..]),
+                &LITERALS_LENGTH_DEFAULT_DISTRIBUTION,
             )?;
             scratch.ll_rle = None;
         }
@@ -359,10 +359,9 @@ fn maybe_update_fse_tables(
         }
         ModeType::Predefined => {
             vprintln!("Use predefined of table");
-            scratch.offsets.build_from_probabilities(
-                OF_DEFAULT_ACC_LOG,
-                &Vec::from(&OFFSET_DEFAULT_DISTRIBUTION[..]),
-            )?;
+            scratch
+                .offsets
+                .build_from_probabilities(OF_DEFAULT_ACC_LOG, &OFFSET_DEFAULT_DISTRIBUTION)?;
             scratch.of_rle = None;
         }
         ModeType::Repeat => {
@@ -394,10 +393,9 @@ fn maybe_update_fse_tables(
         }
         ModeType::Predefined => {
             vprintln!("Use predefined ml table");
-            scratch.match_lengths.build_from_probabilities(
-                ML_DEFAULT_ACC_LOG,
-                &Vec::from(&MATCH_LENGTH_DEFAULT_DISTRIBUTION[..]),
-            )?;
+            scratch
+                .match_lengths
+                .build_from_probabilities(ML_DEFAULT_ACC_LOG, &MATCH_LENGTH_DEFAULT_DISTRIBUTION)?;
             scratch.ml_rle = None;
         }
         ModeType::Repeat => {

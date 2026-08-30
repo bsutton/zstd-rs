@@ -3,7 +3,10 @@ use alloc::{vec, vec::Vec};
 use crate::{bit_io::BitWriter, fse::fse_encoder::FSETableBuildScratch};
 
 use super::{
-    lengths::{distribute_weights, length_units, rank_limited_weights, redistribute_weights},
+    lengths::{
+        distribute_weights, length_units, rank_limited_weights, rank_limited_weights_into,
+        redistribute_weights,
+    },
     tree::{
         c_sorted_huffman_nodes, length_limited_code_lengths,
         length_limited_code_lengths_with_nodes, HuffmanNode,
@@ -247,6 +250,24 @@ fn rank_limited_weights_preserve_symbol_order_for_equal_counts() {
 }
 
 #[test]
+fn fixed_rank_limited_workspace_matches_owned_builder() {
+    for counts in [
+        vec![1, 1],
+        vec![0, 7, 7, 7, 7, 7, 0],
+        (0..256)
+            .map(|symbol| usize::from(symbol % 11 != 0) * (symbol * 17 % 101 + 1))
+            .collect(),
+    ] {
+        let expected = rank_limited_weights(&counts);
+        let mut storage = [0usize; 256];
+        assert_eq!(
+            rank_limited_weights_into(&counts, &mut storage),
+            expected.as_slice()
+        );
+    }
+}
+
+#[test]
 fn length_limited_code_lengths_are_stable_for_tied_counts() {
     let counts = &[8, 8, 4, 4, 2, 2, 1, 1, 0, 16, 16, 32, 32];
     let lengths = length_limited_code_lengths(counts, MAX_HUFFMAN_BITS)
@@ -460,9 +481,7 @@ fn compact_tree_builder_matches_vector_code_length_builder() {
 fn generated_tree_to_weight_transaction_matches_local_builder() {
     let cases = [
         vec![10_000usize, 2_000, 800, 300, 120, 50, 20, 8, 3, 1, 1, 1],
-        (0..64)
-            .map(|symbol| (symbol * 37 % 113 + 1) as usize)
-            .collect(),
+        (0..64).map(|symbol| symbol * 37 % 113 + 1).collect(),
         (0..256)
             .map(|symbol| usize::from(symbol % 7 != 0) * (symbol * 13 % 29 + 1))
             .collect(),
@@ -482,7 +501,7 @@ fn generated_tree_to_weight_transaction_matches_local_builder() {
             match (local, generated) {
                 (None, None) => {}
                 (Some(local), Some(generated)) => {
-                    assert_eq!(generated.codes, local.codes);
+                    assert_eq!(generated.codes.as_slice(), local.codes.as_slice());
                     assert_eq!(generated.max_num_bits, local.max_num_bits);
                     assert_eq!(
                         generated.weights,
@@ -497,9 +516,12 @@ fn generated_tree_to_weight_transaction_matches_local_builder() {
                         super::weights::table_description_bytes_from_weights,
                     )
                     .expect("the equivalent generated table is representable");
-                    assert_eq!(described.codes, local.codes);
+                    assert_eq!(described.codes.as_slice(), local.codes.as_slice());
                     assert_eq!(described.max_num_bits, local.max_num_bits);
-                    assert_eq!(described.table_description, local.table_description);
+                    assert_eq!(
+                        described.table_description.as_slice(),
+                        local.table_description.as_slice()
+                    );
                 }
                 _ => panic!(
                     "generated and local Huffman builders disagreed at log {}",

@@ -15,6 +15,7 @@ mod levels;
 mod parallel_encoder;
 #[cfg(feature = "std")]
 mod streaming_encoder;
+mod workspace;
 pub use compression_level::{CompressionLevel, InvalidCompressionLevel};
 pub use compression_parameters::{
     CompressionStrategy, CompressionTuning, ContentSizePolicy, LongDistanceMatching,
@@ -34,6 +35,7 @@ pub use streaming_encoder::{
     encode, encode_all, DictionaryError, EncodeError, Encoder, EncoderDictionary, EncoderOptions,
     DEFAULT_FRAME_CHUNK_SIZE, DEFAULT_MEMORY_LIMIT,
 };
+pub use workspace::{EncoderWorkspace, EncoderWorkspaceError, StaticEncoderWorkspace};
 
 use crate::io::{Read, Write};
 use alloc::vec::Vec;

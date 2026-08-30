@@ -15,6 +15,7 @@ pub(crate) struct BitWriter<V: AsMut<Vec<u8>>> {
     bit_idx: usize,
 }
 
+#[cfg(any(test, feature = "dict_builder", feature = "fuzz_exports"))]
 impl BitWriter<Vec<u8>> {
     /// Initialize a new writer.
     pub fn new() -> Self {
@@ -214,6 +215,7 @@ impl<V: AsMut<Vec<u8>>> BitWriter<V> {
     ///
     /// This function consumes the writer, so it cannot be used after
     /// dumping
+    #[cfg(any(test, feature = "dict_builder", feature = "fuzz_exports"))]
     pub fn dump(mut self) -> V {
         if self.misaligned() != 0 {
             panic!("`dump` was called on a bit writer but an even number of bytes weren't written into the buffer. Was: {}", self.index())

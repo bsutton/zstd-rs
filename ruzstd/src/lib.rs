@@ -42,6 +42,8 @@ pub mod decoding;
 pub mod dictionary;
 pub mod encoding;
 mod kernel;
+#[doc(hidden)]
+pub mod workspace;
 
 pub(crate) mod blocks;
 

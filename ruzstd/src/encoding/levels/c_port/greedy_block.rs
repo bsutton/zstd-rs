@@ -324,8 +324,37 @@ pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy_in_mode(
     policy: BlockEncodingPolicy,
     block_encode_mode: BlockEncodeMode,
 ) -> GreedyEncodedBlock {
+    encode_block_hash_chain_no_dict_with_state_and_policy_in_mode_into(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        match_state,
+        context,
+        depth,
+        policy,
+        block_encode_mode,
+        Vec::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_hash_chain_no_dict_with_state_and_policy_in_mode_into(
+    source: GreedyBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut GreedyMatchState,
+    context: GreedyBlockEncodeContext<'_, '_>,
+    depth: LazyBlockStrategy,
+    policy: BlockEncodingPolicy,
+    block_encode_mode: BlockEncodeMode,
+    mut bytes: Vec<u8>,
+) -> GreedyEncodedBlock {
     let block = &source.src[source.block_range.clone()];
-    let mut bytes = Vec::new();
+    bytes.clear();
 
     if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, &mut bytes) {
         return encoded;
@@ -424,7 +453,7 @@ pub(super) fn encode_stored_block(
         block,
         &stored.sequences,
         stored.last_literals,
-        Default::default(),
+        match_state.take_prepared_store(),
     );
     let emission = append_stored_block_or_raw(
         block,
@@ -438,13 +467,14 @@ pub(super) fn encode_stored_block(
         },
         compressed_repeat_offsets,
         context.previous_huff_table,
-        None,
-        None,
+        Some(&mut match_state.entropy_huffman_scratch),
+        Some(&mut match_state.entropy_fse_scratch),
         context.fse_tables,
         context.offset_history,
         &mut bytes,
     );
     match_state.recycle_sequence_store(core::mem::take(&mut stored.sequences));
+    match_state.recycle_prepared_store(literal_store);
 
     match emission {
         PreparedBlockEmission::Raw | PreparedBlockEmission::Rle => GreedyEncodedBlock {

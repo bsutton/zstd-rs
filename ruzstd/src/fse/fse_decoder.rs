@@ -1,6 +1,7 @@
 use crate::bit_io::{BitReader, BitReaderReversed};
 use crate::decoding::errors::{FSEDecoderError, FSETableError};
-use alloc::vec::Vec;
+use crate::workspace::ReusableVec;
+use crate::workspace::{Arena, ArenaError, ArenaSize};
 
 pub struct FSEDecoder<'table> {
     /// An FSE state value represents an index in the FSE table.
@@ -61,7 +62,7 @@ pub struct FSETable {
     max_symbol: u8,
     /// The actual table containing the decoded symbol and the compression data
     /// connected to that symbol.
-    pub decode: Vec<Entry>, //used to decode symbols, and calculate the next state
+    pub decode: ReusableVec<Entry>, //used to decode symbols, and calculate the next state
     /// The size of the table is stored in logarithm base 2 format,
     /// with the **size of the table** being equal to `(1 << accuracy_log)`.
     /// This value is used so that the decoder knows how many bits to read from the bitstream.
@@ -76,10 +77,10 @@ pub struct FSETable {
     ///
     /// If a symbol probability is set to `-1`, it means that the probability of a symbol
     /// occurring in the data is less than one.
-    pub symbol_probabilities: Vec<i32>, //used while building the decode Vector
+    pub symbol_probabilities: ReusableVec<i32>, //used while building the decode Vector
     /// The number of times each symbol occurs (The first entry being 0x0, the second being 0x1) and so on
     /// up until the highest possible symbol (255).
-    symbol_counter: Vec<u32>,
+    symbol_counter: ReusableVec<u32>,
 }
 
 impl FSETable {
@@ -87,11 +88,41 @@ impl FSETable {
     pub fn new(max_symbol: u8) -> FSETable {
         FSETable {
             max_symbol,
-            symbol_probabilities: Vec::with_capacity(256), //will never be more than 256 symbols because u8
-            symbol_counter: Vec::with_capacity(256), //will never be more than 256 symbols because u8
-            decode: Vec::new(),                      //depending on acc_log.
+            symbol_probabilities: ReusableVec::with_capacity(256),
+            symbol_counter: ReusableVec::with_capacity(256),
+            decode: ReusableVec::new(),
             accuracy_log: 0,
         }
+    }
+
+    pub(crate) fn new_in(
+        arena: &mut Arena<'_>,
+        max_symbol: u8,
+        max_log: u8,
+    ) -> Result<Self, ArenaError> {
+        Ok(Self {
+            max_symbol,
+            decode: arena.allocate_reusable_vec(1_usize << max_log)?,
+            accuracy_log: 0,
+            symbol_probabilities: arena.allocate_reusable_vec(256)?,
+            symbol_counter: arena.allocate_reusable_vec(256)?,
+        })
+    }
+
+    pub(crate) fn add_workspace_size(size: &mut ArenaSize, max_log: u8) -> Result<(), ArenaError> {
+        size.add::<Entry>(1_usize << max_log)?;
+        size.add::<i32>(256)?;
+        size.add::<u32>(256)
+    }
+
+    pub(crate) fn reserve_workspace(&mut self, max_log: u8) {
+        let probabilities = 256_usize.saturating_sub(self.symbol_probabilities.len());
+        self.symbol_probabilities.reserve(probabilities);
+        let counters = 256_usize.saturating_sub(self.symbol_counter.len());
+        self.symbol_counter.reserve(counters);
+        let decode_entries = 1_usize << max_log;
+        let entries = decode_entries.saturating_sub(self.decode.len());
+        self.decode.reserve(entries);
     }
 
     /// Reset `self` and update `self`'s state to mirror the provided table.
@@ -131,7 +162,8 @@ impl FSETable {
         if acc_log == 0 {
             return Err(FSETableError::AccLogIsZero);
         }
-        self.symbol_probabilities = probs.to_vec();
+        self.symbol_probabilities.clear();
+        self.symbol_probabilities.extend_from_slice(probs);
         self.accuracy_log = acc_log;
         self.build_decoding_table()
     }
@@ -153,7 +185,8 @@ impl FSETable {
 
         let table_size = 1 << self.accuracy_log;
         if self.decode.len() < table_size {
-            self.decode.reserve(table_size - self.decode.len());
+            let additional = table_size - self.decode.len();
+            self.decode.reserve(additional);
         }
         //fill with dummy entries
         self.decode.resize(
@@ -279,8 +312,8 @@ impl FSETable {
                 loop {
                     let skip_amount = br.get_bits(2)? as usize;
 
-                    self.symbol_probabilities
-                        .resize(self.symbol_probabilities.len() + skip_amount, 0);
+                    let new_len = self.symbol_probabilities.len() + skip_amount;
+                    self.symbol_probabilities.resize(new_len, 0);
                     if skip_amount != 3 {
                         break;
                     }
@@ -292,7 +325,7 @@ impl FSETable {
             return Err(FSETableError::ProbabilityCounterMismatch {
                 got: probability_counter,
                 expected_sum: probability_sum,
-                symbol_probabilities: self.symbol_probabilities.clone(),
+                symbol_probabilities: self.symbol_probabilities.to_vec(),
             });
         }
         if self.symbol_probabilities.len() > self.max_symbol as usize + 1 {

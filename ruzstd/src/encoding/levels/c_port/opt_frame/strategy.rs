@@ -19,7 +19,7 @@ use crate::encoding::{
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum OptFrameStrategy {
+pub(crate) enum OptFrameStrategy {
     BtOpt,
     BtUltra,
     BtUltra2,

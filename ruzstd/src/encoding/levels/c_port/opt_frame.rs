@@ -4,9 +4,9 @@ mod attached;
 mod strategy;
 
 use attached::{attached_dict_cctx, initialize_attached_dictionary};
+pub(crate) use strategy::OptFrameStrategy;
 use strategy::{
     encode_block_opt_no_dict_with_state, opt_parser_strategy, selected_opt_frame_strategy,
-    OptFrameStrategy,
 };
 
 use alloc::vec::Vec;
@@ -26,7 +26,7 @@ use super::{
         sequence::{
             fill_prefix_hash_table, generate_sequences_no_dict, generate_sequences_with_prefix,
         },
-        LdmHashTable,
+        LdmHashTable, LdmWorkspace,
     },
     opt_block::prime_btultra2_stats_no_dict,
     opt_dict::load_prefix,
@@ -237,7 +237,8 @@ fn encode_frame_opt_no_dict_resolved(
         );
         let block_end = block_start + block_size;
         dict_limit = streaming_dict_limit(dict_limit, block_start, params.window_log);
-        if block_start == 0
+        if !opt_state.is_workspace_backed()
+            && block_start == 0
             && strategy == OptFrameStrategy::BtUltra2
             && src[block_start..block_end].len() > ZSTD_PREDEF_THRESHOLD
         {
@@ -306,6 +307,150 @@ fn encode_frame_opt_no_dict_resolved(
     }
 
     output
+}
+
+pub(crate) fn encode_frame_opt_no_dict_with_cctx_in(
+    src: &[u8],
+    cctx: CctxParameters,
+    strategy: OptFrameStrategy,
+    frame_state: &mut FrameBlockState,
+    opt_state: &mut OptBlockState,
+    mut ldm_workspace: Option<&mut LdmWorkspace>,
+    output: &mut Vec<u8>,
+) {
+    let params = cctx.compression;
+    let block_encode_mode = BlockEncodeMode::from_cctx(cctx);
+    output.clear();
+    frame_state.reset_for_frame_with_huffman_scratch(
+        params,
+        cctx.max_block_size,
+        Some(&mut opt_state.entropy_huffman_scratch),
+    );
+    opt_state.reset_for_frame(params);
+    write_frame_header_no_dict(output, src.len(), params);
+    let mut dict_limit = 0_usize;
+
+    if src.is_empty() {
+        let encoded_block = encode_block_opt_no_dict_with_state(
+            GreedyBlockSource {
+                src,
+                block_range: 0..0,
+                loaded_dict_end: 0,
+            },
+            true,
+            params,
+            frame_state.block_config,
+            frame_state.repeat_offsets,
+            opt_state,
+            GreedyBlockEncodeContext {
+                previous_huff_table: None,
+                fse_tables: &mut frame_state.fse_tables,
+                offset_history: &mut frame_state.offset_history,
+            },
+            strategy,
+            block_encode_mode,
+            FrameBlockState::block_policy(true),
+            None,
+        );
+        output.extend_from_slice(&encoded_block.bytes);
+        opt_state.recycle_block_bytes(encoded_block.bytes);
+        return;
+    }
+
+    let mut ldm_sequences = if cctx.ldm.enable_ldm == ParamSwitch::Enable {
+        Some(
+            ldm_workspace
+                .as_deref_mut()
+                .expect("enabled LDM requires a prepared workspace")
+                .generate(src, cctx.ldm),
+        )
+    } else {
+        None
+    };
+    let mut ldm_store = ldm_sequences
+        .as_ref()
+        .map(|result| LdmRawSeqStore::new(&result.sequences));
+
+    let mut block_start = 0;
+    while block_start < src.len() {
+        let block_size = frame_state.next_frame_chunk_block_size(
+            &src[block_start..],
+            block_start,
+            params.strategy,
+        );
+        let block_end = block_start + block_size;
+        dict_limit = streaming_dict_limit(dict_limit, block_start, params.window_log);
+        if !opt_state.is_workspace_backed()
+            && block_start == 0
+            && strategy == OptFrameStrategy::BtUltra2
+            && block_size > ZSTD_PREDEF_THRESHOLD
+        {
+            prime_btultra2_stats_no_dict(src, block_start..block_end, params, opt_state);
+        }
+        let block_context = GreedyBlockEncodeContext {
+            previous_huff_table: frame_state.last_huff_table.as_ref(),
+            fse_tables: &mut frame_state.fse_tables,
+            offset_history: &mut frame_state.offset_history,
+        };
+        let policy = FrameBlockState::block_policy(block_start == 0);
+        let mut ldm_cursor =
+            ldm_store.map(|store| LdmOptCursor::from_store_for_block(store, block_size as u32));
+        let encoded_block = if dict_limit == 0 {
+            encode_block_opt_no_dict_with_state(
+                GreedyBlockSource {
+                    src,
+                    block_range: block_start..block_end,
+                    loaded_dict_end: 0,
+                },
+                block_end == src.len(),
+                params,
+                frame_state.block_config,
+                frame_state.repeat_offsets,
+                opt_state,
+                block_context,
+                strategy,
+                block_encode_mode,
+                policy,
+                ldm_cursor.as_mut(),
+            )
+        } else {
+            encode_block_opt_ext_dict_with_state_and_policy_and_ldm_in_mode(
+                GreedyExtDictBlockSource {
+                    src,
+                    block_range: block_start..block_end,
+                    dict_limit,
+                    loaded_dict_end: 0,
+                },
+                block_end == src.len(),
+                params,
+                frame_state.block_config,
+                frame_state.repeat_offsets,
+                opt_state,
+                block_context,
+                opt_parser_strategy(strategy),
+                block_encode_mode,
+                policy,
+                ldm_cursor.as_mut(),
+            )
+        };
+        if let Some(store) = ldm_store.as_mut() {
+            store.skip_bytes(block_size as u32);
+        }
+        let encoded_size = encoded_block.bytes.len();
+        frame_state.record_encoded_block_with_huffman_scratch(
+            block_size,
+            encoded_size,
+            encoded_block.repeat_offsets,
+            encoded_block.new_huffman_table,
+            Some(&mut opt_state.entropy_huffman_scratch),
+        );
+        output.extend_from_slice(&encoded_block.bytes);
+        opt_state.recycle_block_bytes(encoded_block.bytes);
+        block_start = block_end;
+    }
+    if let (Some(workspace), Some(result)) = (ldm_workspace, ldm_sequences.take()) {
+        workspace.recycle(result);
+    }
 }
 
 fn encode_frame_opt_with_dictionary(

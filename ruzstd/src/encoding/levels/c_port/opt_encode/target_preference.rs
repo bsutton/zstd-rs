@@ -1,9 +1,7 @@
 //! Target-block sequence preference adjustments.
 
-use alloc::vec;
-
 use crate::encoding::{
-    blocks::{PreparedBlock, PreparedSequence},
+    blocks::PreparedSequence,
     levels::c_port::{
         greedy::GreedyBlockOutput,
         greedy_block::GreedyPreparedBlock,
@@ -86,24 +84,25 @@ pub(super) fn prefer_target_leading_repcode_literal(
         return;
     }
 
-    prepared.prepared = PreparedBlock {
-        literals: vec![block[0]],
-        sequences: vec![PreparedSequence {
-            ll: 1,
-            ml: sequence.ml - 1,
-            raw_offset: rep1 as u32,
-            encoded_offset_value: 1,
-        }],
+    let replacement = PreparedSequence {
+        ll: 1,
+        ml: sequence.ml - 1,
+        raw_offset: rep1 as u32,
+        encoded_offset_value: 1,
     };
+    prepared.prepared.literals.push(block[0]);
+    prepared.prepared.sequences[0] = replacement;
     prepared.repeat_offsets = initial_repeat_offsets;
 }
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec::Vec;
+    use alloc::{vec, vec::Vec};
 
     use super::*;
-    use crate::encoding::levels::c_port::sequence_store::prepare_stored_sequences;
+    use crate::encoding::{
+        blocks::PreparedBlock, levels::c_port::sequence_store::prepare_stored_sequences,
+    };
 
     fn full_match_prepared() -> GreedyPreparedBlock {
         GreedyPreparedBlock {
@@ -146,7 +145,11 @@ mod tests {
         let repeats = RepeatOffsets::from_offsets(5, 4, 8);
         let mut prepared = full_match_prepared();
         let mut stored = GreedyBlockOutput {
-            sequences: vec![StoredSequence::new(0, OffBase::Offset(9), 5)],
+            sequences: crate::workspace::ReusableVec::from_owned(vec![StoredSequence::new(
+                0,
+                OffBase::Offset(9),
+                5,
+            )]),
             last_literals: 0,
             repeat_offsets: RepeatOffsets::from_offsets(9, 5, 4),
         };

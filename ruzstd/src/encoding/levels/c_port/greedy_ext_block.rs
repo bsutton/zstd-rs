@@ -243,8 +243,37 @@ pub(crate) fn encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode(
     policy: BlockEncodingPolicy,
     block_encode_mode: BlockEncodeMode,
 ) -> GreedyEncodedBlock {
+    encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode_into(
+        source,
+        last_block,
+        params,
+        config,
+        repeat_offsets,
+        match_state,
+        context,
+        depth,
+        policy,
+        block_encode_mode,
+        Vec::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_block_hash_chain_ext_dict_with_state_and_policy_in_mode_into(
+    source: GreedyExtDictBlockSource<'_>,
+    last_block: bool,
+    params: CompressionParameters,
+    config: BlockCompressionConfig,
+    repeat_offsets: RepeatOffsets,
+    match_state: &mut GreedyMatchState,
+    context: GreedyBlockEncodeContext<'_, '_>,
+    depth: LazyBlockStrategy,
+    policy: BlockEncodingPolicy,
+    block_encode_mode: BlockEncodeMode,
+    mut bytes: Vec<u8>,
+) -> GreedyEncodedBlock {
     let block = &source.src[source.block_range.clone()];
-    let mut bytes = Vec::new();
+    bytes.clear();
 
     if let Some(encoded) = encode_special_block(block, last_block, repeat_offsets, &mut bytes) {
         return encoded;

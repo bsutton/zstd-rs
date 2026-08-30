@@ -221,15 +221,15 @@ fn parse_full_dictionary(
 
 fn dictionary_entropy(decoded: &Dictionary, content_len: usize) -> DictionaryEntropy {
     let mut fse_tables = FseTables::new();
-    let ll_table = Rc::new(fse_encoder::build_table_from_probabilities(
+    let ll_table = fse_encoder::SharedFSETable::new(fse_encoder::build_table_from_probabilities(
         decoded.fse.literal_lengths.symbol_probabilities(),
         decoded.fse.literal_lengths.accuracy_log,
     ));
-    let ml_table = Rc::new(fse_encoder::build_table_from_probabilities(
+    let ml_table = fse_encoder::SharedFSETable::new(fse_encoder::build_table_from_probabilities(
         decoded.fse.match_lengths.symbol_probabilities(),
         decoded.fse.match_lengths.accuracy_log,
     ));
-    let of_table = Rc::new(fse_encoder::build_table_from_probabilities(
+    let of_table = fse_encoder::SharedFSETable::new(fse_encoder::build_table_from_probabilities(
         decoded.fse.offsets.symbol_probabilities(),
         decoded.fse.offsets.accuracy_log,
     ));

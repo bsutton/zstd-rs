@@ -1,3 +1,4 @@
+#[cfg(test)]
 use alloc::vec::Vec;
 use core::ops::Range;
 
@@ -536,7 +537,7 @@ fn rep_match_length<const EXT_DICT: bool>(
 #[allow(clippy::too_many_arguments)]
 fn continue_immediate_repcodes<const EXT_DICT: bool>(
     src: &[u8],
-    sequences: &mut Vec<StoredSequence>,
+    sequences: &mut crate::workspace::ReusableVec<StoredSequence>,
     anchor: &mut usize,
     ip: &mut usize,
     ilimit: usize,
@@ -566,7 +567,7 @@ fn continue_immediate_repcodes<const EXT_DICT: bool>(
 }
 
 fn store_sequence(
-    sequences: &mut Vec<StoredSequence>,
+    sequences: &mut crate::workspace::ReusableVec<StoredSequence>,
     anchor: &mut usize,
     ip: &mut usize,
     start: usize,

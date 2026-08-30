@@ -3,6 +3,7 @@
 use crate::bit_io::BitReaderReversed;
 use crate::decoding::errors::HuffmanTableError;
 use crate::fse::{FSEDecoder, FSETable};
+use crate::workspace::{Arena, ArenaError, ArenaSize, ReusableVec};
 use alloc::vec::Vec;
 
 /// The Zstandard specification limits the maximum length of a code to 11 bits.
@@ -55,20 +56,20 @@ impl<'t> HuffmanDecoder<'t> {
 
 /// A Huffman decoding table contains a list of Huffman prefix codes and their associated values
 pub struct HuffmanTable {
-    decode: Vec<Entry>,
+    decode: ReusableVec<Entry>,
     /// The weight of a symbol is the number of occurences in a table.
     /// This value is used in constructing a binary tree referred to as
     /// a Huffman tree. Once this tree is constructed, it can be used to build the
     /// lookup table
-    weights: Vec<u8>,
+    weights: ReusableVec<u8>,
     /// The maximum size in bits a prefix code in the encoded data can be.
     /// This value is used so that the decoder knows how many bits
     /// to read from the bitstream before checking the table. This
     /// value must be 11 or lower.
     pub max_num_bits: u8,
-    bits: Vec<u8>,
-    bit_ranks: Vec<u32>,
-    rank_indexes: Vec<usize>,
+    bits: ReusableVec<u8>,
+    bit_ranks: ReusableVec<u32>,
+    rank_indexes: ReusableVec<usize>,
     /// In some cases, the list of weights is compressed using FSE compression.
     fse_table: FSETable,
 }
@@ -77,15 +78,50 @@ impl HuffmanTable {
     /// Create a new, empty table.
     pub fn new() -> HuffmanTable {
         HuffmanTable {
-            decode: Vec::new(),
+            decode: ReusableVec::new(),
 
-            weights: Vec::with_capacity(256),
+            weights: ReusableVec::with_capacity(256),
             max_num_bits: 0,
-            bits: Vec::with_capacity(256),
-            bit_ranks: Vec::with_capacity(11),
-            rank_indexes: Vec::with_capacity(11),
+            bits: ReusableVec::with_capacity(256),
+            bit_ranks: ReusableVec::with_capacity(11),
+            rank_indexes: ReusableVec::with_capacity(11),
             fse_table: FSETable::new(255),
         }
+    }
+
+    pub(crate) fn new_in(arena: &mut Arena<'_>) -> Result<Self, ArenaError> {
+        Ok(Self {
+            decode: arena.allocate_reusable_vec(1_usize << MAX_MAX_NUM_BITS)?,
+            weights: arena.allocate_reusable_vec(256)?,
+            max_num_bits: 0,
+            bits: arena.allocate_reusable_vec(257)?,
+            bit_ranks: arena.allocate_reusable_vec(12)?,
+            rank_indexes: arena.allocate_reusable_vec(12)?,
+            fse_table: FSETable::new_in(arena, 255, 6)?,
+        })
+    }
+
+    pub(crate) fn add_workspace_size(size: &mut ArenaSize) -> Result<(), ArenaError> {
+        size.add::<Entry>(1_usize << MAX_MAX_NUM_BITS)?;
+        size.add::<u8>(256)?;
+        size.add::<u8>(257)?;
+        size.add::<u32>(12)?;
+        size.add::<usize>(12)?;
+        FSETable::add_workspace_size(size, 6)
+    }
+
+    pub(crate) fn reserve_workspace(&mut self) {
+        let decode = (1_usize << MAX_MAX_NUM_BITS).saturating_sub(self.decode.len());
+        self.decode.reserve(decode);
+        let weights = 256_usize.saturating_sub(self.weights.len());
+        self.weights.reserve(weights);
+        let bits = 257_usize.saturating_sub(self.bits.len());
+        self.bits.reserve(bits);
+        let bit_ranks = 12_usize.saturating_sub(self.bit_ranks.len());
+        self.bit_ranks.reserve(bit_ranks);
+        let rank_indexes = 12_usize.saturating_sub(self.rank_indexes.len());
+        self.rank_indexes.reserve(rank_indexes);
+        self.fse_table.reserve_workspace(6);
     }
 
     /// Completely empty the table then repopulate as a replica

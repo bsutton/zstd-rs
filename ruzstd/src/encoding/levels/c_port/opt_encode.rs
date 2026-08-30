@@ -30,10 +30,7 @@ use super::{
     opt_state::{OptBlockState, OptParserStrategy},
     params::CompressionParameters,
     post_split::encode_split_block,
-    sequence_store::{
-        prepare_stored_literal_words_in, prepared_block_into_words, prepared_words_into_block,
-        RepeatOffsets,
-    },
+    sequence_store::{prepare_stored_literal_words_in, RepeatOffsets},
     target_block::{encode_target_block_with_superblock_fallback, TargetBlockOptions},
 };
 use crate::encoding::blocks::{BlockCompressionConfig, StoredBlockRef};
@@ -317,7 +314,7 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode(
         return encoded;
     }
     if block_encode_mode.split_block_enabled() {
-        if let Some(encoded) = encode_split_block(
+        match encode_split_block(
             block,
             last_block,
             policy,
@@ -327,10 +324,16 @@ pub(crate) fn encode_block_opt_no_dict_with_state_and_policy_and_ldm_in_mode(
             &prepared,
             previous_offsets,
             &mut context,
-            &mut opt_state.post_split_estimate_scratch,
+            &mut opt_state.post_split_scratch,
+            &mut opt_state.entropy_huffman_scratch,
+            &mut opt_state.entropy_fse_scratch,
+            bytes,
         ) {
-            opt_state.recycle_prepared_block(prepared.prepared);
-            return encoded;
+            Ok(encoded) => {
+                opt_state.recycle_prepared_block(prepared.prepared);
+                return encoded;
+            }
+            Err(returned) => bytes = returned,
         }
     }
 
@@ -476,7 +479,7 @@ pub(crate) fn encode_block_opt_ext_dict_with_state_and_policy_and_ldm_in_mode(
         return encoded;
     }
     if block_encode_mode.split_block_enabled() {
-        if let Some(encoded) = encode_split_block(
+        match encode_split_block(
             block,
             last_block,
             policy,
@@ -486,10 +489,16 @@ pub(crate) fn encode_block_opt_ext_dict_with_state_and_policy_and_ldm_in_mode(
             &prepared,
             previous_offsets,
             &mut context,
-            &mut opt_state.post_split_estimate_scratch,
+            &mut opt_state.post_split_scratch,
+            &mut opt_state.entropy_huffman_scratch,
+            &mut opt_state.entropy_fse_scratch,
+            bytes,
         ) {
-            opt_state.recycle_prepared_block(prepared.prepared);
-            return encoded;
+            Ok(encoded) => {
+                opt_state.recycle_prepared_block(prepared.prepared);
+                return encoded;
+            }
+            Err(returned) => bytes = returned,
         }
     }
 
@@ -536,7 +545,7 @@ pub(super) fn encode_stored_opt_block(
         block,
         &stored.sequences,
         stored.last_literals,
-        prepared_block_into_words(opt_state.take_prepared_block()),
+        opt_state.take_literal_store(),
     );
     let emission = append_stored_block_or_raw(
         block,
@@ -550,13 +559,13 @@ pub(super) fn encode_stored_opt_block(
         },
         compressed_repeat_offsets,
         context.previous_huff_table,
-        None,
-        None,
+        Some(&mut opt_state.entropy_huffman_scratch),
+        Some(&mut opt_state.entropy_fse_scratch),
         context.fse_tables,
         context.offset_history,
         &mut bytes,
     );
-    opt_state.recycle_prepared_block(prepared_words_into_block(literal_store));
+    opt_state.recycle_literal_store(literal_store);
     opt_state.recycle_sequences(core::mem::take(&mut stored.sequences));
 
     match emission {

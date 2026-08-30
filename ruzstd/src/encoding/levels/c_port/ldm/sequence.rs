@@ -1,8 +1,8 @@
-use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::{LdmEntry, LdmHashTable, LdmRollingHashState, LDM_BATCH_SIZE};
 use crate::encoding::levels::c_port::{cctx_params::LdmParameters, match_count::count_match};
+use crate::workspace::ReusableVec;
 
 const HASH_READ_SIZE: usize = 8;
 const LDM_MAX_CHUNK_SIZE: usize = 1 << 20;
@@ -16,7 +16,7 @@ pub(crate) struct LdmRawSequence {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LdmSequenceResult {
-    pub(crate) sequences: Vec<LdmRawSequence>,
+    pub(crate) sequences: ReusableVec<LdmRawSequence>,
     pub(crate) last_literals: usize,
 }
 
@@ -25,7 +25,16 @@ pub(crate) fn generate_sequences_no_dict(
     params: LdmParameters,
     table: &mut LdmHashTable,
 ) -> LdmSequenceResult {
-    generate_sequences_in_range(src, 0..src.len(), 0, 0, 0, params, table)
+    generate_sequences_no_dict_in(src, params, table, ReusableVec::new())
+}
+
+pub(crate) fn generate_sequences_no_dict_in(
+    src: &[u8],
+    params: LdmParameters,
+    table: &mut LdmHashTable,
+    sequences: ReusableVec<LdmRawSequence>,
+) -> LdmSequenceResult {
+    generate_sequences_in_range(src, 0..src.len(), 0, 0, 0, params, table, sequences)
 }
 
 pub(crate) fn fill_prefix_hash_table(
@@ -80,9 +89,19 @@ pub(crate) fn generate_sequences_with_prefix(
     table: &mut LdmHashTable,
 ) -> LdmSequenceResult {
     let dict_limit = source_range.start;
-    generate_sequences_in_range(src, source_range, 0, dict_limit, dict_limit, params, table)
+    generate_sequences_in_range(
+        src,
+        source_range,
+        0,
+        dict_limit,
+        dict_limit,
+        params,
+        table,
+        ReusableVec::new(),
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_sequences_in_range(
     src: &[u8],
     source_range: Range<usize>,
@@ -91,13 +110,14 @@ fn generate_sequences_in_range(
     loaded_dict_end: usize,
     params: LdmParameters,
     table: &mut LdmHashTable,
+    mut sequences: ReusableVec<LdmRawSequence>,
 ) -> LdmSequenceResult {
     debug_assert!(source_range.start <= source_range.end);
     debug_assert!(source_range.end <= src.len());
     debug_assert!(dict_low_limit <= dict_limit);
     debug_assert!(dict_limit <= source_range.start);
 
-    let mut sequences = Vec::new();
+    sequences.clear();
     let mut last_literals = 0;
     let mut chunk_start = source_range.start;
     while chunk_start < source_range.end {
@@ -109,22 +129,22 @@ fn generate_sequences_in_range(
             params,
             chunk_end,
         );
-        let chunk_result = generate_sequences_in_chunk(
+        let sequence_start = sequences.len();
+        let chunk_last_literals = generate_sequences_in_chunk_into(
             src,
             chunk_start..chunk_end,
             chunk_dict_low_limit,
             chunk_dict_limit,
             params,
             table,
+            &mut sequences,
         );
 
-        if chunk_result.sequences.is_empty() {
-            last_literals += chunk_result.last_literals;
+        if sequences.len() == sequence_start {
+            last_literals += chunk_last_literals;
         } else {
-            let sequence_start = sequences.len();
-            sequences.extend(chunk_result.sequences);
             sequences[sequence_start].lit_length += to_u32(last_literals);
-            last_literals = chunk_result.last_literals;
+            last_literals = chunk_last_literals;
         }
 
         chunk_start = chunk_end;
@@ -153,21 +173,19 @@ fn enforce_max_distance(
     (low_limit, dict_limit)
 }
 
-fn generate_sequences_in_chunk(
+fn generate_sequences_in_chunk_into(
     src: &[u8],
     source_range: Range<usize>,
     dict_low_limit: usize,
     dict_limit: usize,
     params: LdmParameters,
     table: &mut LdmHashTable,
-) -> LdmSequenceResult {
+    sequences: &mut ReusableVec<LdmRawSequence>,
+) -> usize {
     let min_match_length = params.min_match_length as usize;
     let source_len = source_range.len();
     if source_len < min_match_length || source_len <= HASH_READ_SIZE {
-        return LdmSequenceResult {
-            sequences: Vec::new(),
-            last_literals: source_len,
-        };
+        return source_len;
     }
 
     let hash_bits = (params.hash_log - params.bucket_size_log) as usize;
@@ -176,7 +194,6 @@ fn generate_sequences_in_chunk(
     let mut anchor = source_range.start;
     let mut ip = source_range.start;
     let mut hash_state = LdmRollingHashState::new(params);
-    let mut sequences = Vec::new();
     let mut splits = [0_usize; LDM_BATCH_SIZE];
 
     hash_state.reset(&src[source_range.start..], min_match_length);
@@ -258,10 +275,7 @@ fn generate_sequences_in_chunk(
         ip += hashed;
     }
 
-    LdmSequenceResult {
-        sequences,
-        last_literals: source_range.end - anchor,
-    }
+    source_range.end - anchor
 }
 
 fn count_backwards_match(

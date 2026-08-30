@@ -1,6 +1,5 @@
 //! External-dictionary fast block compressor ported from `zstd_fast.c`.
 
-use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::{
@@ -95,7 +94,7 @@ fn compress_block_fast_ext_dict_with_state_mls<const MIN_MATCH: u32>(
 
     if block_len <= HASH_READ_SIZE {
         return FastBlockOutput {
-            sequences: Vec::new(),
+            sequences: state.take_sequence_store(),
             last_literals: block_len as u32,
             repeat_offsets,
         };
@@ -116,7 +115,7 @@ fn compress_block_fast_ext_dict_with_state_mls<const MIN_MATCH: u32>(
             0,
         );
     }
-    let mut sequences = Vec::new();
+    let mut sequences = state.take_sequence_store();
     let ilimit = block_end - HASH_READ_SIZE;
 
     let hash_table = state.table_for(hlog);
@@ -289,7 +288,7 @@ fn store_offset_match<const MIN_MATCH: u32>(
     src: &[u8],
     hash_table: &mut [u32],
     hlog: u32,
-    sequences: &mut Vec<StoredSequence>,
+    sequences: &mut crate::workspace::ReusableVec<StoredSequence>,
     anchor: &mut usize,
     ip: &mut usize,
     mut match_pos: usize,
@@ -344,7 +343,7 @@ fn store_offset_match<const MIN_MATCH: u32>(
 #[allow(clippy::too_many_arguments)]
 fn store_match(
     src: &[u8],
-    sequences: &mut Vec<StoredSequence>,
+    sequences: &mut crate::workspace::ReusableVec<StoredSequence>,
     anchor: &mut usize,
     ip: &mut usize,
     match_pos: usize,
@@ -391,7 +390,7 @@ fn fill_after_match<const MIN_MATCH: u32>(
 fn consume_immediate_repcodes<const MIN_MATCH: u32>(
     src: &[u8],
     hash_table: &mut [u32],
-    sequences: &mut Vec<StoredSequence>,
+    sequences: &mut crate::workspace::ReusableVec<StoredSequence>,
     hlog: u32,
     anchor: &mut usize,
     ip: &mut usize,

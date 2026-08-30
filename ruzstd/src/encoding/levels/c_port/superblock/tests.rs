@@ -7,7 +7,7 @@ use crate::encoding::{
     block_header::BlockHeader,
     frame_compressor::{FseTables, OffsetHistory},
 };
-use alloc::rc::Rc;
+use crate::fse::fse_encoder::SharedFSETable;
 use alloc::vec::Vec;
 
 fn sequence(ll: u32, ml: u32) -> PreparedSequence {
@@ -700,9 +700,9 @@ fn append_sequence_sub_block_emits_repeat_sequence_metadata() {
     ];
     let mut encoded = Vec::new();
     let mut fse_tables = FseTables::new();
-    fse_tables.ll_previous = Some(Rc::new(fse_tables.ll_default.clone()));
-    fse_tables.ml_previous = Some(Rc::new(fse_tables.ml_default.clone()));
-    fse_tables.of_previous = Some(Rc::new(fse_tables.of_default.clone()));
+    fse_tables.ll_previous = Some(SharedFSETable::new(fse_tables.ll_default.clone()));
+    fse_tables.ml_previous = Some(SharedFSETable::new(fse_tables.ml_default.clone()));
+    fse_tables.of_previous = Some(SharedFSETable::new(fse_tables.of_default.clone()));
     let mut offset_history = OffsetHistory::new();
 
     let emission = append_sequence_sub_block(
@@ -936,11 +936,11 @@ fn target_sequence_entropy_selection_uses_c_strategy_policy() {
         },
     ];
     let mut fse_tables = FseTables::new();
-    fse_tables.ll_previous = Some(Rc::new(fse_tables.ll_default.clone()));
+    fse_tables.ll_previous = Some(SharedFSETable::new(fse_tables.ll_default.clone()));
     fse_tables.ll_repeat_valid = true;
-    fse_tables.ml_previous = Some(Rc::new(fse_tables.ml_default.clone()));
+    fse_tables.ml_previous = Some(SharedFSETable::new(fse_tables.ml_default.clone()));
     fse_tables.ml_repeat_valid = true;
-    fse_tables.of_previous = Some(Rc::new(fse_tables.of_default.clone()));
+    fse_tables.of_previous = Some(SharedFSETable::new(fse_tables.of_default.clone()));
     fse_tables.of_repeat_valid = true;
 
     let fast_modes = select_sequence_entropy_modes(

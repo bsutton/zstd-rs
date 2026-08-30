@@ -1,7 +1,8 @@
-use alloc::{rc::Rc, vec::Vec};
+use alloc::vec::Vec;
 
 use crate::{
     encoding::frame_compressor::{FseTables, OffsetHistory},
+    fse::fse_encoder::SharedFSETable,
     huff0::huff0_encoder::HuffmanTable,
 };
 
@@ -19,9 +20,9 @@ pub(super) struct CandidateEncodeState<'a> {
 
 #[derive(Clone)]
 pub(super) struct FsePreviousState {
-    ll_previous: Option<Rc<crate::fse::fse_encoder::FSETable>>,
-    ml_previous: Option<Rc<crate::fse::fse_encoder::FSETable>>,
-    of_previous: Option<Rc<crate::fse::fse_encoder::FSETable>>,
+    ll_previous: Option<SharedFSETable>,
+    ml_previous: Option<SharedFSETable>,
+    of_previous: Option<SharedFSETable>,
 }
 
 impl FsePreviousState {

@@ -15,9 +15,9 @@ not a Rust spelling of `zstd.h` and does not promise byte-identical output.
 | Raw and formatted dictionary use | Supported | Reusable encoder dictionaries and decoder dictionaries |
 | Dictionary training | Supported, opt-in | Native sample-set formatted trainer plus legacy raw-content helpers behind `dict_builder` |
 | Advanced compression parameters | Supported | Typed strategy, matcher, long-distance matching, target-block, pledged-size, and frame-content-size controls |
-| `no_std` encode/decode | Supported | Allocation-backed lower-level APIs; `Read`/`Write`, training, and threading require `std` |
+| `no_std` encode/decode | Supported | Includes typed reusable and caller-byte-buffer allocation-free prepared workspaces; `Read`/`Write`, training, and threading require `std` |
 | C ABI and context lifecycle | Intentionally different | Rust ownership and `Result` errors replace opaque contexts, manual reset, and error-code inspection |
-| Custom allocators and static C contexts | Out of scope | Rust global/allocation APIs and caller-owned output abstractions are used instead |
+| Custom allocator callbacks and C ABI static contexts | Intentionally different | Rust has no allocator-callback ABI; typed `StaticEncoderWorkspace` and `StaticDecoderWorkspace` use arbitrary caller byte slices instead |
 | Experimental parameter-number API | Out of scope | Only stable, independently useful typed controls are public |
 | Sequence producer, block splitter, and low-level entropy APIs | Out of scope | Internal implementation details rather than application contracts |
 | Stable byte identity with zstd C | Non-goal | RFC-compatible streams may improve ratio or choose different blocks and matches |

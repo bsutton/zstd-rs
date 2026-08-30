@@ -372,7 +372,7 @@ mod tests {
         create_raw_dict_from_source, train_dictionary, DictionaryTrainerOptions,
         DictionaryTrainingError,
     };
-    use std::vec::Vec;
+    use std::{io::Read, vec::Vec};
 
     #[test]
     fn raw_dict_builder_scores_epochs_after_sampling() {

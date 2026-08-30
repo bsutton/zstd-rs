@@ -291,21 +291,53 @@ pub(crate) fn prepared_words_as_ref(prepared: &PreparedStoreWords) -> PreparedBl
 
 pub(crate) fn prepared_words_into_block(prepared: PreparedStoreWords) -> PreparedBlock {
     PreparedBlock {
-        literals: prepared.literals,
+        literals: prepared.literals.into_owned_vec(),
         // SAFETY: the compile-time layout assertions prove the returned word
         // arrays and local prepared records have identical size and alignment,
         // and every returned element is initialized.
-        sequences: unsafe { prepared_words_into_sequences(prepared.sequences) },
+        sequences: unsafe { prepared_words_into_sequences(prepared.sequences.into_owned_vec()) },
+    }
+}
+
+pub(crate) type PreparedBlockLease = (
+    crate::workspace::VecLease<u8>,
+    crate::workspace::VecLease<crate::kernel::seqstore::PreparedSequenceWords>,
+);
+
+pub(crate) fn lease_prepared_words(
+    prepared: PreparedStoreWords,
+) -> (PreparedBlock, PreparedBlockLease) {
+    let (literals, literal_lease) = prepared.literals.lease_vec();
+    let (sequences, sequence_lease) = prepared.sequences.lease_vec();
+    let prepared = PreparedBlock {
+        literals,
+        // SAFETY: the compile-time layout assertions prove that the word
+        // arrays and prepared records have identical layout.
+        sequences: unsafe { prepared_words_into_sequences(sequences) },
+    };
+    (prepared, (literal_lease, sequence_lease))
+}
+
+pub(crate) fn recover_prepared_words(
+    prepared: PreparedBlock,
+    leases: PreparedBlockLease,
+) -> PreparedStoreWords {
+    let sequences = unsafe { prepared_sequences_into_words(prepared.sequences) };
+    PreparedStoreWords {
+        literals: crate::workspace::ReusableVec::recover_vec(prepared.literals, leases.0),
+        sequences: crate::workspace::ReusableVec::recover_vec(sequences, leases.1),
     }
 }
 
 pub(crate) fn prepared_block_into_words(prepared: PreparedBlock) -> PreparedStoreWords {
     PreparedStoreWords {
-        literals: prepared.literals,
+        literals: crate::workspace::ReusableVec::from_owned(prepared.literals),
         // SAFETY: the compile-time layout assertions prove that the local
         // prepared records and primitive word arrays have identical layout.
         // Ownership moves into the returned vector without duplication.
-        sequences: unsafe { prepared_sequences_into_words(prepared.sequences) },
+        sequences: crate::workspace::ReusableVec::from_owned(unsafe {
+            prepared_sequences_into_words(prepared.sequences)
+        }),
     }
 }
 

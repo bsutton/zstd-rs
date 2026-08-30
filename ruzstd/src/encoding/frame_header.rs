@@ -1,5 +1,4 @@
 //! Utilities and representations for a frame header.
-use crate::bit_io::BitWriter;
 use crate::common::MAGIC_NUM;
 use crate::encoding::util::{find_min_size, minify_val};
 use alloc::vec::Vec;
@@ -63,7 +62,6 @@ impl FrameHeader {
     ///
     /// https://github.com/facebook/zstd/blob/dev/doc/zstd_compression_format.md#frame_header_descriptor
     fn descriptor(&self) -> u8 {
-        let mut bw = BitWriter::new();
         // A frame header starts with a frame header descriptor.
         // It describes what other fields are present
         // https://github.com/facebook/zstd/blob/dev/doc/zstd_compression_format.md#frame_header_descriptor
@@ -82,67 +80,61 @@ impl FrameHeader {
         // | 3     | 8
 
         // `Dictionary_ID_flag`:
-        if let Some(id) = self.dictionary_id {
-            let flag_value: u8 = match find_min_size(id) {
+        let dictionary_flag: u8 = if let Some(id) = self.dictionary_id {
+            match find_min_size(id) {
                 0 => 0,
                 1 => 1,
                 2 => 2,
                 4 => 3,
                 _ => panic!(),
-            };
-            bw.write_bits(flag_value, 2);
+            }
         } else {
             // A `Dictionary_ID` was not provided
-            bw.write_bits(0u8, 2);
-        }
+            0
+        };
 
         // `Content_Checksum_flag`:
-        if self.content_checksum {
-            bw.write_bits(1u8, 1);
-        } else {
-            bw.write_bits(0u8, 1);
-        }
+        let checksum_flag = u8::from(self.content_checksum);
 
         // `Reserved_bit`:
         // This value must be zero
-        bw.write_bits(0u8, 1);
 
         // `Unused_bit`:
         // An encoder compliant with this spec must set this bit to zero
-        bw.write_bits(0u8, 1);
 
         // `Single_Segment_flag`:
         // If this flag is set, data must be regenerated within a single continuous memory segment,
         // and the `Frame_Content_Size` field must be present in the header.
         // If this flag is not set, the `Window_Descriptor` field must be present in the frame header.
-        if self.single_segment {
+        let single_segment_flag = if self.single_segment {
             assert!(self.frame_content_size.is_some(), "if the `single_segment` flag is set to true, then a frame content size must be provided");
-            bw.write_bits(1u8, 1);
+            1
         } else {
             assert!(
                 self.window_size.is_some(),
                 "if the `single_segment` flag is set to false, then a window size must be provided"
             );
-            bw.write_bits(0u8, 1);
-        }
+            0
+        };
 
-        if let Some(frame_content_size) = self.frame_content_size {
+        let content_size_flag = if let Some(frame_content_size) = self.frame_content_size {
             let field_size = find_min_size(frame_content_size);
-            let flag_value: u8 = match field_size {
+            match field_size {
                 1 => 0,
                 2 => 1,
                 4 => 2,
                 8 => 3,
                 _ => panic!(),
-            };
-
-            bw.write_bits(flag_value, 2);
+            }
         } else {
             // `Frame_Content_Size` was not provided
-            bw.write_bits(0u8, 2);
-        }
+            0
+        };
 
-        bw.dump()[0]
+        dictionary_flag
+            | (checksum_flag << 2)
+            | (single_segment_flag << 5)
+            | (content_size_flag << 6)
     }
 }
 

@@ -11,8 +11,9 @@ use crate::{
     bit_io::BitWriter,
     blocks::sequence_section::Sequence,
     encoding::frame_compressor::{FseTables, OffsetHistory},
-    fse::fse_encoder::FSETable,
+    fse::fse_encoder::{FSETable, FSETableBuildScratch},
     huff0::huff0_encoder,
+    workspace::{Arena, ArenaError, ArenaSize, ReusableVec},
 };
 
 use super::{
@@ -25,19 +26,19 @@ use super::{
     sequence_cost::{cross_entropy_cost, repeat_table_cost, CodeCounts},
     sequence_tables::{
         choose_sequence_table_modes_for_estimate,
-        choose_sequence_table_modes_for_estimate_from_counts, encode_table, FseTableMode,
-        SequenceModeSearchConfig,
+        choose_sequence_table_modes_for_estimate_from_counts_with_scratch, encode_table,
+        FseTableMode, SequenceModeSearchConfig,
     },
     BlockCompressionConfig, PreparedBlockRef,
 };
 
 const ZSTD_BLOCK_HEADER_SIZE: usize = 3;
 
-#[derive(Clone)]
 pub(crate) struct EstimateScratch {
-    sequences: Vec<Sequence>,
-    table_bytes: Vec<u8>,
+    sequences: ReusableVec<Sequence>,
+    table_bytes: ReusableVec<u8>,
     huffman: huff0_encoder::HuffmanBuildScratch,
+    fse: FSETableBuildScratch,
 }
 
 impl fmt::Debug for EstimateScratch {
@@ -52,10 +53,30 @@ impl fmt::Debug for EstimateScratch {
 impl EstimateScratch {
     pub(crate) fn new() -> Self {
         Self {
-            sequences: Vec::new(),
-            table_bytes: Vec::new(),
+            sequences: ReusableVec::new(),
+            table_bytes: ReusableVec::new(),
             huffman: huff0_encoder::HuffmanBuildScratch::new(),
+            fse: FSETableBuildScratch::new(),
         }
+    }
+
+    pub(crate) fn add_workspace_size(
+        size: &mut ArenaSize,
+        max_sequences: usize,
+    ) -> Result<(), ArenaError> {
+        size.add::<Sequence>(max_sequences)?;
+        size.add::<u8>(1024)?;
+        huff0_encoder::HuffmanBuildScratch::add_workspace_size(size)?;
+        FSETableBuildScratch::add_workspace_size(size)
+    }
+
+    pub(crate) fn new_in(arena: &mut Arena<'_>, max_sequences: usize) -> Result<Self, ArenaError> {
+        Ok(Self {
+            sequences: arena.allocate_reusable_vec(max_sequences)?,
+            table_bytes: arena.allocate_reusable_vec(1024)?,
+            huffman: huff0_encoder::HuffmanBuildScratch::new_in(arena)?,
+            fse: FSETableBuildScratch::new_in(arena)?,
+        })
     }
 }
 
@@ -86,6 +107,7 @@ pub(crate) fn estimate_prepared_block_size_with_sequences(
         config,
         scratch.sequences.len(),
         &mut scratch.huffman,
+        &mut scratch.fse,
     );
     let sequence_size = estimate_sequence_section_size(
         scratch.sequences.as_slice(),
@@ -93,6 +115,7 @@ pub(crate) fn estimate_prepared_block_size_with_sequences(
         config,
         fse_tables,
         &mut scratch.table_bytes,
+        &mut scratch.fse,
     );
     ZSTD_BLOCK_HEADER_SIZE + literal_size + sequence_size
 }
@@ -104,6 +127,7 @@ fn estimate_literal_section_size(
     config: BlockCompressionConfig,
     sequence_count: usize,
     huffman_scratch: &mut huff0_encoder::HuffmanBuildScratch,
+    fse_scratch: &mut FSETableBuildScratch,
 ) -> usize {
     if config.literal_compression_disabled
         || literals.len() <= estimate_min_literals_to_compress(previous_table_is_valid)
@@ -143,22 +167,25 @@ fn estimate_literal_section_size(
             literals.len(),
             literal_stats.counts().len() - 1,
         );
-        huff0_encoder::HuffmanTable::build_from_counts_with_max_bits_and_scratch(
+        huff0_encoder::HuffmanTable::build_from_counts_with_max_bits_and_workspaces(
             literal_stats.counts(),
             table_log,
             huffman_scratch,
+            fse_scratch,
         )
     } else {
-        huff0_encoder::HuffmanTable::build_from_counts_with_scratch(
+        huff0_encoder::HuffmanTable::build_from_counts_with_max_bits_and_workspaces(
             literal_stats.counts(),
+            11,
             huffman_scratch,
+            fse_scratch,
         )
     };
     let new_content_size =
         estimate_huffman_content_size(&new_table, literal_stats.counts(), four_streams);
     let new_table_size = new_table.table_description_len();
 
-    if let Some(previous_table) = previous_table {
+    let estimated_size = if let Some(previous_table) = previous_table {
         if previous_table.can_encode_counts(literal_stats.counts()) {
             let old_content_size =
                 estimate_huffman_content_size(previous_table, literal_stats.counts(), four_streams);
@@ -166,15 +193,24 @@ fn estimate_literal_section_size(
                 && (old_content_size <= new_table_size + new_content_size
                     || new_table_size + 12 >= literals.len())
             {
-                return old_content_size + compressed_literals_header_len(size_format);
+                old_content_size + compressed_literals_header_len(size_format)
+            } else if new_content_size + new_table_size >= literals.len() {
+                literals.len()
+            } else {
+                new_content_size + new_table_size + compressed_literals_header_len(size_format)
             }
+        } else if new_content_size + new_table_size >= literals.len() {
+            literals.len()
+        } else {
+            new_content_size + new_table_size + compressed_literals_header_len(size_format)
         }
-    }
-
-    if new_content_size + new_table_size >= literals.len() {
-        return literals.len();
-    }
-    new_content_size + new_table_size + compressed_literals_header_len(size_format)
+    } else if new_content_size + new_table_size >= literals.len() {
+        literals.len()
+    } else {
+        new_content_size + new_table_size + compressed_literals_header_len(size_format)
+    };
+    huffman_scratch.recycle_table(new_table);
+    estimated_size
 }
 
 fn estimate_min_literals_to_compress(has_previous_table: bool) -> usize {
@@ -226,6 +262,7 @@ fn estimate_sequence_section_size(
     config: BlockCompressionConfig,
     fse_tables: &FseTables,
     table_bytes: &mut Vec<u8>,
+    fse_scratch: &mut FSETableBuildScratch,
 ) -> usize {
     if sequences.is_empty() {
         return 2;
@@ -260,7 +297,7 @@ fn estimate_sequence_section_size(
     let (ll_mode, ml_mode, of_mode) = if config.exact_sequence_mode_search {
         choose_sequence_table_modes_for_estimate(sequences, search_config)
     } else {
-        choose_sequence_table_modes_for_estimate_from_counts(
+        choose_sequence_table_modes_for_estimate_from_counts_with_scratch(
             sequences.len(),
             &ll_estimate.counts,
             ll_estimate.last_code,
@@ -269,17 +306,25 @@ fn estimate_sequence_section_size(
             &of_estimate.counts,
             of_estimate.last_code,
             search_config,
+            fse_scratch,
         )
     };
 
-    sequence_header_size(sequences.len())
+    let estimated_size = sequence_header_size(sequences.len())
         + 1
         + table_definition_size(&ll_mode, table_bytes)
         + table_definition_size(&of_mode, table_bytes)
         + table_definition_size(&ml_mode, table_bytes)
         + estimate_symbol_stream_size(&of_mode, &fse_tables.of_default, &of_estimate)
         + estimate_symbol_stream_size(&ll_mode, &fse_tables.ll_default, &ll_estimate)
-        + estimate_symbol_stream_size(&ml_mode, &fse_tables.ml_default, &ml_estimate)
+        + estimate_symbol_stream_size(&ml_mode, &fse_tables.ml_default, &ml_estimate);
+
+    for mode in [ll_mode, ml_mode, of_mode] {
+        if let FseTableMode::Encoded(table) = mode {
+            fse_scratch.recycle_table(table);
+        }
+    }
+    estimated_size
 }
 
 fn sequence_header_size(seqnum: usize) -> usize {

@@ -37,11 +37,33 @@ pub(crate) fn encode_frame_double_fast_no_dict_with_cctx(
 ) -> Vec<u8> {
     let mut output = Vec::with_capacity(compress_bound(src.len()));
     cctx.assert_resolved();
-    let block_encode_mode = BlockEncodeMode::from_cctx(cctx);
     let params = cctx.compression;
-    write_frame_header_no_dict(&mut output, src.len(), params);
     let mut frame_state = FrameBlockState::new(params, cctx.max_block_size);
     let mut match_state = DFastMatchState::new();
+    encode_frame_double_fast_no_dict_with_cctx_in(
+        src,
+        cctx,
+        &mut frame_state,
+        &mut match_state,
+        &mut output,
+    );
+    output
+}
+
+pub(crate) fn encode_frame_double_fast_no_dict_with_cctx_in(
+    src: &[u8],
+    cctx: CctxParameters,
+    frame_state: &mut FrameBlockState,
+    match_state: &mut DFastMatchState,
+    output: &mut Vec<u8>,
+) {
+    cctx.assert_resolved();
+    let block_encode_mode = BlockEncodeMode::from_cctx(cctx);
+    let params = cctx.compression;
+    output.clear();
+    frame_state.reset_for_frame(params, cctx.max_block_size);
+    match_state.reset_for_frame(params);
+    write_frame_header_no_dict(output, src.len(), params);
 
     if src.is_empty() {
         append_block_double_fast_no_dict_with_policy(
@@ -58,9 +80,9 @@ pub(crate) fn encode_frame_double_fast_no_dict_with_cctx(
                 offset_history: &mut frame_state.offset_history,
             },
             FrameBlockState::block_policy(true),
-            &mut output,
+            output,
         );
-        return output;
+        return;
     }
 
     let mut block_start = 0;
@@ -83,7 +105,7 @@ pub(crate) fn encode_frame_double_fast_no_dict_with_cctx(
             params,
             frame_state.block_config,
             frame_state.repeat_offsets,
-            &mut match_state,
+            match_state,
             DFastBlockEncodeContext {
                 previous_huff_table: frame_state.last_huff_table.as_ref(),
                 huffman_build_scratch: &mut frame_state.huffman_build_scratch,
@@ -93,7 +115,7 @@ pub(crate) fn encode_frame_double_fast_no_dict_with_cctx(
             },
             policy,
             block_encode_mode,
-            &mut output,
+            output,
         );
         frame_state.record_encoded_block(
             block_size,
@@ -103,8 +125,6 @@ pub(crate) fn encode_frame_double_fast_no_dict_with_cctx(
         );
         block_start = block_end;
     }
-
-    output
 }
 
 pub(crate) fn encode_frame_double_fast_with_dictionary(

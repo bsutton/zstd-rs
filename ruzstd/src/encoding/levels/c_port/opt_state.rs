@@ -1,15 +1,24 @@
 //! Optimal-parser state shared by the no-dictionary C optimal strategies.
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 
 use super::{
     greedy::GreedyMatchState,
     opt_match::OptMatchTable,
     opt_price::{OptPriceState, ZSTD_MAX_PRICE},
     params::CompressionParameters,
-    sequence_store::{RepeatOffsets, StoredSequence},
+    post_split::PostSplitScratch,
+    sequence_store::{
+        lease_prepared_words, recover_prepared_words, PreparedBlockLease, PreparedStoreWords,
+        RepeatOffsets, StoredSequence,
+    },
 };
-use crate::encoding::blocks::{EstimateScratch, PreparedBlock};
+use crate::{
+    encoding::blocks::PreparedBlock,
+    fse::fse_encoder::FSETableBuildScratch,
+    huff0::huff0_encoder::HuffmanBuildScratch,
+    workspace::{Arena, ArenaError, ArenaSize, ReusableVec, VecLease},
+};
 
 pub(super) const HASH_READ_SIZE: usize = 8;
 pub(super) const ZSTD_OPT_NUM: usize = 1 << 12;
@@ -35,19 +44,22 @@ pub(crate) enum OptParserStrategy {
     BtUltra,
 }
 
-#[derive(Clone, Debug)]
 pub(crate) struct OptBlockState {
     pub(super) match_state: GreedyMatchState,
     pub(super) attached_match_state: Option<GreedyMatchState>,
     pub(super) price_state: OptPriceState,
     pub(super) literal_price_cache: LiteralPriceCache,
     pub(super) matches: OptMatchTable,
-    pub(super) opt: Box<[Optimal; ZSTD_OPT_NUM + 4]>,
-    pub(super) path: Vec<Optimal>,
-    pub(super) post_split_estimate_scratch: EstimateScratch,
-    sequences: Vec<StoredSequence>,
-    prepared: PreparedBlock,
-    block_bytes: Vec<u8>,
+    pub(super) opt: ReusableVec<Optimal>,
+    pub(super) path: ReusableVec<Optimal>,
+    pub(super) post_split_scratch: PostSplitScratch,
+    sequences: ReusableVec<StoredSequence>,
+    prepared_store: PreparedStoreWords,
+    prepared_lease: Option<PreparedBlockLease>,
+    block_bytes: ReusableVec<u8>,
+    block_bytes_lease: Option<VecLease<u8>>,
+    pub(super) entropy_huffman_scratch: HuffmanBuildScratch,
+    pub(super) entropy_fse_scratch: FSETableBuildScratch,
 }
 
 impl Default for Optimal {
@@ -63,20 +75,82 @@ impl Default for Optimal {
 }
 
 impl OptBlockState {
+    pub(crate) fn is_workspace_backed(&self) -> bool {
+        !self.opt.is_owned()
+    }
+
     pub(crate) fn new() -> Self {
+        let mut opt = ReusableVec::with_capacity(ZSTD_OPT_NUM + 4);
+        opt.resize(ZSTD_OPT_NUM + 4, Optimal::default());
         Self {
             match_state: GreedyMatchState::new(),
             attached_match_state: None,
             price_state: OptPriceState::new(),
             literal_price_cache: LiteralPriceCache::new(),
             matches: OptMatchTable::new(),
-            opt: Box::new([Optimal::default(); ZSTD_OPT_NUM + 4]),
-            path: Vec::with_capacity(16),
-            post_split_estimate_scratch: EstimateScratch::new(),
-            sequences: Vec::new(),
-            prepared: empty_prepared_block(),
-            block_bytes: Vec::new(),
+            opt,
+            path: ReusableVec::with_capacity(ZSTD_OPT_NUM),
+            post_split_scratch: PostSplitScratch::new(),
+            sequences: ReusableVec::new(),
+            prepared_store: PreparedStoreWords::default(),
+            prepared_lease: None,
+            block_bytes: ReusableVec::new(),
+            block_bytes_lease: None,
+            entropy_huffman_scratch: HuffmanBuildScratch::new(),
+            entropy_fse_scratch: FSETableBuildScratch::new(),
         }
+    }
+
+    pub(crate) fn add_workspace_size(
+        size: &mut ArenaSize,
+        params: CompressionParameters,
+        block_size: usize,
+    ) -> Result<(), ArenaError> {
+        GreedyMatchState::add_workspace_size(size, params, block_size)?;
+        OptMatchTable::add_workspace_size(size)?;
+        size.add::<Optimal>(ZSTD_OPT_NUM + 4)?;
+        size.add::<Optimal>(ZSTD_OPT_NUM)?;
+        PostSplitScratch::add_workspace_size(size, block_size)?;
+        size.add::<StoredSequence>(block_size / 3 + 1)?;
+        PreparedStoreWords::add_workspace_size(
+            size,
+            block_size.saturating_add(64),
+            block_size / 3 + 1,
+        )?;
+        size.add::<u8>(super::compress_bound::compress_bound(block_size))?;
+        HuffmanBuildScratch::add_workspace_size(size)?;
+        FSETableBuildScratch::add_workspace_size(size)
+    }
+
+    pub(crate) fn new_in(
+        arena: &mut Arena<'_>,
+        params: CompressionParameters,
+        block_size: usize,
+    ) -> Result<Self, ArenaError> {
+        let mut opt = arena.allocate_reusable_vec(ZSTD_OPT_NUM + 4)?;
+        opt.resize(ZSTD_OPT_NUM + 4, Optimal::default());
+        Ok(Self {
+            match_state: GreedyMatchState::new_in(arena, params, block_size)?,
+            attached_match_state: None,
+            price_state: OptPriceState::new(),
+            literal_price_cache: LiteralPriceCache::new(),
+            matches: OptMatchTable::new_in(arena)?,
+            opt,
+            path: arena.allocate_reusable_vec(ZSTD_OPT_NUM)?,
+            post_split_scratch: PostSplitScratch::new_in(arena, block_size)?,
+            sequences: arena.allocate_reusable_vec(block_size / 3 + 1)?,
+            prepared_store: PreparedStoreWords::new_in(
+                arena,
+                block_size.saturating_add(64),
+                block_size / 3 + 1,
+            )?,
+            prepared_lease: None,
+            block_bytes: arena
+                .allocate_reusable_vec(super::compress_bound::compress_bound(block_size))?,
+            block_bytes_lease: None,
+            entropy_huffman_scratch: HuffmanBuildScratch::new_in(arena)?,
+            entropy_fse_scratch: FSETableBuildScratch::new_in(arena)?,
+        })
     }
 
     pub(crate) fn reset_for_frame(&mut self, params: CompressionParameters) {
@@ -85,16 +159,17 @@ impl OptBlockState {
         self.price_state.reset_for_frame();
     }
 
-    pub(crate) fn take_sequences(&mut self, min_capacity: usize) -> Vec<StoredSequence> {
+    pub(crate) fn take_sequences(&mut self, min_capacity: usize) -> ReusableVec<StoredSequence> {
         let mut sequences = core::mem::take(&mut self.sequences);
         sequences.clear();
-        if sequences.capacity() < min_capacity {
-            sequences.reserve(min_capacity - sequences.capacity());
+        let capacity = sequences.capacity();
+        if capacity < min_capacity {
+            sequences.reserve(min_capacity - capacity);
         }
         sequences
     }
 
-    pub(crate) fn recycle_sequences(&mut self, mut sequences: Vec<StoredSequence>) {
+    pub(crate) fn recycle_sequences(&mut self, mut sequences: ReusableVec<StoredSequence>) {
         sequences.clear();
         if self.sequences.capacity() < sequences.capacity() {
             self.sequences = sequences;
@@ -102,40 +177,56 @@ impl OptBlockState {
     }
 
     pub(crate) fn take_prepared_block(&mut self) -> PreparedBlock {
-        core::mem::replace(&mut self.prepared, empty_prepared_block())
+        debug_assert!(self.prepared_lease.is_none());
+        let store = core::mem::take(&mut self.prepared_store);
+        let (prepared, lease) = lease_prepared_words(store);
+        self.prepared_lease = Some(lease);
+        prepared
     }
 
     pub(crate) fn recycle_prepared_block(&mut self, mut prepared: PreparedBlock) {
         prepared.literals.clear();
         prepared.sequences.clear();
-        if self.prepared.literals.capacity() < prepared.literals.capacity()
-            || self.prepared.sequences.capacity() < prepared.sequences.capacity()
-        {
-            self.prepared = prepared;
-        }
+        let lease = self
+            .prepared_lease
+            .take()
+            .expect("prepared store lease must be returned");
+        self.prepared_store = recover_prepared_words(prepared, lease);
+    }
+
+    pub(crate) fn take_literal_store(&mut self) -> PreparedStoreWords {
+        debug_assert!(self.prepared_lease.is_none());
+        core::mem::take(&mut self.prepared_store)
+    }
+
+    pub(crate) fn recycle_literal_store(&mut self, mut prepared: PreparedStoreWords) {
+        prepared.clear();
+        self.prepared_store = prepared;
     }
 
     pub(crate) fn take_block_bytes(&mut self, min_capacity: usize) -> Vec<u8> {
         let mut bytes = core::mem::take(&mut self.block_bytes);
         bytes.clear();
-        if bytes.capacity() < min_capacity {
-            bytes.reserve(min_capacity - bytes.capacity());
+        let capacity = bytes.capacity();
+        if capacity < min_capacity {
+            bytes.reserve(min_capacity - capacity);
         }
+        let (bytes, lease) = bytes.lease_vec();
+        debug_assert!(self.block_bytes_lease.is_none());
+        self.block_bytes_lease = Some(lease);
         bytes
     }
 
-    pub(crate) fn recycle_block_bytes(&mut self, mut bytes: Vec<u8>) {
+    pub(crate) fn recycle_block_bytes(&mut self, bytes: Vec<u8>) {
+        let lease = self
+            .block_bytes_lease
+            .take()
+            .expect("block byte lease must be returned");
+        let mut bytes = ReusableVec::recover_vec(bytes, lease);
         bytes.clear();
         if self.block_bytes.capacity() < bytes.capacity() {
             self.block_bytes = bytes;
         }
-    }
-}
-
-fn empty_prepared_block() -> PreparedBlock {
-    PreparedBlock {
-        literals: Vec::new(),
-        sequences: Vec::new(),
     }
 }
 

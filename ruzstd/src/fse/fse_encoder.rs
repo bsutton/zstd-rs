@@ -9,17 +9,22 @@ mod table;
 pub use normalize::build_table_from_data;
 #[cfg(test)]
 use normalize::normalize_counts;
+#[cfg(test)]
+use normalize::normalize_u32_counts_with_table_log;
 pub(crate) use normalize::{
     build_huffman_weight_table_from_data, build_huffman_weight_table_from_data_with_scratch,
     build_table_from_data_with_scratch, normalize_counts_with_table_log,
-    normalize_u32_counts_with_table_log, normalized_probabilities_from_counts, optimal_table_log,
-    optimal_table_log_u32,
+    normalize_counts_with_table_log_into, normalize_u32_counts_with_table_log_into,
+    normalized_probabilities_from_counts, normalized_probabilities_from_counts_into,
+    optimal_table_log, optimal_table_log_u32,
 };
 pub use table::FSETable;
 pub(crate) use table::{
-    build_probability_table_for_estimate, build_rle_table, build_table_from_probabilities,
-    build_table_from_probabilities_with_scratch, default_ll_table, default_ml_table,
-    default_of_table, FSETableBuildScratch,
+    build_probability_table_for_estimate, build_probability_table_for_estimate_with_scratch,
+    build_rle_table, build_table_from_probabilities, build_table_from_probabilities_with_scratch,
+    default_ll_table, default_ll_table_with_scratch, default_ml_table,
+    default_ml_table_with_scratch, default_of_table, default_of_table_with_scratch,
+    FSETableBuildScratch, SharedFSETable,
 };
 #[cfg(test)]
 use table::{LL_DIST, ML_DIST, OF_DIST};

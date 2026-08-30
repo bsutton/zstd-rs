@@ -1,4 +1,3 @@
-use alloc::rc::Rc;
 use alloc::vec::Vec;
 
 use crate::{
@@ -8,7 +7,7 @@ use crate::{
         blocks::PreparedSequence,
         frame_compressor::{FseTables, OffsetHistory},
     },
-    fse::fse_encoder::{build_rle_table, FSETable},
+    fse::fse_encoder::{build_rle_table, FSETable, SharedFSETable},
 };
 
 use super::{
@@ -278,15 +277,15 @@ fn sequence_repeat_table(
     sequences: &[Sequence],
     compressed_table: Option<&FSETable>,
     default_table: &FSETable,
-    previous_table: Option<Rc<FSETable>>,
+    previous_table: Option<SharedFSETable>,
     code: impl Fn(Sequence) -> u8,
-) -> Option<Rc<FSETable>> {
+) -> Option<SharedFSETable> {
     match mode {
-        SequenceTableMode::Predefined => Some(Rc::new(default_table.clone())),
+        SequenceTableMode::Predefined => Some(SharedFSETable::new(default_table.clone())),
         SequenceTableMode::Rle => uniform_code(sequences, code)
             .map(build_rle_table)
-            .map(Rc::new),
-        SequenceTableMode::Compressed => compressed_table.cloned().map(Rc::new),
+            .map(SharedFSETable::new),
+        SequenceTableMode::Compressed => compressed_table.cloned().map(SharedFSETable::new),
         SequenceTableMode::Repeat => previous_table,
     }
 }
@@ -294,11 +293,13 @@ fn sequence_repeat_table(
 fn external_sequence_table(
     mode: SequenceTableMode,
     compressed_table: Option<&FSETable>,
-    previous_table: Option<Rc<FSETable>>,
-) -> Option<Option<Rc<FSETable>>> {
+    previous_table: Option<SharedFSETable>,
+) -> Option<Option<SharedFSETable>> {
     match mode {
         SequenceTableMode::Predefined | SequenceTableMode::Rle => Some(None),
-        SequenceTableMode::Compressed => compressed_table.cloned().map(Rc::new).map(Some),
+        SequenceTableMode::Compressed => {
+            compressed_table.cloned().map(SharedFSETable::new).map(Some)
+        }
         SequenceTableMode::Repeat => Some(previous_table),
     }
 }

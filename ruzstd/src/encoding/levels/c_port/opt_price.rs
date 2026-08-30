@@ -1,8 +1,6 @@
 //! Optimal-parser price model ported from the no-dictionary path in
 //! `zstd_opt.c`.
 
-use alloc::boxed::Box;
-
 use super::hash_chain_match::highbit32;
 use crate::encoding::blocks::{literal_length_code, match_length_code};
 
@@ -113,7 +111,7 @@ pub(super) struct OptPriceState {
     off_code_sum_base_price: u32,
     price_type: PriceType,
     compressed_literals: bool,
-    dictionary_seeds: Option<Box<DictionaryPriceSeeds>>,
+    dictionary_seeds: Option<DictionaryPriceSeeds>,
 }
 
 impl OptPriceState {
@@ -139,7 +137,7 @@ impl OptPriceState {
     }
 
     pub(super) fn set_dictionary_seeds(&mut self, seeds: DictionaryPriceSeeds) {
-        self.dictionary_seeds = Some(Box::new(seeds));
+        self.dictionary_seeds = Some(seeds);
     }
 
     pub(super) fn reset_for_frame(&mut self) {

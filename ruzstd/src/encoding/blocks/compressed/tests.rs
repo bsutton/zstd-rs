@@ -4,11 +4,11 @@ use super::*;
 use crate::encoding::frame_compressor::{CompressState, FseTables, OffsetHistory};
 use crate::encoding::levels::c_port::sequence_store::OffBase;
 use crate::encoding::{CompressionFileType, CompressionLevel};
+use crate::fse::fse_encoder::SharedFSETable;
 use crate::fse::fse_encoder::{
     build_table_from_data, default_ll_table, default_ml_table, default_of_table,
 };
 use crate::huff0::huff0_encoder::HuffmanTable;
-use alloc::rc::Rc;
 
 fn offset_history(newest: u32, second: u32, third: u32) -> OffsetHistory {
     OffsetHistory {
@@ -637,16 +637,25 @@ fn direct_stored_entropy_path_matches_prepared_path_across_blocks() {
         );
         assert_eq!(deferred_history, history_before);
         assert_eq!(
-            deferred_tables.ll_previous.as_ref().map(Rc::as_ptr),
-            ll_before.as_ref().map(Rc::as_ptr)
+            deferred_tables
+                .ll_previous
+                .as_ref()
+                .map(SharedFSETable::as_ptr),
+            ll_before.as_ref().map(SharedFSETable::as_ptr)
         );
         assert_eq!(
-            deferred_tables.ml_previous.as_ref().map(Rc::as_ptr),
-            ml_before.as_ref().map(Rc::as_ptr)
+            deferred_tables
+                .ml_previous
+                .as_ref()
+                .map(SharedFSETable::as_ptr),
+            ml_before.as_ref().map(SharedFSETable::as_ptr)
         );
         assert_eq!(
-            deferred_tables.of_previous.as_ref().map(Rc::as_ptr),
-            of_before.as_ref().map(Rc::as_ptr)
+            deferred_tables
+                .of_previous
+                .as_ref()
+                .map(SharedFSETable::as_ptr),
+            of_before.as_ref().map(SharedFSETable::as_ptr)
         );
         pending_second.commit(&mut deferred_tables, &mut deferred_history, None);
         assert_eq!(
@@ -776,20 +785,20 @@ fn matcher_offset_handoff_matches_replay_for_all_c_strategies() {
 
 #[test]
 fn pending_entropy_transaction_recycles_committed_and_rejected_tables() {
-    fn table(seed: u8) -> Rc<crate::fse::fse_encoder::FSETable> {
-        Rc::new(build_table_from_data(
+    fn table(seed: u8) -> crate::fse::fse_encoder::FSETable {
+        build_table_from_data(
             [seed, seed, seed.wrapping_add(1), seed.wrapping_add(2)]
                 .iter()
                 .copied(),
             9,
             true,
-        ))
+        )
     }
 
     let mut tables = FseTables::new();
-    tables.ll_previous = Some(table(1));
-    tables.ml_previous = Some(table(4));
-    tables.of_previous = Some(table(7));
+    tables.ll_previous = Some(SharedFSETable::new(table(1)));
+    tables.ml_previous = Some(SharedFSETable::new(table(4)));
+    tables.of_previous = Some(SharedFSETable::new(table(7)));
     let mut history = OffsetHistory::new();
     let next_history = OffsetHistory::from_offsets(9, 5, 2);
     let mut pending = PendingStoredEntropyState {
@@ -828,13 +837,13 @@ fn pending_entropy_transaction_recycles_committed_and_rejected_tables() {
 #[test]
 fn repeat_sequence_section_rejects_tables_that_cannot_encode_symbols() {
     let mut fse_tables = FseTables::new();
-    fse_tables.ll_previous = Some(Rc::new(build_table_from_data(
+    fse_tables.ll_previous = Some(SharedFSETable::new(build_table_from_data(
         [0u8, 1, 1].iter().copied(),
         9,
         true,
     )));
-    fse_tables.ml_previous = Some(Rc::new(default_ml_table()));
-    fse_tables.of_previous = Some(Rc::new(default_of_table()));
+    fse_tables.ml_previous = Some(SharedFSETable::new(default_ml_table()));
+    fse_tables.of_previous = Some(SharedFSETable::new(default_of_table()));
     let mut history = OffsetHistory::new();
     let original_history = history;
     let mut output = Vec::new();
