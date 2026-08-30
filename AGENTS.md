@@ -13,6 +13,18 @@ Restart anchor: if a future session starts cold, use this file as the canonical
 handoff and continue from the "Next Resume Action" section before doing new
 analysis or code changes.
 
+Release completion as of August 31, 2026: `zstd-complete` 0.2.0 was published
+from commit `b756ed244ad9ed6886d3c8bb6edf9c233367bc97` through crates.io Trusted
+Publishing and tagged `zstd-complete-v0.2.0`. Hosted CI run `33336565495`
+passed every job; publish run `33340155052` completed successfully. The final
+crate artifact SHA-256 was
+`1fbd3540d270b086caa6f53b83aa9d7e12f5ba870029da73b6950fd530610feb`.
+The crates.io API and docs.rs both exposed 0.2.0, and a fresh registry consumer
+passed Rust-to-zstd-C and zstd-C-to-Rust round trips. Issue #11 is merged; its
+GitHub issue remains open only because the lifecycle policy requires an
+explicit human statement that review is complete before applying `reviewed`
+and closing it. Resume post-release Rewise/SIMD work only when requested.
+
 Workspace-context checkpoint as of August 30, 2026: issue #11 is implemented
 directly on `master` under the user's explicit override of the issue-worktree
 default. `EncoderWorkspace`/`DecoderWorkspace` own reusable typed state;
