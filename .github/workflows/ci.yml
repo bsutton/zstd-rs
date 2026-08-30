@@ -101,10 +101,10 @@ jobs:
       - name: Inspect publishable package contents
         run: |
           cargo package -p zstd-complete --list
-      - name: Require mixed-license notices in the public package
+      - name: Require package license and inherited-code notice
         run: |
-          cargo package -p zstd-complete --list | grep -Fx LICENSE-MIT
-          cargo package -p zstd-complete --list | grep -Fx LICENSE-BSD-3-Clause
+          cargo package -p zstd-complete --list | grep -Fx LICENSE
+          cargo package -p zstd-complete --list | grep -Fx LICENSES/ruzstd-MIT.txt
           cargo package -p zstd-complete --list | grep -Fx THIRD_PARTY_NOTICES.md
 
   address-sanitizer:

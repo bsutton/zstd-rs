@@ -20,7 +20,8 @@ publishable package is now `zstd-complete` 0.1.0 (Rust import
 is not reserved until actual publication. The clean regenerated crate artifact
 is `target/package/zstd-complete-0.1.0.crate`: 235 files, 2.6 MiB unpacked and
 about 500 KiB compressed. It passes `gzip -t`, builds from packaged source, and
-contains both licenses, the notice, and the release README. Recompute its
+contains its BSD-3-Clause license, inherited ruzstd MIT attribution, provenance
+notice, and release README. Recompute its
 SHA-256 after the release commit is fixed because Cargo embeds that commit in
 `.cargo_vcs_info.json`; an artifact hash cannot be self-consistently recorded
 inside the same commit. Push the release commit and require the hosted
@@ -106,8 +107,9 @@ preserved five-crate release binary, one-crate instruction changes at levels
 were exact and branch counts were likewise neutral. The artifacts are
 `benchmarks/tmp/perf-z000033-topology-{five-crates,single-crate}-l*.stat`.
 
-Upstream/publishing policy: prepare an upstream proposal and mixed MIT plus
-BSD-3-Clause provenance, but disclose that there will be no human source-code
+Upstream/publishing policy: the separately published package selects
+BSD-3-Clause while preserving inherited ruzstd MIT attribution and complete
+provenance. Disclose that there will be no human source-code
 review. The human contributor will review and handle PR discussions; the code
 has instead undergone extensive differential correctness and benchmark gates.
 This does not satisfy upstream's present human-review policy, so maintainers

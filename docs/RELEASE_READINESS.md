@@ -18,11 +18,11 @@ version 0.1.0. This is a working release gate, not authorization to publish.
 - Concatenated-frame output round-trips through both ruzstd and the zstd C
   decoder. Separate tests cover raw blocks, checksums, prepared dictionaries,
   empty input, I/O-error preservation, and budget rejection.
-- Mixed MIT and selected BSD-3-Clause terms, provenance, and per-package
-  notices are present. The lack of a human source review must be disclosed in
-  any submission.
-- The consolidated package contents include both licenses, the third-party
-  notice, the private kernels, and the new streaming implementation. A fresh
+- The package selects Zstandard's BSD-3-Clause option as its single outbound
+  license. Provenance and the inherited ruzstd MIT attribution are retained;
+  the lack of a human source review must be disclosed in any submission.
+- The consolidated package contents include the package license, inherited
+  code notice, the private kernels, and the new streaming implementation. A fresh
   offline `cargo package --allow-dirty` verification of the single package
   succeeds, including compilation of the packaged source.
 - CI now describes native Windows and Apple-Silicon tests, AArch64 and wasm

@@ -7,10 +7,11 @@ dry-run.
 ## 1. Prepare the release commit
 
 1. Confirm `ruzstd/Cargo.toml` has package `zstd-complete`, the intended
-   version, `MIT AND BSD-3-Clause`, and the `bsutton/zstd-rs` repository URLs.
+   version, `BSD-3-Clause`, and the `bsutton/zstd-rs` repository URLs.
 2. Replace `unreleased` in `Changelog.md` with the release date.
-3. Review `Readme.md`, `THIRD_PARTY_NOTICES.md`, and both packaged license
-   files. Keep the no-human-review disclosure and benchmark limitations.
+3. Review `Readme.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, and the inherited
+   ruzstd notice in `LICENSES/ruzstd-MIT.txt`. Keep the no-human-review
+   disclosure and benchmark limitations.
 4. Commit the complete implementation and release metadata. Do not publish
    from the current dirty development worktree.
 
@@ -40,8 +41,8 @@ cargo publish -p zstd-complete --locked --dry-run
 ```
 
 Inspect `target/package/zstd-complete-0.1.0.crate` and require
-`LICENSE-MIT`, `LICENSE-BSD-3-Clause`, `THIRD_PARTY_NOTICES.md`, and
-`Readme.md`. Run `gzip -t` before recording the final SHA-256. If an old local
+`LICENSE`, `LICENSES/ruzstd-MIT.txt`, `THIRD_PARTY_NOTICES.md`, and `Readme.md`.
+Run `gzip -t` before recording the final SHA-256. If an old local
 artifact has trailing bytes, move that generated artifact aside and rerun
 `cargo package`; never upload the stale file.
 

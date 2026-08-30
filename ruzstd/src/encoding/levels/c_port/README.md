@@ -10,10 +10,12 @@ Zstandard format. Measured Rust-specific improvements may diverge from C, exact
 compressed-byte parity is not public behavior, and recurring audits of future
 C releases are explicitly out of scope.
 
-Derived compressor code is distributed under the selected Zstandard BSD option
-together with the existing ruzstd MIT terms (`MIT AND BSD-3-Clause`). See
-`THIRD_PARTY_NOTICES.md` and the packaged license texts. Refactoring or moving
-the code does not remove that provenance.
+`zstd-complete` is distributed under the selected Zstandard `BSD-3-Clause`
+option. The inherited ruzstd copyright and MIT permission notice remains in
+`LICENSES/ruzstd-MIT.txt` as required attribution for substantial pre-existing
+decoder and supporting Rust code; it is not a second outbound package-license
+choice. See `THIRD_PARTY_NOTICES.md`. Refactoring or moving derived code does
+not remove its provenance.
 
 Future structural work should extract cohesive Rust-owned objects and complete
 producer-to-consumer transactions, not small helpers chosen merely to resemble

@@ -146,8 +146,9 @@ streaming, and allocator/RSS tests before making release-wide claims.
 
 ## Publication checkpoint
 
-- The mixed-license manifests now declare `MIT AND BSD-3-Clause`; packages
-  carry both license texts and a Zstandard 1.5.7 provenance notice.
+- The release package now selects Zstandard's `BSD-3-Clause` option as its
+  outbound license and carries both its provenance and the required inherited
+  ruzstd MIT attribution.
 - Generated kernel calls with caller-dependent memory invariants are explicitly
   unsafe and documented; `unsafe_op_in_unsafe_fn` is denied in the derived
   compressor and five kernel units.

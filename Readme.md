@@ -256,12 +256,17 @@ still be consumed by the encoder and decoder.
 
 ## Licensing and provenance
 
-This package is distributed under `MIT AND BSD-3-Clause`.
+This package is distributed under `BSD-3-Clause`, selecting the BSD option
+offered by the Zstandard reference implementation.
 
-Independently authored ruzstd code remains under MIT. Compressor portions
-derived from Zstandard are distributed under Zstandard's selected
-BSD-3-Clause option. See `THIRD_PARTY_NOTICES.md`, `LICENSE-MIT`, and
-`LICENSE-BSD-3-Clause` for copyright, provenance, and the detailed source map.
+This project is a fork of
+[`KillingSpark/zstd-rs`](https://github.com/KillingSpark/zstd-rs), created by
+Moritz Borcherding and developed by its contributors. Substantial inherited
+Rust remains in the decoder and supporting format, entropy, dictionary, and
+I/O code. Its MIT copyright and permission notice is preserved as required
+attribution in `LICENSES/ruzstd-MIT.txt`; it is not a second outbound license
+choice for this package. See `THIRD_PARTY_NOTICES.md` for credit, provenance,
+and the detailed compressor source map.
 
 The implementation is not represented as clean-room work and is not intended
 to remain a faithful C port. Future maintenance will improve the Rust design

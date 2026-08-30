@@ -12,9 +12,9 @@ First release as `zstd-complete`, forked from `ruzstd`.
 * Add portable scalar execution and optimized runtime-selected x86-64 paths,
   plus release checks for Windows, Apple Silicon, AArch64, wasm `no_std`, and
   forced-scalar builds.
-* Disclose the Zstandard 1.5.7 compressor provenance and distribute derived
-  compressor portions under the selected BSD-3-Clause option alongside the
-  existing MIT license.
+* Disclose the Zstandard 1.5.7 compressor provenance and distribute the package
+  under the selected BSD-3-Clause option while retaining the inherited ruzstd
+  copyright and MIT permission notice.
 * Add generated Fast, DFast, row, Huffman, and sequence-store kernels as private
   modules in the main crate. The temporary five-crate development layout was
   removed before release.

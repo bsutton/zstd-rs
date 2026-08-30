@@ -16,16 +16,18 @@ is no plan for recurring audits of future C releases.
 ## Licensing and provenance
 
 The translated Zstandard sources are dual-licensed BSD-style or GPLv2. We
-select the BSD-style option. Meta's notice, conditions, and disclaimer are
-retained in `LICENSES/Zstandard-BSD-3-Clause.txt`, and provenance is disclosed
-in `THIRD_PARTY_NOTICES.md` and the compressor source map. Existing ruzstd code
-remains MIT-licensed; packages containing both bodies of work declare
-`MIT AND BSD-3-Clause`.
+select the BSD-style option, and the separately published `zstd-complete`
+package uses `BSD-3-Clause` as its outbound license. Meta's notice, conditions,
+and disclaimer are retained in `LICENSE`; provenance is disclosed in
+`THIRD_PARTY_NOTICES.md` and the compressor source map. The copyright and MIT
+permission notice for substantial inherited ruzstd decoder and supporting code
+is also preserved as required attribution in `LICENSES/ruzstd-MIT.txt`.
 
-We ask the maintainer to confirm whether this mixed-license arrangement is
-acceptable. If the repository must remain MIT-only, we will publish the
-compressor separately rather than describe the direct port as clean-room or
-attempt to remove Meta's required notice.
+For an upstream contribution, we ask the maintainer to confirm whether this
+BSD-licensed package direction is acceptable for the MIT-licensed repository.
+If the repository must remain MIT-only, the compressor will remain in the
+separately published package rather than be described as clean-room or have
+Meta's required notice removed.
 
 ## Review disclosure
 
@@ -146,8 +148,8 @@ Third-party corpus bytes are referenced rather than redistributed.
 
 ## Questions for upstream
 
-1. Is mixed MIT plus BSD-3-Clause licensing acceptable with the proposed
-   notices and provenance?
+1. Is a BSD-3-Clause contribution acceptable with the proposed notices and
+   provenance in the currently MIT-licensed repository?
 2. Given the explicit absence of full human source review, are maintainers
    willing to evaluate or adopt the code under an exception to the stated AI
    contribution policy?
