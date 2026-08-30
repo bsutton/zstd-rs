@@ -23,6 +23,8 @@ Rust imports the package as `zstd_complete`.
 ## Quick start
 
 ```rust
+# #[cfg(feature = "std")]
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 use std::io::{Cursor, Read};
 use zstd_complete::{
     decoding::MultiFrameDecoder,
@@ -38,7 +40,10 @@ let mut decoded = Vec::new();
 decoder.read_to_end(&mut decoded)?;
 
 assert_eq!(decoded, input);
-# Ok::<(), Box<dyn std::error::Error>>(())
+# Ok(())
+# }
+# #[cfg(not(feature = "std"))]
+# fn main() {}
 ```
 
 For large inputs, `Encoder<W>` implements `std::io::Write` and keeps memory use
