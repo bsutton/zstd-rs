@@ -2,6 +2,22 @@
 
 This document records the changes made between versions.
 
+# 0.2.0 (2026-08-31)
+
+* Add negative fast compression levels and typed controls for strategy,
+  matching, long-distance matching, target block size, pledged input size, and
+  frame content-size policy.
+* Add bounded archive decoding for concatenated and skippable frames, including
+  dictionary selection and configurable resource limits.
+* Add native formatted dictionary training and reusable prepared dictionaries.
+* Add typed reusable encoder and decoder workspaces, including allocation-free
+  prepared operations backed by caller-provided byte slices.
+* Harden the workspace interfaces across alignments, compression strategies,
+  dictionaries, repeated use, error recovery, Miri, and AddressSanitizer.
+* Expand interoperability and release testing across the official zstd source
+  fixtures, the Silesia corpus, hosted operating systems, and feature sets.
+* Simplify the README around the public Rust API and intended use cases.
+
 # 0.1.0 (2026-08-30)
 
 First release as `zstd-complete`, forked from `ruzstd`.

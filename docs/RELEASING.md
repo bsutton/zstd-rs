@@ -41,7 +41,7 @@ cargo package -p zstd-complete --locked
 cargo publish -p zstd-complete --locked --dry-run
 ```
 
-Inspect `target/package/zstd-complete-0.1.0.crate` and require
+Inspect `target/package/zstd-complete-X.Y.Z.crate` and require
 `LICENSE`, `LICENSES/ruzstd-MIT.txt`, `THIRD_PARTY_NOTICES.md`, and `Readme.md`.
 Run `gzip -t` before recording the final SHA-256. If an old local
 artifact has trailing bytes, move that generated artifact aside and rerun

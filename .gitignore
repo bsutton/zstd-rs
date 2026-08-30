@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 **/*.rs.bk
 Cargo.lock
+!/Cargo.lock
 /local_corpus_files
 /local_dict_corpus_files
 /orig-zstd
