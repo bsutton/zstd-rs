@@ -25,6 +25,7 @@ pub(crate) struct BlockCompressionConfig {
     pub(super) c_cost_sequence_table_selection: bool,
     pub(super) c_literal_cost_model: bool,
     pub(super) prefer_valid_repeat_huffman: bool,
+    allocation_free_workspace: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -122,19 +123,14 @@ impl BlockCompressionTuningOverrides {
 }
 
 impl BlockCompressionConfig {
-    pub(crate) fn prepare_allocation_free_runtime_tuning() {
-        // The retained C-port paths expose environment-controlled switches for
-        // same-binary benchmark attribution. Reading those variables may
-        // allocate on some platforms, notably Windows, so prepared workspaces
-        // resolve every switch during construction rather than on first use.
-        let _ = Self::for_c_strategy(1).uses_c_native_sequence_store();
-        let _ = Self::for_c_strategy(4).uses_c_greedy_native_sequence_store();
-        let _ = Self::for_c_strategy(8).uses_c_opt_native_sequence_store();
-    }
-
     pub(crate) fn prepare_for_allocation_free_workspace(&mut self) {
         self.huffman_table_search = HuffmanTableSearch::Heuristic;
         self.exact_sequence_mode_search = false;
+        self.allocation_free_workspace = true;
+    }
+
+    pub(crate) const fn is_allocation_free_workspace(self) -> bool {
+        self.allocation_free_workspace
     }
 
     pub(crate) fn uses_c_fast_entropy_path(self) -> bool {
@@ -147,6 +143,9 @@ impl BlockCompressionConfig {
     pub(crate) fn uses_c_native_sequence_store(self) -> bool {
         if !self.c_fast_sequence_emission {
             return false;
+        }
+        if self.allocation_free_workspace {
+            return true;
         }
 
         #[cfg(feature = "std")]
@@ -172,6 +171,9 @@ impl BlockCompressionConfig {
         if self.c_fast_sequence_emission || !self.c_literal_cost_model {
             return false;
         }
+        if self.allocation_free_workspace {
+            return true;
+        }
 
         #[cfg(feature = "std")]
         {
@@ -194,6 +196,9 @@ impl BlockCompressionConfig {
     pub(crate) fn uses_c_opt_native_sequence_store(self) -> bool {
         if self.c_fast_sequence_emission || !self.c_literal_cost_model {
             return false;
+        }
+        if self.allocation_free_workspace {
+            return true;
         }
 
         #[cfg(feature = "std")]
@@ -257,6 +262,7 @@ impl BlockCompressionConfig {
                 c_cost_sequence_table_selection: true,
                 c_literal_cost_model: true,
                 prefer_valid_repeat_huffman: false,
+                allocation_free_workspace: false,
             };
         }
 
@@ -282,6 +288,7 @@ impl BlockCompressionConfig {
             c_cost_sequence_table_selection: false,
             c_literal_cost_model: true,
             prefer_valid_repeat_huffman: false,
+            allocation_free_workspace: false,
         }
     }
 
@@ -361,6 +368,7 @@ impl BlockCompressionConfig {
             c_cost_sequence_table_selection: false,
             c_literal_cost_model: false,
             prefer_valid_repeat_huffman: false,
+            allocation_free_workspace: false,
         };
         #[cfg(feature = "std")]
         config.apply_tuning_overrides();

@@ -92,9 +92,6 @@ pub(crate) use opt_frame::{
 pub(crate) use opt_state::OptBlockState as WorkspaceOptBlockState;
 pub(crate) use params::Strategy as WorkspaceStrategy;
 
-pub(crate) fn prepare_workspace_runtime() {
-    block_emit::prepare_allocation_free_runtime_tuning();
-}
 #[cfg(any(feature = "std", feature = "c-port-validation", test))]
 pub(crate) use strategy_frame::encode_frame_no_dict;
 #[cfg(any(feature = "c-port-validation", test))]

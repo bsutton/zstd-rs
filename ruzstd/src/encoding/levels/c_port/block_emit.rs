@@ -34,7 +34,10 @@ use crate::{
 #[cfg(feature = "std")]
 static C_MATCHER_OFFSET_HANDOFF: OnceLock<bool> = OnceLock::new();
 
-fn uses_matcher_offset_handoff() -> bool {
+fn uses_matcher_offset_handoff(config: BlockCompressionConfig) -> bool {
+    if config.is_allocation_free_workspace() {
+        return true;
+    }
     #[cfg(feature = "std")]
     {
         *C_MATCHER_OFFSET_HANDOFF.get_or_init(|| {
@@ -47,11 +50,6 @@ fn uses_matcher_offset_handoff() -> bool {
     {
         true
     }
-}
-
-pub(super) fn prepare_allocation_free_runtime_tuning() {
-    crate::encoding::blocks::prepare_allocation_free_runtime_tuning();
-    let _ = uses_matcher_offset_handoff();
 }
 
 pub(super) enum PreparedBlockEmission {
@@ -78,7 +76,7 @@ pub(super) fn append_stored_block_or_raw(
     offset_history: &mut OffsetHistory,
     output: &mut Vec<u8>,
 ) -> PreparedBlockEmission {
-    if defers_stored_entropy_commit()
+    if (config.is_allocation_free_workspace() || defers_stored_entropy_commit())
         || fse_build_scratch
             .as_deref()
             .is_some_and(FSETableBuildScratch::has_shared_pool)
@@ -142,7 +140,7 @@ fn append_stored_block_or_raw_deferred(
     output.extend_from_slice(&[0; 3]);
     let compressed_start = output.len();
     let mut pending_state = PendingStoredEntropyState::new();
-    let mut compression_result = if uses_matcher_offset_handoff() {
+    let mut compression_result = if uses_matcher_offset_handoff(config) {
         let offsets = compressed_repeat_offsets.as_offsets();
         compress_c_stored_block_deferred_with_matcher_history(
             output,
@@ -224,7 +222,7 @@ fn append_stored_block_or_raw_eager(
     let block_start = output.len();
     output.extend_from_slice(&[0; 3]);
     let compressed_start = output.len();
-    let mut compression_result = if uses_matcher_offset_handoff() {
+    let mut compression_result = if uses_matcher_offset_handoff(config) {
         let offsets = compressed_repeat_offsets.as_offsets();
         compress_c_stored_block_with_matcher_history(
             output,
