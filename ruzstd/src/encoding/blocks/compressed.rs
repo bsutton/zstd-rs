@@ -729,10 +729,10 @@ fn compress_c_stored_block_with_stats_impl<const MATCHER_HISTORY: bool>(
 ) -> CompressedBlockResult {
     debug_assert!(!config.exact_sequence_mode_search);
     if fse_build_scratch.is_some()
-        && !crate::fse::fse_encoder::reuses_fast_fse_build_scratch()
         && !fse_build_scratch
             .as_deref()
             .is_some_and(FSETableBuildScratch::has_shared_pool)
+        && !crate::fse::fse_encoder::reuses_fast_fse_build_scratch()
     {
         fse_build_scratch = None;
     }

@@ -599,7 +599,8 @@ impl HuffmanTable {
         } = recycled;
         let (mut codes, codes_lease) = codes.lease_vec();
         let (mut table_description, description_lease) = table_description.lease_vec();
-        let max_num_bits = if super::reuses_huffman_weight_fse_scratch() {
+        let max_num_bits = if scratch.workspace_backed || super::reuses_huffman_weight_fse_scratch()
+        {
             if let Some(fse_scratch) = fse_scratch {
                 crate::kernel::huff0::build_described_huffman_table_reusing_with_context(
                     counts,

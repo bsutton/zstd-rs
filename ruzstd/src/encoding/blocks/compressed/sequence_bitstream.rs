@@ -80,10 +80,10 @@ pub(super) fn apply_fse_table_update_with_scratch(
     update: FseTableUpdate,
     mut scratch: Option<&mut FSETableBuildScratch>,
 ) {
-    if !crate::fse::fse_encoder::recycles_fast_fse_tables()
-        && !scratch
-            .as_deref()
-            .is_some_and(FSETableBuildScratch::has_shared_pool)
+    if !scratch
+        .as_deref()
+        .is_some_and(FSETableBuildScratch::has_shared_pool)
+        && !crate::fse::fse_encoder::recycles_fast_fse_tables()
     {
         apply_fse_table_update(previous, repeat_valid, update);
         return;
@@ -111,7 +111,11 @@ pub(super) fn recycle_fse_table_update(
     update: FseTableUpdate,
     scratch: Option<&mut FSETableBuildScratch>,
 ) {
-    if !crate::fse::fse_encoder::recycles_fast_fse_tables() {
+    if !scratch
+        .as_deref()
+        .is_some_and(FSETableBuildScratch::has_shared_pool)
+        && !crate::fse::fse_encoder::recycles_fast_fse_tables()
+    {
         return;
     }
     if let FseTableUpdate::Replace(table) = update {
