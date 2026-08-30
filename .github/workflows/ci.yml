@@ -2,32 +2,52 @@ on: [push, pull_request]
 
 name: CI
 
-jobs:
-  tests:
-      name: stable lint, test, build
-      runs-on: ubuntu-latest
-      steps:
-        - name: Checkout sources
-          uses: actions/checkout@v4
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
-        - name: Install stable toolchain
-          uses: dtolnay/rust-toolchain@stable
-          with:
-            components: clippy
-        - name: Install cargo-hack and cargo-msrv
-          uses: taiki-e/install-action@v2
-          with:
-            tool: cargo-hack, cargo-msrv
-        - name: check
-          run: cargo hack check --workspace --feature-powerset --exclude-features rustc-dep-of-std
-        - name: cargo hack clippy
-          run: cargo hack clippy --workspace --feature-powerset --exclude-features rustc-dep-of-std
-        - name: cargo hack test
-          run: cargo hack test --workspace --feature-powerset --exclude-features rustc-dep-of-std
-        - name: Verify MSRV (cli)
-          run: cargo msrv verify --path cli/
-        - name: Verify MSRV (lib)
-          run: cargo msrv verify --path ruzstd/
+jobs:
+  stable-powerset:
+    name: stable powerset ${{ matrix.partition }}
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1/4, 2/4, 3/4, 4/4]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
+      - name: Check feature combinations
+        run: cargo hack check --workspace --feature-powerset --exclude-features rustc-dep-of-std --partition ${{ matrix.partition }}
+      - name: Clippy feature combinations
+        run: cargo hack clippy --workspace --feature-powerset --exclude-features rustc-dep-of-std --partition ${{ matrix.partition }}
+      - name: Test feature combinations
+        run: cargo hack test --workspace --feature-powerset --exclude-features rustc-dep-of-std --partition ${{ matrix.partition }}
+
+  stable-msrv:
+    name: stable MSRV
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Install cargo-msrv
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-msrv
+      - name: Verify MSRV (cli)
+        run: cargo msrv verify --path cli/
+      - name: Verify MSRV (lib)
+        run: cargo msrv verify --path ruzstd/
 
   nightly-stuff:
     name: nightly lint, miri

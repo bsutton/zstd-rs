@@ -27,7 +27,9 @@ version 0.1.0. This is a working release gate, not authorization to publish.
   succeeds, including compilation of the packaged source.
 - CI now describes native Windows and Apple-Silicon tests, AArch64 and wasm
   `no_std` checks, forced-scalar execution, focused Miri coverage, and package
-  content/license checks. Cross-builds pass locally for Windows x86-64, macOS
+  content/license checks. The complete 66-combination stable feature powerset
+  is partitioned across four parallel jobs, and duplicate push/PR runs cancel
+  by branch. Cross-builds pass locally for Windows x86-64, macOS
   x86-64/AArch64, Linux AArch64 `no_std`, and wasm `no_std`. Native Windows
   and Apple-Silicon execution has also passed on the pushed draft PR.
 - The local library gate passes 758 tests with five diagnostic tests ignored;
