@@ -62,7 +62,12 @@ impl EncoderOptions {
     pub fn estimated_memory_usage(&self) -> usize {
         let required = c_port::estimated_frame_memory(self.level.c_level(), self.frame_chunk_size);
         self.dictionary.as_ref().map_or(required, |dictionary| {
-            required.saturating_add(dictionary.raw_size().saturating_mul(2))
+            let retained_copies = if cfg!(feature = "multithreading") {
+                3
+            } else {
+                2
+            };
+            required.saturating_add(dictionary.raw_size().saturating_mul(retained_copies))
         })
     }
 
@@ -93,7 +98,7 @@ impl EncoderOptions {
         self
     }
 
-    fn validate(&self) -> Result<(), EncodeError> {
+    pub(super) fn validate(&self) -> Result<(), EncodeError> {
         if self.frame_chunk_size == 0 {
             return Err(EncodeError::InvalidOptions(
                 "frame chunk size must be greater than zero",
@@ -138,6 +143,8 @@ impl fmt::Debug for EncoderOptions {
 pub struct EncoderDictionary {
     prepared: c_port::PreparedDictionary,
     raw_size: usize,
+    #[cfg(feature = "multithreading")]
+    raw: Vec<u8>,
 }
 
 impl EncoderDictionary {
@@ -154,11 +161,18 @@ impl EncoderDictionary {
         Ok(Self {
             prepared,
             raw_size: dictionary.len(),
+            #[cfg(feature = "multithreading")]
+            raw: dictionary.to_vec(),
         })
     }
 
     pub const fn raw_size(&self) -> usize {
         self.raw_size
+    }
+
+    #[cfg(feature = "multithreading")]
+    pub(super) fn raw(&self) -> &[u8] {
+        &self.raw
     }
 }
 
@@ -200,7 +214,12 @@ impl Default for EncoderOptions {
 pub enum EncodeError {
     Io(io::Error),
     InvalidOptions(&'static str),
-    MemoryLimitExceeded { limit: usize, required: usize },
+    MemoryLimitExceeded {
+        limit: usize,
+        required: usize,
+    },
+    #[cfg(feature = "multithreading")]
+    WorkerFailed,
 }
 
 impl fmt::Display for EncodeError {
@@ -212,6 +231,8 @@ impl fmt::Display for EncodeError {
                 formatter,
                 "encoder needs an estimated {required} bytes, exceeding the {limit}-byte memory limit"
             ),
+            #[cfg(feature = "multithreading")]
+            Self::WorkerFailed => formatter.write_str("a compression worker failed"),
         }
     }
 }
@@ -307,6 +328,25 @@ fn append_checksum(frame: &mut Vec<u8>, source: &[u8]) {
         let _ = (frame, source);
         unreachable!("checksum options are rejected without the hash feature");
     }
+}
+
+#[cfg(feature = "multithreading")]
+pub(super) fn encode_frame_for_options(source: &[u8], options: &EncoderOptions) -> Vec<u8> {
+    let mut compressed = if options.level.is_uncompressed() {
+        encode_uncompressed_frame(source)
+    } else if let Some(dictionary) = options.dictionary.as_ref() {
+        c_port::encode_frame_with_prepared_dictionary(
+            source,
+            options.level.c_level(),
+            &dictionary.prepared,
+        )
+    } else {
+        c_port::encode_frame_no_dict(source, options.level.c_level())
+    };
+    if options.checksum {
+        append_checksum(&mut compressed, source);
+    }
+    compressed
 }
 
 fn encode_uncompressed_frame(source: &[u8]) -> Vec<u8> {

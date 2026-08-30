@@ -10,6 +10,8 @@ pub(crate) mod util;
 mod compression_level;
 mod frame_compressor;
 mod levels;
+#[cfg(all(feature = "std", feature = "multithreading"))]
+mod parallel_encoder;
 #[cfg(feature = "std")]
 mod streaming_encoder;
 pub use compression_level::{CompressionLevel, InvalidCompressionLevel};
@@ -21,6 +23,8 @@ pub(crate) use file_profile::{compression_file_profile_for_path_and_data, read_f
 pub use file_profile::{compression_file_type_for_path, compression_file_type_for_path_and_data};
 pub use frame_compressor::FrameCompressor;
 pub use match_generator::MatchGeneratorDriver;
+#[cfg(all(feature = "std", feature = "multithreading"))]
+pub use parallel_encoder::{encode_all_parallel, encode_parallel, ParallelEncoder};
 #[cfg(feature = "std")]
 pub use streaming_encoder::{
     encode, encode_all, DictionaryError, EncodeError, Encoder, EncoderDictionary, EncoderOptions,

@@ -43,6 +43,8 @@ c-port-validation = []
 # Diagnostic/release-gate feature that executes portable entropy paths even on
 # an x86-64 host with BMI2. It is not intended as a normal tuning option.
 force-scalar = []
+# Opt-in bounded worker-thread support for independent-frame compression.
+multithreading = ["std"]
 std = []
 
 # Internal feature, only used when building as part of libstd, not part of the

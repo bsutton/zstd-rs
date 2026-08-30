@@ -69,6 +69,40 @@ returns a `Vec<u8>`. The older `compress`, `compress_to_vec`, and
 `FrameCompressor` interfaces remain available, including in `no_std`, but the
 bounded, fallible API is preferred for new `std` applications.
 
+### Opt-in parallel compression
+
+Enable the non-default `multithreading` feature to compress independent frames
+on multiple worker threads. `ParallelEncoder` implements `Write`, preserves
+frame order, bounds the number of in-flight frames, and applies the configured
+memory limit to the aggregate worker estimate. A worker count of one delegates
+directly to the existing `Encoder`; the default single-threaded implementation
+does not contain channels, locks, atomics, or worker checks in its compression
+path.
+
+```rust,no_run
+# #[cfg(all(feature = "std", feature = "multithreading"))]
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+use std::{io::Write, num::NonZeroUsize};
+use zstd_complete::encoding::{CompressionLevel, EncoderOptions, ParallelEncoder};
+
+let options = EncoderOptions::new(CompressionLevel::DEFAULT)
+    .with_memory_limit(256 * 1024 * 1024);
+let mut encoder =
+    ParallelEncoder::new(Vec::new(), options, NonZeroUsize::new(4).unwrap())?;
+encoder.write_all(b"input split into ordered independent frames")?;
+let compressed = encoder.finish()?;
+# let _ = compressed;
+# Ok(())
+# }
+# #[cfg(not(all(feature = "std", feature = "multithreading")))]
+# fn main() {}
+```
+
+Parallelism begins only when at least two complete input frames are available,
+so inputs no larger than one configured frame do not gain throughput. Smaller
+frame chunks expose more parallel work but may reduce compression ratio because
+matches never cross frame boundaries.
+
 ## Decompression
 
 `StreamingDecoder` implements the crate's `Read` interface for one frame:
@@ -105,7 +139,7 @@ important when consuming the multi-frame output of a bounded `Encoder`.
 | `no_std` with `alloc` | Yes | Lower-level encode/decode APIs; the `std::io` encoder requires `std` |
 | Portable scalar implementation | Yes | Used on non-x86 targets and available as a forced release gate |
 | Runtime-selected x86-64 acceleration | Yes | BMI2 paths are selected at runtime; distributed binaries need not use `target-cpu=native` |
-| Multithreaded compression | No | Compression is single-threaded |
+| Multithreaded compression | Opt-in | The `multithreading` feature parallelizes ordered independent frames |
 | zstd C ABI/API compatibility | No | This is an idiomatic Rust API, not a drop-in C replacement |
 | Full advanced parameter surface | No | Negative levels, worker controls, pledged-size tuning, and `targetCBlockSize` are not stable public options |
 | Stable byte identity with zstd C | No | Output is format-compatible and can legitimately differ in block and match choices |

@@ -13,6 +13,22 @@ Restart anchor: if a future session starts cold, use this file as the canonical
 handoff and continue from the "Next Resume Action" section before doing new
 analysis or code changes.
 
+Active issue checkpoint as of August 30, 2026: issue #6 is implemented on
+branch `issue-6-multithreaded-encoder` in persistent worktree
+`/home/bsutton/git/.codex.workspaces/zstd-rs-issue-6-multithreaded-encoder`.
+The non-default `multithreading` feature adds a bounded ordered
+`ParallelEncoder`; one worker delegates to the unchanged `Encoder`, while two
+or more workers compress independent frames with thread-local state. Focused,
+full default, full feature-enabled, no_std wasm, strict Clippy (allowing only
+the pre-existing removed-lint annotation), rustdoc, formatting, and diff gates
+pass. Default level-3 instructions changed only +0.0060%. Silesia throughput at
+1/2/4 workers was 1.00x/1.53x/1.85x with exact output across worker counts;
+zstd C remains about 6-6.5% faster and is 0.139% smaller under its different
+single-frame job model. See `docs/MULTITHREADED_COMPRESSION.md`. Before marking
+the issue tested/implemented, commit and push the branch, update issue #6, and
+decide whether the current first version needs persistent pool reuse or more
+failure-injection/RSS coverage; do not add worker checks to the default path.
+
 Release checkpoint as of August 30, 2026: optimization is stopped and the
 publishable package is now `zstd-complete` 0.1.0 (Rust import
 `zstd_complete`). The crates.io API returned 404 for the name and repeated live
