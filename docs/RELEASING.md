@@ -1,8 +1,9 @@
 # Releasing `zstd-complete`
 
 This checklist is intentionally separate from optimization work. Publishing a
-crate version is irreversible, and an unregistered name is not reserved by a
-dry-run.
+crate version is irreversible. Version 0.1.0 has already been published; later
+versions use crates.io Trusted Publishing from the protected GitHub `release`
+environment and `.github/workflows/release.yml`.
 
 ## 1. Prepare the release commit
 
@@ -48,20 +49,26 @@ artifact has trailing bytes, move that generated artifact aside and rerun
 
 ## 4. Publish only with explicit approval
 
-After confirming the crates.io account/token and while the name remains
-available:
+Confirm that the release commit is on `master`, all hosted CI jobs passed, and
+the crates.io Trusted Publisher has these exact claims:
 
-```sh
-cargo publish -p zstd-complete --locked
-```
+- owner `bsutton`;
+- repository `zstd-rs`;
+- workflow `release.yml`;
+- environment `release`.
 
-This is the only step that uploads. It must not be run by inference from a
-request to prepare the release.
+Then manually dispatch the `Publish zstd-complete` workflow from `master` and
+enter the exact manifest version. The protected environment supplies the human
+approval boundary. The workflow requests a short-lived crates.io credential by
+OIDC; no long-lived `CARGO_REGISTRY_TOKEN` secret should exist.
+
+The final workflow step is the only step that uploads. Do not approve it by
+inference from a request to prepare a release.
 
 ## 5. Verify and tag
 
 Wait for the crate and docs to become available, then compile a fresh external
-consumer using `zstd-complete = "0.1.0"` and verify a Rust/C round trip. Tag the
-exact published commit as `zstd-complete-v0.1.0` and push the tag. If the
+consumer using the published version and verify a Rust/C round trip. Tag the
+exact published commit as `zstd-complete-vX.Y.Z` and push the tag. If the
 published package has a defect, publish a new patch version; crates.io versions
 cannot be replaced.

@@ -1,0 +1,52 @@
+name: Publish zstd-complete
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version expected in ruzstd/Cargo.toml (for example, 0.1.1)
+        required: true
+        type: string
+
+concurrency:
+  group: publish-zstd-complete
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish zstd-complete ${{ inputs.version }}
+    if: github.repository == 'bsutton/zstd-rs' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout the selected commit
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Confirm package version
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+        run: |
+          actual_version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "zstd-complete") | .version')"
+          test "$actual_version" = "$EXPECTED_VERSION"
+
+      - name: Recheck the publishable package
+        run: cargo publish -p zstd-complete --locked --dry-run
+
+      - name: Authenticate with crates.io
+        id: crates_io
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish to crates.io
+        run: cargo publish -p zstd-complete --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io.outputs.token }}
