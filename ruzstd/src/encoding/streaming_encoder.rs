@@ -1,10 +1,10 @@
-use alloc::vec::Vec;
-use core::fmt;
+use alloc::{string::ToString, vec::Vec};
 #[cfg(feature = "hash")]
 use core::hash::Hasher;
+use core::{convert::TryFrom, fmt};
 use std::io::{self, Read, Write};
 
-use super::{levels::c_port, CompressionLevel};
+use super::{levels::c_port, CompressionLevel, CompressionTuning, ContentSizePolicy};
 use crate::{
     blocks::block::BlockType,
     common::MAX_BLOCK_SIZE,
@@ -24,6 +24,9 @@ pub struct EncoderOptions {
     frame_chunk_size: usize,
     dictionary: Option<EncoderDictionary>,
     checksum: bool,
+    tuning: CompressionTuning,
+    pledged_source_size: Option<u64>,
+    content_size_policy: ContentSizePolicy,
 }
 
 impl EncoderOptions {
@@ -35,6 +38,9 @@ impl EncoderOptions {
             frame_chunk_size: DEFAULT_FRAME_CHUNK_SIZE,
             dictionary: None,
             checksum: false,
+            tuning: CompressionTuning::new(),
+            pledged_source_size: None,
+            content_size_policy: ContentSizePolicy::Include,
         }
     }
 
@@ -56,6 +62,18 @@ impl EncoderOptions {
 
     pub const fn checksum(&self) -> bool {
         self.checksum
+    }
+
+    pub const fn tuning(&self) -> CompressionTuning {
+        self.tuning
+    }
+
+    pub const fn pledged_source_size(&self) -> Option<u64> {
+        self.pledged_source_size
+    }
+
+    pub const fn content_size_policy(&self) -> ContentSizePolicy {
+        self.content_size_policy
     }
 
     /// Returns the conservative memory estimate checked by [`Encoder::new`].
@@ -98,6 +116,24 @@ impl EncoderOptions {
         self
     }
 
+    /// Applies validated, typed overrides to the selected level preset.
+    pub const fn with_tuning(mut self, tuning: CompressionTuning) -> Self {
+        self.tuning = tuning;
+        self
+    }
+
+    /// Declares the exact number of input bytes the encoder must receive.
+    pub const fn with_pledged_source_size(mut self, bytes: u64) -> Self {
+        self.pledged_source_size = Some(bytes);
+        self
+    }
+
+    /// Includes or omits the decoded size in each emitted frame header.
+    pub const fn with_content_size_policy(mut self, policy: ContentSizePolicy) -> Self {
+        self.content_size_policy = policy;
+        self
+    }
+
     pub(super) fn validate(&self) -> Result<(), EncodeError> {
         if self.frame_chunk_size == 0 {
             return Err(EncodeError::InvalidOptions(
@@ -109,6 +145,14 @@ impl EncoderOptions {
                 "an uncompressed encoder cannot use a dictionary",
             ));
         }
+        if self.level.is_uncompressed() && self.tuning != CompressionTuning::new() {
+            return Err(EncodeError::InvalidOptions(
+                "an uncompressed encoder cannot use compression tuning",
+            ));
+        }
+        self.tuning
+            .validate()
+            .map_err(EncodeError::InvalidOptions)?;
         if self.checksum && !cfg!(feature = "hash") {
             return Err(EncodeError::InvalidOptions(
                 "checksums require the zstd-complete `hash` feature",
@@ -134,6 +178,9 @@ impl fmt::Debug for EncoderOptions {
             .field("frame_chunk_size", &self.frame_chunk_size)
             .field("dictionary", &self.dictionary)
             .field("checksum", &self.checksum)
+            .field("tuning", &self.tuning)
+            .field("pledged_source_size", &self.pledged_source_size)
+            .field("content_size_policy", &self.content_size_policy)
             .finish()
     }
 }
@@ -218,6 +265,10 @@ pub enum EncodeError {
         limit: usize,
         required: usize,
     },
+    PledgedSourceSizeMismatch {
+        pledged: u64,
+        actual: u64,
+    },
     #[cfg(feature = "multithreading")]
     WorkerFailed,
 }
@@ -230,6 +281,10 @@ impl fmt::Display for EncodeError {
             Self::MemoryLimitExceeded { limit, required } => write!(
                 formatter,
                 "encoder needs an estimated {required} bytes, exceeding the {limit}-byte memory limit"
+            ),
+            Self::PledgedSourceSizeMismatch { pledged, actual } => write!(
+                formatter,
+                "encoder received {actual} bytes but was pledged exactly {pledged} bytes"
             ),
             #[cfg(feature = "multithreading")]
             Self::WorkerFailed => formatter.write_str("a compression worker failed"),
@@ -261,6 +316,7 @@ pub struct Encoder<W: Write> {
     options: EncoderOptions,
     input: Vec<u8>,
     emitted_frame: bool,
+    accepted_input: u64,
 }
 
 impl<W: Write> Encoder<W> {
@@ -272,6 +328,7 @@ impl<W: Write> Encoder<W> {
             options,
             input,
             emitted_frame: false,
+            accepted_input: 0,
         })
     }
 
@@ -285,6 +342,7 @@ impl<W: Write> Encoder<W> {
 
     /// Emits the final frame and returns the wrapped writer.
     pub fn finish(mut self) -> Result<W, EncodeError> {
+        self.verify_pledged_size()?;
         if !self.input.is_empty() || !self.emitted_frame {
             self.emit_frame()?;
         }
@@ -293,17 +351,8 @@ impl<W: Write> Encoder<W> {
     }
 
     fn emit_frame(&mut self) -> io::Result<()> {
-        let mut compressed = if self.options.level.is_uncompressed() {
-            encode_uncompressed_frame(&self.input)
-        } else if let Some(dictionary) = self.options.dictionary.as_ref() {
-            c_port::encode_frame_with_prepared_dictionary(
-                &self.input,
-                self.options.level.c_level(),
-                &dictionary.prepared,
-            )
-        } else {
-            c_port::encode_frame_no_dict(&self.input, self.options.level.c_level())
-        };
+        let mut compressed = encode_frame_payload(&self.input, &self.options);
+        apply_content_size_policy(&mut compressed, self.options.content_size_policy)?;
         if self.options.checksum {
             append_checksum(&mut compressed, &self.input);
         }
@@ -312,6 +361,64 @@ impl<W: Write> Encoder<W> {
         self.emitted_frame = true;
         Ok(())
     }
+
+    fn verify_pledged_size(&self) -> Result<(), EncodeError> {
+        if let Some(pledged) = self.options.pledged_source_size {
+            if pledged != self.accepted_input {
+                return Err(EncodeError::PledgedSourceSizeMismatch {
+                    pledged,
+                    actual: self.accepted_input,
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+fn encode_frame_payload(source: &[u8], options: &EncoderOptions) -> Vec<u8> {
+    if options.level.is_uncompressed() {
+        return encode_uncompressed_frame(source);
+    }
+    let has_tuning = options.tuning != CompressionTuning::new();
+    match (options.dictionary.as_ref(), has_tuning) {
+        (Some(dictionary), false) => c_port::encode_frame_with_prepared_dictionary(
+            source,
+            options.level.c_level(),
+            &dictionary.prepared,
+        ),
+        (Some(dictionary), true) => c_port::encode_frame_with_prepared_dictionary_and_tuning(
+            source,
+            options.level.c_level(),
+            &dictionary.prepared,
+            options.tuning,
+        ),
+        (None, false) => c_port::encode_frame_no_dict(source, options.level.c_level()),
+        (None, true) => c_port::encode_frame_no_dict_with_tuning(
+            source,
+            options.level.c_level(),
+            options.tuning,
+        ),
+    }
+}
+
+fn apply_content_size_policy(frame: &mut Vec<u8>, policy: ContentSizePolicy) -> io::Result<()> {
+    if policy == ContentSizePolicy::Include {
+        return Ok(());
+    }
+    let (parsed, old_header_size) = crate::decoding::frame::read_frame_header(frame.as_slice())
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    let window_size = parsed.window_size().unwrap_or(1024).max(1024);
+    let mut header = Vec::with_capacity(18);
+    FrameHeader {
+        frame_content_size: None,
+        single_segment: false,
+        content_checksum: false,
+        dictionary_id: parsed.dictionary_id().map(u64::from),
+        window_size: Some(window_size),
+    }
+    .serialize(&mut header);
+    frame.splice(..usize::from(old_header_size), header);
+    Ok(())
 }
 
 fn append_checksum(frame: &mut Vec<u8>, source: &[u8]) {
@@ -332,17 +439,9 @@ fn append_checksum(frame: &mut Vec<u8>, source: &[u8]) {
 
 #[cfg(feature = "multithreading")]
 pub(super) fn encode_frame_for_options(source: &[u8], options: &EncoderOptions) -> Vec<u8> {
-    let mut compressed = if options.level.is_uncompressed() {
-        encode_uncompressed_frame(source)
-    } else if let Some(dictionary) = options.dictionary.as_ref() {
-        c_port::encode_frame_with_prepared_dictionary(
-            source,
-            options.level.c_level(),
-            &dictionary.prepared,
-        )
-    } else {
-        c_port::encode_frame_no_dict(source, options.level.c_level())
-    };
+    let mut compressed = encode_frame_payload(source, options);
+    apply_content_size_policy(&mut compressed, options.content_size_policy)
+        .expect("validated frame header can be rewritten");
     if options.checksum {
         append_checksum(&mut compressed, source);
     }
@@ -392,7 +491,21 @@ impl<W: Write> Write for Encoder<W> {
         }
         let available = self.options.frame_chunk_size - self.input.len();
         let consumed = available.min(source.len());
+        if let Some(pledged) = self.options.pledged_source_size {
+            let remaining = pledged.saturating_sub(self.accepted_input);
+            if remaining == 0 {
+                return Err(io::Error::other(EncodeError::PledgedSourceSizeMismatch {
+                    pledged,
+                    actual: self.accepted_input.saturating_add(source.len() as u64),
+                }));
+            }
+            let consumed = consumed.min(usize::try_from(remaining).unwrap_or(usize::MAX));
+            self.input.extend_from_slice(&source[..consumed]);
+            self.accepted_input += consumed as u64;
+            return Ok(consumed);
+        }
         self.input.extend_from_slice(&source[..consumed]);
+        self.accepted_input += consumed as u64;
         Ok(consumed)
     }
 
@@ -471,6 +584,14 @@ mod tests {
             .with_memory_limit(32 * 1024 * 1024);
         let compressed = encode_all(input.as_slice(), options).unwrap();
         assert_eq!(zstd::decode_all(compressed.as_slice()).unwrap(), input);
+    }
+
+    #[test]
+    fn default_options_keep_the_existing_specialized_frame_path() {
+        let input = b"unchanged default single-thread frame path".repeat(10_000);
+        let expected = c_port::encode_frame_no_dict(&input, CompressionLevel::DEFAULT.c_level());
+        let actual = encode_all(input.as_slice(), EncoderOptions::default()).unwrap();
+        assert_eq!(actual, expected);
     }
 
     #[cfg(feature = "hash")]
@@ -587,5 +708,48 @@ mod tests {
             options,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn negative_fast_levels_interoperate() {
+        let input = b"fast acceleration content".repeat(20_000);
+        let level = CompressionLevel::fast(8).unwrap();
+        let compressed = encode_all(input.as_slice(), EncoderOptions::new(level)).unwrap();
+        assert_eq!(zstd::decode_all(compressed.as_slice()).unwrap(), input);
+    }
+
+    #[test]
+    fn typed_tuning_changes_real_compressor_parameters() {
+        let input = b"typed compressor tuning".repeat(20_000);
+        let tuning = CompressionTuning::new()
+            .with_strategy(super::super::CompressionStrategy::Greedy)
+            .with_target_compressed_block_size(16 * 1024);
+        let options = EncoderOptions::default().with_tuning(tuning);
+        let compressed = encode_all(input.as_slice(), options).unwrap();
+        assert_eq!(zstd::decode_all(compressed.as_slice()).unwrap(), input);
+    }
+
+    #[test]
+    fn omitted_content_size_interoperates() {
+        let input = b"content size omitted".repeat(10_000);
+        let options = EncoderOptions::default().with_content_size_policy(ContentSizePolicy::Omit);
+        let compressed = encode_all(input.as_slice(), options).unwrap();
+        let (header, _) = crate::decoding::frame::read_frame_header(compressed.as_slice()).unwrap();
+        assert!(!header.descriptor.single_segment_flag());
+        assert_eq!(header.frame_content_size(), 0);
+        assert_eq!(zstd::decode_all(compressed.as_slice()).unwrap(), input);
+    }
+
+    #[test]
+    fn pledged_size_must_match_exactly() {
+        let options = EncoderOptions::default().with_pledged_source_size(4);
+        let error = encode_all(b"abc".as_slice(), options).unwrap_err();
+        assert!(matches!(
+            error,
+            EncodeError::PledgedSourceSizeMismatch {
+                pledged: 4,
+                actual: 3
+            }
+        ));
     }
 }

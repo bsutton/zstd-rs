@@ -1,5 +1,7 @@
 //! Strategy-dispatching frame adapter for the C frame paths.
 
+#[cfg(feature = "std")]
+use crate::encoding::CompressionTuning;
 use alloc::vec::Vec;
 
 use super::{
@@ -71,6 +73,44 @@ pub(crate) fn encode_frame_no_dict(src: &[u8], level: i32) -> Vec<u8> {
         Strategy::Lazy => encode_frame_lazy_no_dict(src, level),
         Strategy::Lazy2 => encode_frame_lazy2_no_dict(src, level),
         Strategy::BtLazy2 => encode_frame_btlazy2_no_dict(src, level),
+        Strategy::BtOpt | Strategy::BtUltra | Strategy::BtUltra2 => {
+            encode_frame_opt_no_dict_with_cctx(src, cctx)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+pub(crate) fn encode_frame_no_dict_with_tuning(
+    src: &[u8],
+    level: i32,
+    tuning: CompressionTuning,
+) -> Vec<u8> {
+    let cctx = CctxParameters::for_level(level, src.len() as u64, 0).apply_tuning(
+        level,
+        src.len() as u64,
+        tuning,
+    );
+    encode_frame_no_dict_from_cctx(src, cctx)
+}
+
+#[cfg(feature = "std")]
+fn encode_frame_no_dict_from_cctx(src: &[u8], cctx: CctxParameters) -> Vec<u8> {
+    cctx.assert_resolved();
+    match cctx.compression.strategy {
+        Strategy::Fast => encode_frame_fast_no_dict_with_cctx(src, cctx),
+        Strategy::DFast => encode_frame_double_fast_no_dict_with_cctx(src, cctx),
+        Strategy::Greedy => {
+            encode_frame_hash_chain_no_dict_with_cctx(src, cctx, LazyBlockStrategy::Greedy)
+        }
+        Strategy::Lazy => {
+            encode_frame_hash_chain_no_dict_with_cctx(src, cctx, LazyBlockStrategy::Lazy)
+        }
+        Strategy::Lazy2 => {
+            encode_frame_hash_chain_no_dict_with_cctx(src, cctx, LazyBlockStrategy::Lazy2)
+        }
+        Strategy::BtLazy2 => {
+            encode_frame_hash_chain_no_dict_with_cctx(src, cctx, LazyBlockStrategy::BtLazy2)
+        }
         Strategy::BtOpt | Strategy::BtUltra | Strategy::BtUltra2 => {
             encode_frame_opt_no_dict_with_cctx(src, cctx)
         }
@@ -165,6 +205,61 @@ pub(crate) fn encode_frame_with_prepared_dictionary(
     dictionary: &PreparedDictionary,
 ) -> Vec<u8> {
     let cctx = prepared_dictionary_cctx(src.len(), level, dictionary.raw_size());
+    let parsed = dictionary.as_parsed();
+
+    match cctx.compression.strategy {
+        Strategy::Fast => {
+            encode_frame_fast_with_dictionary_and_cctx(src, level, parsed, cctx, true)
+        }
+        Strategy::DFast => {
+            encode_frame_double_fast_with_dictionary_and_cctx(src, level, parsed, cctx, true)
+        }
+        Strategy::Greedy => encode_frame_hash_chain_with_prepared_dictionary_and_cctx(
+            src,
+            level,
+            parsed,
+            cctx,
+            LazyBlockStrategy::Greedy,
+        ),
+        Strategy::Lazy => encode_frame_hash_chain_with_prepared_dictionary_and_cctx(
+            src,
+            level,
+            parsed,
+            cctx,
+            LazyBlockStrategy::Lazy,
+        ),
+        Strategy::Lazy2 => encode_frame_hash_chain_with_prepared_dictionary_and_cctx(
+            src,
+            level,
+            parsed,
+            cctx,
+            LazyBlockStrategy::Lazy2,
+        ),
+        Strategy::BtLazy2 => encode_frame_hash_chain_with_prepared_dictionary_and_cctx(
+            src,
+            level,
+            parsed,
+            cctx,
+            LazyBlockStrategy::BtLazy2,
+        ),
+        Strategy::BtOpt | Strategy::BtUltra | Strategy::BtUltra2 => {
+            encode_frame_opt_with_prepared_dictionary_and_cctx(src, level, parsed, cctx)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+pub(crate) fn encode_frame_with_prepared_dictionary_and_tuning(
+    src: &[u8],
+    level: i32,
+    dictionary: &PreparedDictionary,
+    tuning: CompressionTuning,
+) -> Vec<u8> {
+    let cctx = prepared_dictionary_cctx(src.len(), level, dictionary.raw_size()).apply_tuning(
+        level,
+        src.len() as u64,
+        tuning,
+    );
     let parsed = dictionary.as_parsed();
 
     match cctx.compression.strategy {

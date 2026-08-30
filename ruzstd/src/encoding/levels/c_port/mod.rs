@@ -82,6 +82,10 @@ pub(crate) use strategy_frame::encode_frame_with_dictionary;
 pub(crate) use strategy_frame::encode_frame_with_dictionary_and_target_c_block_size;
 #[cfg(any(feature = "std", feature = "c-port-validation", test))]
 pub(crate) use strategy_frame::encode_frame_with_prepared_dictionary;
+#[cfg(feature = "std")]
+pub(crate) use strategy_frame::{
+    encode_frame_no_dict_with_tuning, encode_frame_with_prepared_dictionary_and_tuning,
+};
 
 #[cfg(any(feature = "std", feature = "c-port-validation", test))]
 pub(crate) use dictionary::{DictionaryParseError, PreparedDictionary};

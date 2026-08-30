@@ -31,6 +31,11 @@ pub struct HuffmanTable {
 }
 
 impl HuffmanTable {
+    #[cfg(feature = "dict_builder")]
+    pub(crate) fn table_description(&self) -> &[u8] {
+        &self.table_description
+    }
+
     #[cfg(any(test, feature = "fuzz_exports"))]
     pub fn build_from_data(data: &[u8]) -> Self {
         let mut counts = [0; 256];

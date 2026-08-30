@@ -123,16 +123,18 @@ decoder.read_to_end(&mut decoded)?;
 # fn main() {}
 ```
 
-Use `FrameDecoder` when you need incremental buffer collection, dictionary
-selection, explicit block limits, concatenated-frame handling, or control over
-skippable frames. `StreamingDecoder` currently stops after one frame; this is
-important when consuming the multi-frame output of a bounded `Encoder`.
+Use `MultiFrameDecoder` for a `std::io::Read` view over complete archives. It
+handles concatenated data frames, optionally skips RFC 8878 skippable frames,
+selects formatted dictionaries by ID, and enforces configurable window,
+decoded-size, frame-count, and skippable-payload limits. `StreamingDecoder`
+remains the narrow single-frame adapter; use `FrameDecoder` for direct block and
+buffer control.
 
 ## Coverage compared with zstd C 1.5.7
 
 | Capability | `zstd-complete` 0.1 | Notes |
 |---|---|---|
-| Zstandard compression | Yes | Standard levels 1 through 22 plus uncompressed frames |
+| Zstandard compression | Yes | Levels 1 through 22, negative fast levels, and uncompressed frames |
 | Zstandard decompression | Yes | Raw, RLE, compressed blocks, checksums, and dictionaries |
 | Raw-content and formatted dictionaries | Yes | Reusable prepared encoder dictionaries and decoder dictionaries |
 | Bounded compression of arbitrarily large input | Yes | Emits independent frames at configurable chunk boundaries |
@@ -140,8 +142,11 @@ important when consuming the multi-frame output of a bounded `Encoder`.
 | Portable scalar implementation | Yes | Used on non-x86 targets and available as a forced release gate |
 | Runtime-selected x86-64 acceleration | Yes | BMI2 paths are selected at runtime; distributed binaries need not use `target-cpu=native` |
 | Multithreaded compression | Opt-in | The `multithreading` feature parallelizes ordered independent frames |
+| High-level concatenated-frame decoding | Yes | Bounded `MultiFrameDecoder`, including skippable-frame policy |
+| Typed advanced compression controls | Yes | Strategy/search/window/LDM tuning, target block size, pledged input size, and content-size policy |
+| Formatted dictionary training | Opt-in | `dict_builder` trains standard ID-bearing dictionaries from sample sets |
 | zstd C ABI/API compatibility | No | This is an idiomatic Rust API, not a drop-in C replacement |
-| Full advanced parameter surface | No | Negative levels, worker controls, pledged-size tuning, and `targetCBlockSize` are not stable public options |
+| Experimental and C ABI controls | Out of scope | Stable APIs expose portable format capabilities, not C contexts, custom allocators, or experimental parameter numbers |
 | Stable byte identity with zstd C | No | Output is format-compatible and can legitimately differ in block and match choices |
 
 The compressor implements the nine zstd strategy families used by the positive
@@ -282,11 +287,14 @@ x86-64 without BMI2, AArch64, Windows, Apple platforms, and wasm `no_std`.
 
 ## Dictionary training
 
-Enable `dict_builder` for the `dictionary` module's raw-content dictionary
-trainer. It does not generate formatted dictionaries containing entropy tables.
-On the historical `github-users` sample set, its output was within 0.2% of the
-official trainer's compression result. Existing formatted dictionaries can
-still be consumed by the encoder and decoder.
+Enable `dict_builder` for `dictionary::train_dictionary`. It accepts independent
+representative samples and returns a standard formatted dictionary containing a
+non-zero dictionary ID, learned content and literal statistics, and complete
+initial entropy tables. Formatted training is most useful for many small,
+structurally similar records where each payload alone is too short to establish
+good history. The older raw-content directory/source helpers remain available.
+On the historical `github-users` sample set, the native content selector's
+output was within 0.2% of the official trainer's compression result.
 
 ## Licensing and provenance
 

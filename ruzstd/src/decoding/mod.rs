@@ -2,10 +2,16 @@
 
 pub mod errors;
 mod frame_decoder;
+#[cfg(feature = "std")]
+mod multi_frame_decoder;
 mod streaming_decoder;
 
 pub use dictionary::Dictionary;
-pub use frame_decoder::{BlockDecodingStrategy, FrameDecoder};
+pub use frame_decoder::{BlockDecodingStrategy, FrameDecoder, DEFAULT_MAX_WINDOW_SIZE};
+#[cfg(feature = "std")]
+pub use multi_frame_decoder::{
+    MultiFrameDecoder, MultiFrameDecoderError, MultiFrameDecoderOptions, SkippableFramePolicy,
+};
 pub use streaming_decoder::StreamingDecoder;
 
 pub(crate) mod block_decoder;

@@ -16,7 +16,8 @@ use core::convert::TryInto;
 
 /// While the maximum window size allowed by the spec is significantly larger,
 /// our implementation limits it to 100mb to protect against malformed frames.
-const MAXIMUM_ALLOWED_WINDOW_SIZE: u64 = 1024 * 1024 * 100;
+/// Default maximum frame window accepted by the high-level decoders (100 MiB).
+pub const DEFAULT_MAX_WINDOW_SIZE: u64 = 1024 * 1024 * 100;
 
 /// Low level Zstandard decoder that can be used to decompress frames with fine control over when and how many bytes are decoded.
 ///
@@ -94,9 +95,17 @@ pub enum BlockDecodingStrategy {
 }
 
 impl FrameDecoderState {
-    pub fn new(source: impl Read) -> Result<FrameDecoderState, FrameDecoderError> {
+    pub fn new(
+        source: impl Read,
+        max_window_size: u64,
+    ) -> Result<FrameDecoderState, FrameDecoderError> {
         let (frame, header_size) = frame::read_frame_header(source)?;
         let window_size = frame.window_size()?;
+        if window_size > max_window_size {
+            return Err(FrameDecoderError::WindowSizeTooBig {
+                requested: window_size,
+            });
+        }
         Ok(FrameDecoderState {
             frame_header: frame,
             frame_finished: false,
@@ -109,11 +118,15 @@ impl FrameDecoderState {
         })
     }
 
-    pub fn reset(&mut self, source: impl Read) -> Result<(), FrameDecoderError> {
+    pub fn reset(
+        &mut self,
+        source: impl Read,
+        max_window_size: u64,
+    ) -> Result<(), FrameDecoderError> {
         let (frame_header, header_size) = frame::read_frame_header(source)?;
         let window_size = frame_header.window_size()?;
 
-        if window_size > MAXIMUM_ALLOWED_WINDOW_SIZE {
+        if window_size > max_window_size {
             return Err(FrameDecoderError::WindowSizeTooBig {
                 requested: window_size,
             });
@@ -165,14 +178,22 @@ impl FrameDecoder {
     ///
     /// equivalent to init()
     pub fn reset(&mut self, source: impl Read) -> Result<(), FrameDecoderError> {
+        self.reset_with_window_limit(source, DEFAULT_MAX_WINDOW_SIZE)
+    }
+
+    pub(crate) fn reset_with_window_limit(
+        &mut self,
+        source: impl Read,
+        max_window_size: u64,
+    ) -> Result<(), FrameDecoderError> {
         use FrameDecoderError as err;
         let state = match &mut self.state {
             Some(s) => {
-                s.reset(source)?;
+                s.reset(source, max_window_size)?;
                 s
             }
             None => {
-                self.state = Some(FrameDecoderState::new(source)?);
+                self.state = Some(FrameDecoderState::new(source, max_window_size)?);
                 self.state.as_mut().unwrap()
             }
         };

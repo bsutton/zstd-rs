@@ -27,7 +27,14 @@ mod frequency;
 mod reservoir;
 
 use crate::dictionary::reservoir::create_sample;
+use crate::{
+    bit_io::BitWriter,
+    decoding::dictionary::MAGIC_NUM,
+    fse::fse_encoder::{default_ll_table, default_ml_table, default_of_table},
+    huff0::huff0_encoder::HuffmanTable,
+};
 use core::cmp::Reverse;
+use core::fmt;
 use cover::*;
 use std::{
     boxed::Box,
@@ -37,6 +44,145 @@ use std::{
     path::{Path, PathBuf},
     vec::Vec,
 };
+
+/// Options for producing a standard formatted Zstandard dictionary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DictionaryTrainerOptions {
+    dictionary_size: usize,
+    dictionary_id: u32,
+    max_training_bytes: usize,
+}
+
+impl DictionaryTrainerOptions {
+    /// Creates options for a dictionary no larger than `dictionary_size`.
+    pub const fn new(dictionary_size: usize, dictionary_id: u32) -> Self {
+        Self {
+            dictionary_size,
+            dictionary_id,
+            max_training_bytes: 64 * 1024 * 1024,
+        }
+    }
+
+    /// Bounds the amount of sample data retained while training.
+    pub const fn with_max_training_bytes(mut self, bytes: usize) -> Self {
+        self.max_training_bytes = bytes;
+        self
+    }
+
+    pub const fn dictionary_size(&self) -> usize {
+        self.dictionary_size
+    }
+
+    pub const fn dictionary_id(&self) -> u32 {
+        self.dictionary_id
+    }
+
+    pub const fn max_training_bytes(&self) -> usize {
+        self.max_training_bytes
+    }
+}
+
+/// Failures reported before or during formatted dictionary training.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DictionaryTrainingError {
+    EmptySamples,
+    ZeroDictionaryId,
+    DictionaryTooSmall,
+    TrainingLimitTooSmall,
+}
+
+impl fmt::Display for DictionaryTrainingError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::EmptySamples => "dictionary training requires at least one non-empty sample",
+            Self::ZeroDictionaryId => "a formatted dictionary ID must be non-zero",
+            Self::DictionaryTooSmall => "dictionary size is too small for formatted metadata",
+            Self::TrainingLimitTooSmall => "training byte limit must be greater than zero",
+        })
+    }
+}
+
+impl std::error::Error for DictionaryTrainingError {}
+
+/// Trains a standard formatted dictionary from independent representative samples.
+///
+/// The content dictionary is selected with the native COVER-style trainer. The
+/// literal table is learned from the sample distribution; portable predefined
+/// sequence distributions provide complete initial FSE tables. The result has a
+/// dictionary ID and can be passed directly to [`crate::encoding::EncoderDictionary`]
+/// or [`crate::decoding::Dictionary::decode_dict`].
+pub fn train_dictionary<S: AsRef<[u8]>>(
+    samples: &[S],
+    options: DictionaryTrainerOptions,
+) -> Result<Vec<u8>, DictionaryTrainingError> {
+    if options.dictionary_id == 0 {
+        return Err(DictionaryTrainingError::ZeroDictionaryId);
+    }
+    if options.max_training_bytes == 0 {
+        return Err(DictionaryTrainingError::TrainingLimitTooSmall);
+    }
+
+    let mut training = Vec::new();
+    let mut literal_counts = [1_usize; 256];
+    for sample in samples {
+        let sample = sample.as_ref();
+        let remaining = options.max_training_bytes.saturating_sub(training.len());
+        let retained = &sample[..sample.len().min(remaining)];
+        for &byte in retained {
+            literal_counts[usize::from(byte)] = literal_counts[usize::from(byte)].saturating_add(1);
+        }
+        training.extend_from_slice(retained);
+        if training.len() == options.max_training_bytes {
+            break;
+        }
+    }
+    if training.is_empty() {
+        return Err(DictionaryTrainingError::EmptySamples);
+    }
+
+    let huffman = HuffmanTable::build_from_counts(&literal_counts);
+    let mut metadata = Vec::new();
+    metadata.extend_from_slice(&MAGIC_NUM);
+    metadata.extend_from_slice(&options.dictionary_id.to_le_bytes());
+    metadata.extend_from_slice(huffman.table_description());
+    append_fse_description(&mut metadata, default_of_table());
+    append_fse_description(&mut metadata, default_ml_table());
+    append_fse_description(&mut metadata, default_ll_table());
+
+    let minimum_content = 8;
+    let Some(content_budget) = options
+        .dictionary_size
+        .checked_sub(metadata.len().saturating_add(12))
+        .filter(|budget| *budget >= minimum_content)
+    else {
+        return Err(DictionaryTrainingError::DictionaryTooSmall);
+    };
+
+    let mut content = Vec::new();
+    create_raw_dict_from_source(
+        training.as_slice(),
+        training.len(),
+        &mut content,
+        content_budget,
+    );
+    if content.len() < minimum_content {
+        let missing = minimum_content - content.len();
+        content.extend(training.iter().copied().cycle().take(missing));
+    }
+    content.truncate(content_budget);
+
+    metadata.extend_from_slice(&1_u32.to_le_bytes());
+    metadata.extend_from_slice(&(content.len().min(4) as u32).to_le_bytes());
+    metadata.extend_from_slice(&(content.len().min(8) as u32).to_le_bytes());
+    metadata.extend_from_slice(&content);
+    Ok(metadata)
+}
+
+fn append_fse_description(output: &mut Vec<u8>, table: crate::fse::fse_encoder::FSETable) {
+    let mut writer = BitWriter::new();
+    table.write_table(&mut writer);
+    output.extend_from_slice(&writer.dump());
+}
 
 /// A set of values that are used during dictionary construction.
 ///
@@ -222,7 +368,10 @@ pub fn create_raw_dict_from_source<R: io::Read, W: io::Write>(
 
 #[cfg(test)]
 mod tests {
-    use super::create_raw_dict_from_source;
+    use super::{
+        create_raw_dict_from_source, train_dictionary, DictionaryTrainerOptions,
+        DictionaryTrainingError,
+    };
     use std::vec::Vec;
 
     #[test]
@@ -248,6 +397,45 @@ mod tests {
         create_raw_dict_from_source(source.as_slice(), source.len(), &mut dictionary, 1024);
 
         assert_eq!(dictionary, source);
+    }
+
+    #[test]
+    fn formatted_dictionary_is_usable_by_encoder_and_decoder() {
+        let samples = [
+            b"customer=alice action=login status=success".repeat(100),
+            b"customer=bob action=logout status=success".repeat(100),
+        ];
+        let dictionary =
+            train_dictionary(&samples, DictionaryTrainerOptions::new(2048, 0xC0DE)).unwrap();
+        let decoded = crate::decoding::Dictionary::decode_dict(&dictionary).unwrap();
+        assert_eq!(decoded.id, 0xC0DE);
+        assert!(dictionary.len() <= 2048);
+
+        let input = b"customer=alice action=logout status=success".repeat(200);
+        let encoder_dictionary = crate::encoding::EncoderDictionary::copy(&dictionary).unwrap();
+        let compressed = crate::encoding::encode_all(
+            input.as_slice(),
+            crate::encoding::EncoderOptions::default().with_dictionary(encoder_dictionary),
+        )
+        .unwrap();
+        let mut c_decoder =
+            zstd::stream::read::Decoder::with_dictionary(compressed.as_slice(), &dictionary)
+                .unwrap();
+        let mut output = Vec::new();
+        c_decoder.read_to_end(&mut output).unwrap();
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn formatted_dictionary_options_are_validated() {
+        assert_eq!(
+            train_dictionary(&[b"sample"], DictionaryTrainerOptions::new(1024, 0)),
+            Err(DictionaryTrainingError::ZeroDictionaryId)
+        );
+        assert_eq!(
+            train_dictionary(&[b"sample"], DictionaryTrainerOptions::new(8, 1)),
+            Err(DictionaryTrainingError::DictionaryTooSmall)
+        );
     }
 }
 

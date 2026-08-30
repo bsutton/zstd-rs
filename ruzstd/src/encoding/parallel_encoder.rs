@@ -1,7 +1,7 @@
 //! Opt-in bounded parallel compression of independent Zstandard frames.
 
 use alloc::{collections::BTreeMap, format, vec::Vec};
-use core::{fmt, num::NonZeroUsize};
+use core::{convert::TryFrom, fmt, num::NonZeroUsize};
 use std::{
     io::{self, Read, Write},
     sync::mpsc::{self, Receiver, SyncSender, TryRecvError},
@@ -164,6 +164,7 @@ struct MultiEncoder<W: Write> {
     next_worker: usize,
     in_flight: usize,
     emitted_frame: bool,
+    accepted_input: u64,
 }
 
 impl<W: Write> MultiEncoder<W> {
@@ -205,6 +206,7 @@ impl<W: Write> MultiEncoder<W> {
             next_worker: 0,
             in_flight: 0,
             emitted_frame: false,
+            accepted_input: 0,
         })
     }
 
@@ -226,6 +228,7 @@ impl<W: Write> MultiEncoder<W> {
 
     fn finish(mut self) -> Result<W, EncodeError> {
         let result: Result<(), EncodeError> = (|| {
+            self.verify_pledged_size()?;
             if !self.input.is_empty() || !self.emitted_frame {
                 self.dispatch_frame()?;
             }
@@ -237,6 +240,18 @@ impl<W: Write> MultiEncoder<W> {
         result?;
         worker_result?;
         Ok(self.inner.take().expect("writer is present before finish"))
+    }
+
+    fn verify_pledged_size(&self) -> Result<(), EncodeError> {
+        if let Some(pledged) = self.options.pledged_source_size() {
+            if pledged != self.accepted_input {
+                return Err(EncodeError::PledgedSourceSizeMismatch {
+                    pledged,
+                    actual: self.accepted_input,
+                });
+            }
+        }
+        Ok(())
     }
 
     fn dispatch_frame(&mut self) -> Result<(), EncodeError> {
@@ -337,7 +352,21 @@ impl<W: Write> Write for MultiEncoder<W> {
         }
         let available = self.options.frame_chunk_size() - self.input.len();
         let consumed = available.min(source.len());
+        if let Some(pledged) = self.options.pledged_source_size() {
+            let remaining = pledged.saturating_sub(self.accepted_input);
+            if remaining == 0 {
+                return Err(io::Error::other(EncodeError::PledgedSourceSizeMismatch {
+                    pledged,
+                    actual: self.accepted_input.saturating_add(source.len() as u64),
+                }));
+            }
+            let consumed = consumed.min(usize::try_from(remaining).unwrap_or(usize::MAX));
+            self.input.extend_from_slice(&source[..consumed]);
+            self.accepted_input += consumed as u64;
+            return Ok(consumed);
+        }
         self.input.extend_from_slice(&source[..consumed]);
+        self.accepted_input += consumed as u64;
         Ok(consumed)
     }
 
@@ -391,6 +420,8 @@ struct WorkerOptions {
     level: CompressionLevel,
     dictionary: Option<Vec<u8>>,
     checksum: bool,
+    tuning: super::CompressionTuning,
+    content_size_policy: super::ContentSizePolicy,
 }
 
 impl WorkerOptions {
@@ -401,11 +432,16 @@ impl WorkerOptions {
                 .dictionary()
                 .map(|dictionary| dictionary.raw().to_vec()),
             checksum: options.checksum(),
+            tuning: options.tuning(),
+            content_size_policy: options.content_size_policy(),
         }
     }
 
     fn prepare(self) -> Result<EncoderOptions, EncodeError> {
-        let mut options = EncoderOptions::new(self.level).with_checksum(self.checksum);
+        let mut options = EncoderOptions::new(self.level)
+            .with_checksum(self.checksum)
+            .with_tuning(self.tuning)
+            .with_content_size_policy(self.content_size_policy);
         if let Some(dictionary) = self.dictionary {
             let dictionary = EncoderDictionary::copy(&dictionary)
                 .map_err(|_| EncodeError::InvalidOptions("worker dictionary preparation failed"))?;

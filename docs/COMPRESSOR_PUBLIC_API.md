@@ -41,10 +41,12 @@ meaningful unit, at the cost of losing matches across frame boundaries.
 not belong in the normal public API.
 
 `EncoderOptions` owns level, checksum selection, an optional prepared
-dictionary, frame chunk size, and an explicit memory budget. A pledged source
-size is not needed for independently sized frames. Target compressed block
-size remains an internal validation/tuning control unless an independent user
-case demonstrates that it belongs in the stable API.
+dictionary, frame chunk size, and an explicit memory budget. It also supports
+an exact pledged source size, frame content-size inclusion policy, and a typed
+`CompressionTuning` overlay. Tuning uses Rust enums and validated builders for
+strategy, matcher logs, target length, target compressed block size, and
+long-distance matching; it does not expose C parameter numbers or context
+mutation semantics.
 
 `EncoderDictionary` owns validated dictionary state and is reusable across
 frames. Dictionary parse errors are distinct from I/O and memory-budget errors.
@@ -54,7 +56,8 @@ frames. Dictionary parse errors are distinct from I/O and memory-budget errors.
 All public I/O paths return `Result`; no read, write, configuration, dictionary,
 allocation-policy, or finalization failure is unwrapped. `EncodeError` retains
 the underlying `std::io::Error` where applicable and has explicit variants for
-invalid options and `MemoryLimitExceeded`. `DictionaryError` reports failures
+invalid options, `MemoryLimitExceeded`, and pledged-size mismatch.
+`DictionaryError` reports failures
 while preparing a dictionary before the encoder is constructed.
 
 ## Memory contract

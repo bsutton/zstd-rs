@@ -13,6 +13,22 @@ Restart anchor: if a future session starts cold, use this file as the canonical
 handoff and continue from the "Next Resume Action" section before doing new
 analysis or code changes.
 
+Feature-parity checkpoint as of August 30, 2026: roadmap issue #5's remaining
+application-level gaps are implemented directly on `master`. The standard
+library API now has a bounded `MultiFrameDecoder` for concatenated and
+skippable frames; negative fast levels; typed strategy, matcher, LDM, target
+block, pledged-size, and frame-content-size controls; and opt-in formatted
+dictionary training from independent samples. `docs/ZSTD_1_5_7_SUPPORT_MATRIX.md`
+records the intentional boundary: RFC 8878/application capability parity is
+the objective, while the C ABI, custom allocators, deprecated symbols, numeric
+experimental parameters, and byte-identical output are not. Default encoder
+options explicitly retain the pre-existing specialized single-thread frame
+functions; a regression test requires exact output from that path. Luna/medium
+validation passes formatting, strict default/multithreaded/no-default Clippy,
+workspace tests, 776 multithreaded tests plus five ignored, 689 no-default
+tests, and all doctests. Child issues are #7 (archive decoder), #8 (advanced
+controls), #9 (formatted training), and #10 (capability audit).
+
 Active issue checkpoint as of August 30, 2026: issue #6 is implemented on
 branch `issue-6-multithreaded-encoder` in persistent worktree
 `/home/bsutton/git/.codex.workspaces/zstd-rs-issue-6-multithreaded-encoder`.

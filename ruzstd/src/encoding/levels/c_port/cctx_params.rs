@@ -4,6 +4,8 @@
 //! auto-mode switches into finalized `ZSTD_CCtx_params` behavior.
 
 use super::params::{CParamMode, CompressionParameters, Strategy};
+#[cfg(feature = "std")]
+use crate::encoding::{CompressionStrategy, CompressionTuning};
 
 const ZSTD_BLOCKSIZE_MAX: usize = 128 * 1024;
 const ZSTD_TARGETCBLOCKSIZE_MIN: usize = 1340;
@@ -104,6 +106,53 @@ impl CctxParameters {
         true
     }
 
+    #[cfg(feature = "std")]
+    pub(crate) fn apply_tuning(
+        mut self,
+        level: i32,
+        pledged_src_size: u64,
+        tuning: CompressionTuning,
+    ) -> Self {
+        let compression = &mut self.compression;
+        if let Some(value) = tuning.window_log {
+            compression.window_log = u32::from(value);
+        }
+        if let Some(value) = tuning.hash_log {
+            compression.hash_log = u32::from(value);
+        }
+        if let Some(value) = tuning.chain_log {
+            compression.chain_log = u32::from(value);
+        }
+        if let Some(value) = tuning.search_log {
+            compression.search_log = u32::from(value);
+        }
+        if let Some(value) = tuning.min_match {
+            compression.min_match = u32::from(value);
+        }
+        if let Some(value) = tuning.target_length {
+            compression.target_length = value;
+        }
+        if let Some(value) = tuning.strategy {
+            compression.strategy = strategy_from_public(value);
+        }
+
+        let mut tuned = Self::from_compression_parameters(level, *compression, pledged_src_size);
+        if let Some(value) = tuning.target_compressed_block_size {
+            let accepted = tuned.set_target_c_block_size(value);
+            debug_assert!(accepted, "public tuning is validated before dispatch");
+        }
+        if let Some(ldm) = tuning.long_distance_matching {
+            tuned.ldm.enable_ldm = ParamSwitch::Enable;
+            tuned.ldm.window_log = ldm.window_log.map_or(0, u32::from);
+            tuned.ldm.hash_log = ldm.hash_log.map_or(0, u32::from);
+            tuned.ldm.min_match_length = ldm.min_match.map_or(0, u32::from);
+            tuned.ldm.bucket_size_log = ldm.bucket_size_log.map_or(0, u32::from);
+            tuned.ldm.hash_rate_log = ldm.hash_rate_log.map_or(0, u32::from);
+            adjust_ldm_parameters(&mut tuned.ldm, tuned.compression);
+        }
+        tuned
+    }
+
     pub(crate) fn use_target_c_block_size(&self) -> bool {
         self.target_c_block_size != 0
     }
@@ -128,6 +177,21 @@ impl CctxParameters {
             debug_assert_eq!(gear.rolling(), u32::MAX as u64);
             debug_assert!(gear.stop_mask() > 0 || self.ldm.hash_rate_log == 0);
         }
+    }
+}
+
+#[cfg(feature = "std")]
+const fn strategy_from_public(strategy: CompressionStrategy) -> Strategy {
+    match strategy {
+        CompressionStrategy::Fast => Strategy::Fast,
+        CompressionStrategy::DoubleFast => Strategy::DFast,
+        CompressionStrategy::Greedy => Strategy::Greedy,
+        CompressionStrategy::Lazy => Strategy::Lazy,
+        CompressionStrategy::Lazy2 => Strategy::Lazy2,
+        CompressionStrategy::BinaryTreeLazy2 => Strategy::BtLazy2,
+        CompressionStrategy::Optimal => Strategy::BtOpt,
+        CompressionStrategy::Ultra => Strategy::BtUltra,
+        CompressionStrategy::Ultra2 => Strategy::BtUltra2,
     }
 }
 

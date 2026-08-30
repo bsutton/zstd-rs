@@ -2,11 +2,11 @@ use core::{convert::TryFrom, fmt};
 
 /// A validated Zstandard compression level.
 ///
-/// Levels 1 through 22 select progressively stronger compression. Use the
-/// named constants for common choices and [`CompressionLevel::new`] when a
-/// precise level is required.
+/// Positive levels 1 through 22 select progressively stronger compression.
+/// Negative levels select the Zstandard fast strategy, with the absolute value
+/// controlling the acceleration step.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CompressionLevel(u8);
+pub struct CompressionLevel(i32);
 
 impl CompressionLevel {
     /// Emit raw blocks without compression.
@@ -34,10 +34,13 @@ impl CompressionLevel {
     #[allow(non_upper_case_globals)]
     pub const Best: Self = Self::BEST;
 
-    /// Creates a precise standard compression level.
+    /// Largest supported fast-strategy acceleration step.
+    pub const MAX_FAST_ACCELERATION: u32 = 128 * 1024;
+
+    /// Creates a precise positive compression level.
     pub const fn new(level: u8) -> Result<Self, InvalidCompressionLevel> {
-        if level >= 1 && level <= Self::MAXIMUM.0 {
-            Ok(Self(level))
+        if level >= 1 && level as i32 <= Self::MAXIMUM.0 {
+            Ok(Self(level as i32))
         } else {
             Err(InvalidCompressionLevel {
                 level: level as i32,
@@ -46,12 +49,28 @@ impl CompressionLevel {
     }
 
     /// Returns the numeric level used by the compressor parameter table.
-    pub const fn get(self) -> u8 {
+    /// Creates a fast level with an explicit match-search acceleration step.
+    pub const fn fast(acceleration: u32) -> Result<Self, InvalidCompressionLevel> {
+        if acceleration >= 1 && acceleration <= Self::MAX_FAST_ACCELERATION {
+            Ok(Self(-(acceleration as i32)))
+        } else {
+            Err(InvalidCompressionLevel {
+                level: if acceleration > i32::MAX as u32 {
+                    i32::MIN
+                } else {
+                    -(acceleration as i32)
+                },
+            })
+        }
+    }
+
+    /// Returns the standard numeric level. Negative values are fast levels.
+    pub const fn get(self) -> i32 {
         self.0
     }
 
     pub(crate) const fn c_level(self) -> i32 {
-        self.0 as i32
+        self.0
     }
 
     pub(crate) const fn is_uncompressed(self) -> bool {
@@ -77,10 +96,13 @@ impl TryFrom<i32> for CompressionLevel {
     type Error = InvalidCompressionLevel;
 
     fn try_from(level: i32) -> Result<Self, Self::Error> {
-        let level = u8::try_from(level).map_err(|_| InvalidCompressionLevel { level })?;
-        Self::new(level).map_err(|_| InvalidCompressionLevel {
-            level: i32::from(level),
-        })
+        if (-(Self::MAX_FAST_ACCELERATION as i32)..=-1).contains(&level)
+            || (1..=Self::MAXIMUM.0).contains(&level)
+        {
+            Ok(Self(level))
+        } else {
+            Err(InvalidCompressionLevel { level })
+        }
     }
 }
 
@@ -90,7 +112,8 @@ impl From<CompressionLevel> for i32 {
     }
 }
 
-/// Error returned when a numeric compression level is outside 1 through 22.
+/// Error returned when a numeric compression level is outside the supported
+/// fast or positive ranges.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct InvalidCompressionLevel {
     level: i32,
@@ -107,8 +130,8 @@ impl fmt::Display for InvalidCompressionLevel {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "compression level {} is outside the supported range 1..=22",
-            self.level
+            "compression level {} is outside -131072..=-1 or 1..=22",
+            self.level,
         )
     }
 }
@@ -126,6 +149,17 @@ mod tests {
         assert_eq!(CompressionLevel::new(22).unwrap().get(), 22);
         assert_eq!(CompressionLevel::new(0).unwrap_err().level(), 0);
         assert_eq!(CompressionLevel::new(23).unwrap_err().level(), 23);
+        assert_eq!(CompressionLevel::fast(1).unwrap().get(), -1);
+        assert_eq!(CompressionLevel::fast(100).unwrap().get(), -100);
+        assert_eq!(
+            CompressionLevel::try_from(-131_072).unwrap().get(),
+            -131_072
+        );
+        assert_eq!(
+            CompressionLevel::try_from(-131_073).unwrap_err().level(),
+            -131_073
+        );
+        assert_eq!(CompressionLevel::fast(0).unwrap_err().level(), 0);
     }
 
     #[test]
