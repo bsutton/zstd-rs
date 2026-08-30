@@ -24,10 +24,10 @@ the pre-existing removed-lint annotation), rustdoc, formatting, and diff gates
 pass. Default level-3 instructions changed only +0.0060%. Silesia throughput at
 1/2/4 workers was 1.00x/1.53x/1.85x with exact output across worker counts;
 zstd C remains about 6-6.5% faster and is 0.139% smaller under its different
-single-frame job model. See `docs/MULTITHREADED_COMPRESSION.md`. Before marking
-the issue tested/implemented, commit and push the branch, update issue #6, and
-decide whether the current first version needs persistent pool reuse or more
-failure-injection/RSS coverage; do not add worker checks to the default path.
+single-frame job model. See `docs/MULTITHREADED_COMPRESSION.md`. Commit
+`e985314` is pushed and issue #6 is marked implemented/tested; the next action
+is user review. Persistent pool reuse and additional failure-injection/RSS
+coverage may be follow-up work; do not add worker checks to the default path.
 
 Release checkpoint as of August 30, 2026: optimization is stopped and the
 publishable package is now `zstd-complete` 0.1.0 (Rust import
