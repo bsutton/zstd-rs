@@ -24,3 +24,8 @@ required-features = ["c-multithreading"]
 name = "profile_parallel_api"
 path = "src/bin/profile_parallel_api.rs"
 required-features = ["multithreading"]
+
+[[bin]]
+name = "profile_parallel_streaming_api"
+path = "src/bin/profile_parallel_streaming_api.rs"
+required-features = ["multithreading"]

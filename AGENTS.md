@@ -18,16 +18,18 @@ branch `issue-6-multithreaded-encoder` in persistent worktree
 `/home/bsutton/git/.codex.workspaces/zstd-rs-issue-6-multithreaded-encoder`.
 The non-default `multithreading` feature adds a bounded ordered
 `ParallelEncoder`; one worker delegates to the unchanged `Encoder`, while two
-or more workers compress independent frames with thread-local state. Focused,
-full default, full feature-enabled, no_std wasm, strict Clippy (allowing only
-the pre-existing removed-lint annotation), rustdoc, formatting, and diff gates
-pass. Default level-3 instructions changed only +0.0060%. Silesia throughput at
-1/2/4 workers was 1.00x/1.53x/1.85x with exact output across worker counts;
-zstd C remains about 6-6.5% faster and is 0.139% smaller under its different
-single-frame job model. See `docs/MULTITHREADED_COMPRESSION.md`. Commit
-`e985314` is pushed and issue #6 is marked implemented/tested; the next action
-is user review. Persistent pool reuse and additional failure-injection/RSS
-coverage may be follow-up work; do not add worker checks to the default path.
+or more workers compress independent frames with thread-local state. The
+all-input one-worker helpers call the direct encoder. Normalized-path control
+and candidate release binaries have byte-identical `.text`; same-binary
+one-worker instruction deltas across levels 1/3/5/8/16 are neutral. Silesia
+four-worker speedups are 1.77x/1.85x/2.25x at levels 1/3/8. True streaming RSS
+on the 51 MiB `mozilla` file was 11,188 KiB at one worker and 35,420 KiB at
+four. Full feature tests, 117-configuration check/Clippy powersets, focused
+no-default/forced-scalar, Rust 1.87, four cross-targets, Miri, ASan, rustdoc,
+formatting, and package consumer checks pass. Worker panic containment now has
+explicit failure injection. See `docs/MULTITHREADED_COMPRESSION.md`. Keep the
+default path free of worker checks. Persistent pool reuse remains optional
+follow-up work for extremely cheap inputs where thread startup dominates.
 
 Release checkpoint as of August 30, 2026: optimization is stopped and the
 publishable package is now `zstd-complete` 0.1.0 (Rust import

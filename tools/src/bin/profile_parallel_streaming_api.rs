@@ -1,51 +1,42 @@
-use std::{env, fs, hint::black_box, io, num::NonZeroUsize, path::PathBuf, time::Instant};
+use std::{env, fs::File, io, num::NonZeroUsize, path::PathBuf, time::Instant};
 
-use ruzstd::encoding::{
-    encode_all, encode_all_parallel, CompressionLevel, EncoderOptions, ParallelEncoder,
-};
+use ruzstd::encoding::{encode_parallel, CompressionLevel, EncoderOptions, ParallelEncoder};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut arguments = env::args_os().skip(1);
     let input = arguments.next().map(PathBuf::from).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
-            "usage: profile_parallel_api INPUT [LEVEL] [RUNS] [CHUNK_MIB] [MEMORY_MIB] [WORKERS]",
+            "usage: profile_parallel_streaming_api INPUT [LEVEL] [RUNS] [CHUNK_MIB] [MEMORY_MIB] [WORKERS]",
         )
     })?;
     let level = parse(&mut arguments, 3, "level")?;
     let runs = parse(&mut arguments, 1, "runs")?;
-    let chunk_mib = parse(&mut arguments, 8, "chunk MiB")?;
+    let chunk_mib = parse(&mut arguments, 4, "chunk MiB")?;
     let memory_mib = parse(&mut arguments, 256, "memory MiB")?;
-    let workers = NonZeroUsize::new(parse(&mut arguments, 2, "workers")?);
+    let workers = NonZeroUsize::new(parse(&mut arguments, 2, "workers")?)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "workers must be non-zero"))?;
     if arguments.next().is_some() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "too many arguments").into());
     }
 
-    let input = fs::read(input)?;
     let level = CompressionLevel::try_from(i32::try_from(level)?)?;
     let options = EncoderOptions::new(level)
         .with_frame_chunk_size(chunk_mib * 1024 * 1024)
         .with_memory_limit(memory_mib * 1024 * 1024);
-    let estimated = workers.map_or_else(
-        || options.estimated_memory_usage(),
-        |workers| ParallelEncoder::<Vec<u8>>::estimated_memory_usage(&options, workers),
-    );
+    let estimated = ParallelEncoder::<CountingSink>::estimated_memory_usage(&options, workers);
     let started = Instant::now();
-    let mut output_bytes = 0_usize;
+    let mut output_bytes = 0_u64;
     for _ in 0..runs {
-        let compressed = if let Some(workers) = workers {
-            encode_all_parallel(black_box(input.as_slice()), options.clone(), workers)?
-        } else {
-            encode_all(black_box(input.as_slice()), options.clone())?
-        };
-        output_bytes = output_bytes.wrapping_add(compressed.len());
-        black_box(compressed);
+        let source = File::open(&input)?;
+        let mut sink = CountingSink::default();
+        encode_parallel(source, &mut sink, options.clone(), workers)?;
+        output_bytes += sink.bytes;
     }
     eprintln!(
-        "parallel benchmark compressed {} bytes at level {} in {} mode for {} run(s) into {} total output bytes in {:.3}s (estimated memory: {} bytes)",
-        input.len(),
+        "parallel streamed level {} with {} worker(s) for {} run(s) into {} bytes in {:.3}s (estimated memory: {} bytes)",
         level.get(),
-        workers.map_or_else(|| "direct".to_owned(), |workers| format!("{workers}-worker")),
+        workers,
         runs,
         output_bytes,
         started.elapsed().as_secs_f64(),
@@ -64,4 +55,20 @@ fn parse(
             .parse()
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, format!("invalid {name}")))
     })
+}
+
+#[derive(Default)]
+struct CountingSink {
+    bytes: u64,
+}
+
+impl io::Write for CountingSink {
+    fn write(&mut self, source: &[u8]) -> io::Result<usize> {
+        self.bytes += source.len() as u64;
+        Ok(source.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }

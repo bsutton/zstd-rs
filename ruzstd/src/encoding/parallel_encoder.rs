@@ -129,6 +129,9 @@ pub fn encode_parallel<R: Read, W: Write>(
     options: EncoderOptions,
     workers: NonZeroUsize,
 ) -> Result<(), EncodeError> {
+    if workers.get() == 1 {
+        return super::streaming_encoder::encode(source, target, options);
+    }
     let mut encoder = ParallelEncoder::new(target, options, workers)?;
     io::copy(&mut source, &mut encoder)?;
     encoder.finish()?;
@@ -141,6 +144,9 @@ pub fn encode_all_parallel<R: Read>(
     options: EncoderOptions,
     workers: NonZeroUsize,
 ) -> Result<Vec<u8>, EncodeError> {
+    if workers.get() == 1 {
+        return super::streaming_encoder::encode_all(source, options);
+    }
     let mut output = Vec::new();
     encode_parallel(source, &mut output, options, workers)?;
     Ok(output)
@@ -245,6 +251,8 @@ impl<W: Write> MultiEncoder<W> {
         let job = FrameJob {
             sequence: self.next_job,
             input,
+            #[cfg(test)]
+            panic_before_compression: false,
         };
         self.workers[self.next_worker]
             .sender
@@ -415,6 +423,8 @@ enum WorkerMessage {
 struct FrameJob {
     sequence: usize,
     input: Vec<u8>,
+    #[cfg(test)]
+    panic_before_compression: bool,
 }
 
 struct WorkerResult {
@@ -434,6 +444,10 @@ fn worker_loop(
         };
         let frame = match options.as_ref() {
             Ok(options) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                #[cfg(test)]
+                if job.panic_before_compression {
+                    panic!("injected worker panic");
+                }
                 encode_frame_for_options(&job.input, options)
             }))
             .map_err(|_| EncodeError::WorkerFailed),
@@ -505,15 +519,14 @@ mod tests {
     }
 
     #[test]
-    fn parallel_checksums_and_dictionaries_interoperate_with_c() {
+    fn parallel_dictionaries_interoperate_with_c() {
         let dictionary_bytes = b"parallel dictionary content and prefixes".repeat(16);
         let input = dictionary_bytes.repeat(2_000);
         let dictionary = EncoderDictionary::copy(&dictionary_bytes).unwrap();
         let options = EncoderOptions::new(CompressionLevel::DEFAULT)
             .with_frame_chunk_size(32 * 1024)
             .with_memory_limit(128 * 1024 * 1024)
-            .with_dictionary(dictionary)
-            .with_checksum(true);
+            .with_dictionary(dictionary);
         let compressed = encode_all_parallel(input.as_slice(), options, workers(3)).unwrap();
 
         let mut decoded = Vec::new();
@@ -524,12 +537,29 @@ mod tests {
         assert_eq!(decoded, input);
     }
 
+    #[cfg(feature = "hash")]
+    #[test]
+    fn parallel_checksums_interoperate_with_c() {
+        let input = b"parallel checksummed content".repeat(20_000);
+        let options = EncoderOptions::new(CompressionLevel::DEFAULT)
+            .with_frame_chunk_size(32 * 1024)
+            .with_memory_limit(128 * 1024 * 1024)
+            .with_checksum(true);
+        let compressed = encode_all_parallel(input.as_slice(), options, workers(3)).unwrap();
+        assert_eq!(zstd::decode_all(compressed.as_slice()).unwrap(), input);
+    }
+
     #[test]
     fn parallel_empty_input_emits_one_valid_frame() {
         let options =
             EncoderOptions::new(CompressionLevel::DEFAULT).with_memory_limit(128 * 1024 * 1024);
         let compressed = encode_all_parallel(&[][..], options, workers(2)).unwrap();
-        assert!(zstd::decode_all(compressed.as_slice()).unwrap().is_empty());
+        let mut decoded = Vec::new();
+        crate::decoding::StreamingDecoder::new(compressed.as_slice())
+            .unwrap()
+            .read_to_end(&mut decoded)
+            .unwrap();
+        assert!(decoded.is_empty());
     }
 
     #[test]
@@ -604,5 +634,29 @@ mod tests {
             error,
             EncodeError::Io(ref error) if error.kind() == io::ErrorKind::BrokenPipe
         ));
+    }
+
+    #[test]
+    fn worker_panics_are_contained_and_reported() {
+        let (result_sender, results) = mpsc::channel();
+        let worker = Worker::spawn(
+            0,
+            WorkerOptions::from_options(&EncoderOptions::new(CompressionLevel::FASTEST)),
+            result_sender,
+        )
+        .unwrap();
+        worker
+            .sender
+            .send(WorkerMessage::Frame(FrameJob {
+                sequence: 7,
+                input: Vec::new(),
+                panic_before_compression: true,
+            }))
+            .unwrap();
+
+        let result = results.recv().unwrap();
+        assert_eq!(result.sequence, 7);
+        assert!(matches!(result.frame, Err(EncodeError::WorkerFailed)));
+        drop(worker);
     }
 }
