@@ -112,6 +112,7 @@ impl EncoderCore {
         maximum_input: usize,
         cctx: CctxParameters,
     ) -> Result<Self, EncoderWorkspaceError> {
+        c_port::prepare_workspace_runtime();
         let block_size = crate::common::MAX_BLOCK_SIZE as usize;
         let frame = FrameBlockState::new_in(arena, cctx.compression, cctx.max_block_size)
             .map_err(map_arena)?;

@@ -122,6 +122,16 @@ impl BlockCompressionTuningOverrides {
 }
 
 impl BlockCompressionConfig {
+    pub(crate) fn prepare_allocation_free_runtime_tuning() {
+        // The retained C-port paths expose environment-controlled switches for
+        // same-binary benchmark attribution. Reading those variables may
+        // allocate on some platforms, notably Windows, so prepared workspaces
+        // resolve every switch during construction rather than on first use.
+        let _ = Self::for_c_strategy(1).uses_c_native_sequence_store();
+        let _ = Self::for_c_strategy(4).uses_c_greedy_native_sequence_store();
+        let _ = Self::for_c_strategy(8).uses_c_opt_native_sequence_store();
+    }
+
     pub(crate) fn prepare_for_allocation_free_workspace(&mut self) {
         self.huffman_table_search = HuffmanTableSearch::Heuristic;
         self.exact_sequence_mode_search = false;

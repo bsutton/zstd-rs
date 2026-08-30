@@ -173,6 +173,11 @@ pub(crate) fn defers_stored_entropy_commit() -> bool {
     }
 }
 
+pub(crate) fn prepare_allocation_free_runtime_tuning() {
+    BlockCompressionConfig::prepare_allocation_free_runtime_tuning();
+    let _ = defers_stored_entropy_commit();
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct PreparedBlockRef<'a> {
     pub(crate) literals: &'a [u8],

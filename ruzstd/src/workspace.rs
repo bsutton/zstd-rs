@@ -533,3 +533,67 @@ impl<'a, T> IntoIterator for &'a mut ReusableVec<T> {
         self.iter_mut()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn arena_layout_accepts_every_start_alignment() {
+        let mut size = ArenaSize::new();
+        size.add::<u8>(1).unwrap();
+        size.add::<u64>(3).unwrap();
+        let required = size.finish();
+
+        for offset in 0..align_of::<u64>() {
+            let mut storage = [MaybeUninit::uninit(); 64];
+            let mut arena = Arena::new(&mut storage[offset..offset + required]);
+            let mut bytes = arena.allocate_vec::<u8>(1).unwrap();
+            bytes.push(7).unwrap();
+            let mut words = arena.allocate_vec::<u64>(3).unwrap();
+            words.extend_from_slice(&[11, 13, 17]).unwrap();
+            assert_eq!(&*bytes, &[7]);
+            assert_eq!(&*words, &[11, 13, 17]);
+        }
+    }
+
+    static DROPS: AtomicUsize = AtomicUsize::new(0);
+
+    struct DropTracker {
+        _value: u8,
+    }
+
+    impl Drop for DropTracker {
+        fn drop(&mut self) {
+            DROPS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn caller_owned_reusable_vec_survives_lease_recovery_and_drops_values() {
+        DROPS.store(0, Ordering::Relaxed);
+        let mut storage = [MaybeUninit::uninit(); 64];
+        let mut arena = Arena::new(&mut storage);
+        let mut values = arena.allocate_reusable_vec::<DropTracker>(2).unwrap();
+        values.push(DropTracker { _value: 1 });
+
+        let (mut facade, lease) = values.lease_vec();
+        facade.push(DropTracker { _value: 2 });
+        let values = ReusableVec::recover_vec(facade, lease);
+        assert!(!values.is_owned());
+        assert_eq!(values.len(), 2);
+        drop(values);
+        assert_eq!(DROPS.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn owned_reusable_vec_returns_its_allocation_after_lease_recovery() {
+        let reusable = ReusableVec::from_owned(Vec::with_capacity(4));
+        let (mut facade, lease) = reusable.lease_vec();
+        facade.extend_from_slice(&[2_u32, 3, 5]);
+        let reusable = ReusableVec::recover_vec(facade, lease);
+        assert!(reusable.is_owned());
+        assert_eq!(reusable.into_owned_vec(), [2, 3, 5]);
+    }
+}

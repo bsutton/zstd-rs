@@ -49,6 +49,11 @@ fn uses_matcher_offset_handoff() -> bool {
     }
 }
 
+pub(super) fn prepare_allocation_free_runtime_tuning() {
+    crate::encoding::blocks::prepare_allocation_free_runtime_tuning();
+    let _ = uses_matcher_offset_handoff();
+}
+
 pub(super) enum PreparedBlockEmission {
     Raw,
     Rle,

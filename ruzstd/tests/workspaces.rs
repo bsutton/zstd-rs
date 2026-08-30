@@ -1,12 +1,11 @@
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use zstd_complete::{
-    decoding::{DecoderWorkspace, StaticDecoderWorkspace},
-    encoding::{CompressionLevel, EncoderWorkspace, StaticEncoderWorkspace},
+    decoding::{DecoderWorkspace, DecoderWorkspaceError, StaticDecoderWorkspace},
+    encoding::{CompressionLevel, EncoderWorkspace, EncoderWorkspaceError, StaticEncoderWorkspace},
 };
 
 struct CountingAllocator;
@@ -14,16 +13,22 @@ struct CountingAllocator;
 thread_local! {
     static COUNT_ALLOCATIONS: Cell<bool> = const { Cell::new(false) };
     static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
+    static RECORDED_ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
+    static RECORDED_ALLOCATION_SIZES: Cell<[usize; 32]> = const { Cell::new([0; 32]) };
 }
 
-static RECORDED_ALLOCATION_COUNT: AtomicUsize = AtomicUsize::new(0);
-static RECORDED_ALLOCATION_SIZES: [AtomicUsize; 32] = [const { AtomicUsize::new(0) }; 32];
-
 fn record_allocation(size: usize) {
-    let index = RECORDED_ALLOCATION_COUNT.fetch_add(1, Ordering::Relaxed);
-    if let Some(slot) = RECORDED_ALLOCATION_SIZES.get(index) {
-        slot.store(size, Ordering::Relaxed);
-    }
+    RECORDED_ALLOCATION_COUNT.with(|count| {
+        let index = count.get();
+        count.set(index + 1);
+        RECORDED_ALLOCATION_SIZES.with(|sizes| {
+            if index < sizes.get().len() {
+                let mut values = sizes.get();
+                values[index] = size;
+                sizes.set(values);
+            }
+        });
+    });
 }
 
 unsafe impl GlobalAlloc for CountingAllocator {
@@ -61,7 +66,8 @@ static ALLOCATOR: CountingAllocator = CountingAllocator;
 fn allocation_count(operation: impl FnOnce()) -> usize {
     COUNT_ALLOCATIONS.with(|enabled| enabled.set(false));
     ALLOCATION_COUNT.with(|count| count.set(0));
-    RECORDED_ALLOCATION_COUNT.store(0, Ordering::Relaxed);
+    RECORDED_ALLOCATION_COUNT.with(|count| count.set(0));
+    RECORDED_ALLOCATION_SIZES.with(|sizes| sizes.set([0; 32]));
     COUNT_ALLOCATIONS.with(|enabled| enabled.set(true));
     operation();
     COUNT_ALLOCATIONS.with(|enabled| enabled.set(false));
@@ -69,11 +75,8 @@ fn allocation_count(operation: impl FnOnce()) -> usize {
 }
 
 fn recorded_allocation_sizes() -> Vec<usize> {
-    let count = RECORDED_ALLOCATION_COUNT.load(Ordering::Relaxed);
-    RECORDED_ALLOCATION_SIZES[..count.min(RECORDED_ALLOCATION_SIZES.len())]
-        .iter()
-        .map(|size| size.load(Ordering::Relaxed))
-        .collect()
+    let count = RECORDED_ALLOCATION_COUNT.with(Cell::get);
+    RECORDED_ALLOCATION_SIZES.with(|sizes| sizes.get()[..count.min(32)].to_vec())
 }
 
 fn representative_input() -> Vec<u8> {
@@ -91,6 +94,44 @@ fn representative_input() -> Vec<u8> {
         });
     }
     input
+}
+
+fn alternate_input(length: usize, seed: u32) -> Vec<u8> {
+    let mut input = Vec::with_capacity(length);
+    let mut random = seed;
+    for index in 0..length {
+        random ^= random << 13;
+        random ^= random >> 17;
+        random ^= random << 5;
+        input.push(if index % 11 < 8 {
+            ((index / 43) % 239) as u8
+        } else {
+            random as u8
+        });
+    }
+    input
+}
+
+fn assert_static_encode_without_allocation(level: CompressionLevel, input: &[u8]) {
+    let required = EncoderWorkspace::required_size(level, input.len()).unwrap();
+    let mut storage = vec![0_u8; required];
+    let mut output = vec![0_u8; EncoderWorkspace::required_output_size(input.len()).unwrap()];
+    let mut workspace = StaticEncoderWorkspace::new(&mut storage, level, input.len()).unwrap();
+    let mut encoded_len = 0;
+    let allocations = allocation_count(|| {
+        encoded_len = workspace.encode_into(input, &mut output).unwrap().len();
+    });
+    assert_eq!(
+        allocations,
+        0,
+        "static level {} allocated {:?}",
+        level.get(),
+        recorded_allocation_sizes()
+    );
+    assert_eq!(
+        zstd::bulk::decompress(&output[..encoded_len], input.len()).unwrap(),
+        input
+    );
 }
 
 #[test]
@@ -142,22 +183,42 @@ fn large_level22_ldm_workspace_does_not_allocate() {
     }
     input.extend_from_within(..);
 
-    let mut workspace = EncoderWorkspace::new(level, maximum_input).unwrap();
     let mut output = vec![0_u8; EncoderWorkspace::required_output_size(input.len()).unwrap()];
-    let mut encoded_len = 0;
-    let allocations = allocation_count(|| {
-        for _ in 0..2 {
-            encoded_len = workspace.encode_into(&input, &mut output).unwrap().len();
+    for caller_backed in [false, true] {
+        let mut encoded_len = 0;
+        if caller_backed {
+            let required = EncoderWorkspace::required_size(level, maximum_input).unwrap();
+            let mut storage = vec![0_u8; required];
+            let mut workspace =
+                StaticEncoderWorkspace::new(&mut storage, level, maximum_input).unwrap();
+            let allocations = allocation_count(|| {
+                for _ in 0..2 {
+                    encoded_len = workspace.encode_into(&input, &mut output).unwrap().len();
+                }
+            });
+            assert_eq!(
+                allocations,
+                0,
+                "static level-22 LDM allocated {:?}",
+                recorded_allocation_sizes()
+            );
+        } else {
+            let mut workspace = EncoderWorkspace::new(level, maximum_input).unwrap();
+            let allocations = allocation_count(|| {
+                for _ in 0..2 {
+                    encoded_len = workspace.encode_into(&input, &mut output).unwrap().len();
+                }
+            });
+            assert_eq!(
+                allocations,
+                0,
+                "owned level-22 LDM allocated {:?}",
+                recorded_allocation_sizes()
+            );
         }
-    });
-    assert_eq!(
-        allocations,
-        0,
-        "level-22 LDM allocated {:?}",
-        recorded_allocation_sizes()
-    );
-    let decoded = zstd::bulk::decompress(&output[..encoded_len], input.len()).unwrap();
-    assert_eq!(decoded, input);
+        let decoded = zstd::bulk::decompress(&output[..encoded_len], input.len()).unwrap();
+        assert_eq!(decoded, input);
+    }
 }
 
 #[test]
@@ -195,6 +256,122 @@ fn caller_byte_buffers_support_allocation_free_roundtrip() {
         0
     );
     assert_eq!(&decoded[..decoded_len], input);
+}
+
+#[test]
+fn caller_byte_buffer_encoder_covers_representative_strategies() {
+    let input = alternate_input(96 * 1024, 0x243f_6a88);
+    for level in [
+        CompressionLevel::fast(64).unwrap(),
+        CompressionLevel::new(1).unwrap(),
+        CompressionLevel::new(3).unwrap(),
+        CompressionLevel::new(5).unwrap(),
+        CompressionLevel::new(8).unwrap(),
+        CompressionLevel::new(16).unwrap(),
+        CompressionLevel::new(22).unwrap(),
+    ] {
+        assert_static_encode_without_allocation(level, &input);
+    }
+}
+
+#[test]
+fn caller_byte_buffers_accept_every_relevant_start_alignment() {
+    let input = alternate_input(32 * 1024, 0x1319_8a2e);
+    let level = CompressionLevel::DEFAULT;
+    let encoder_size = EncoderWorkspace::required_size(level, input.len()).unwrap();
+    let output_size = EncoderWorkspace::required_output_size(input.len()).unwrap();
+
+    for offset in 0..16 {
+        let mut encoder_storage = vec![0_u8; encoder_size + 16];
+        let mut encoded = vec![0_u8; output_size];
+        let mut encoder = StaticEncoderWorkspace::new(
+            &mut encoder_storage[offset..offset + encoder_size],
+            level,
+            input.len(),
+        )
+        .unwrap();
+        let encoded_len = encoder.encode_into(&input, &mut encoded).unwrap().len();
+
+        let window_size = 1 << 18;
+        let decoder_size = StaticDecoderWorkspace::required_size(window_size, 0).unwrap();
+        let mut decoder_storage = vec![0_u8; decoder_size + 16];
+        let mut decoded = vec![0_u8; input.len()];
+        let mut decoder = StaticDecoderWorkspace::new(
+            &mut decoder_storage[offset..offset + decoder_size],
+            window_size,
+            0,
+        )
+        .unwrap();
+        let decoded_len = decoder
+            .decode_into(&encoded[..encoded_len], &mut decoded)
+            .unwrap();
+        assert_eq!(&decoded[..decoded_len], input);
+    }
+}
+
+#[test]
+fn encoder_workspace_recovers_after_capacity_errors_without_allocating() {
+    let maximum = 64 * 1024;
+    let input = alternate_input(maximum, 0xa409_3822);
+    let oversized = alternate_input(maximum + 1, 0x299f_31d0);
+    let level = CompressionLevel::new(8).unwrap();
+    let mut workspace = EncoderWorkspace::new(level, maximum).unwrap();
+    let required_output = EncoderWorkspace::required_output_size(maximum).unwrap();
+    let mut output = vec![0_u8; required_output];
+
+    assert!(matches!(
+        workspace.encode_into(&oversized, &mut output),
+        Err(EncoderWorkspaceError::InputTooLarge {
+            maximum: value,
+            provided
+        }) if value == maximum && provided == maximum + 1
+    ));
+    assert!(matches!(
+        workspace.encode_into(&input, &mut output[..required_output - 1]),
+        Err(EncoderWorkspaceError::OutputTooSmall {
+            required,
+            provided
+        }) if required == required_output && provided == required_output - 1
+    ));
+
+    let mut encoded_len = 0;
+    assert_eq!(
+        allocation_count(|| {
+            encoded_len = workspace.encode_into(&input, &mut output).unwrap().len();
+        }),
+        0
+    );
+    assert_eq!(
+        zstd::bulk::decompress(&output[..encoded_len], maximum).unwrap(),
+        input
+    );
+}
+
+#[test]
+fn encoder_workspace_reuse_does_not_leak_state_between_inputs() {
+    let inputs = [
+        alternate_input(17 * 1024, 0x082e_fa98),
+        alternate_input(128 * 1024, 0xec4e_6c89),
+        vec![0x5a; 73 * 1024],
+    ];
+    let maximum = inputs.iter().map(Vec::len).max().unwrap();
+    let level = CompressionLevel::new(16).unwrap();
+    let mut workspace = EncoderWorkspace::new(level, maximum).unwrap();
+    let mut output = vec![0_u8; EncoderWorkspace::required_output_size(maximum).unwrap()];
+
+    for input in inputs.iter().cycle().take(inputs.len() * 2) {
+        let mut encoded_len = 0;
+        assert_eq!(
+            allocation_count(|| {
+                encoded_len = workspace.encode_into(input, &mut output).unwrap().len();
+            }),
+            0
+        );
+        assert_eq!(
+            zstd::bulk::decompress(&output[..encoded_len], input.len()).unwrap(),
+            input.as_slice()
+        );
+    }
 }
 
 #[test]
@@ -241,6 +418,21 @@ fn prepared_decoder_dictionaries_do_not_allocate() {
     );
     assert_eq!(&output[..decoded_len], expected);
 
+    let wrong_dictionary = vec![0_u8; dictionary.len()];
+    assert!(matches!(
+        decoder.decode_into_with_dictionary(encoded, &wrong_dictionary, &mut output),
+        Err(DecoderWorkspaceError::Decode(_))
+    ));
+    assert_eq!(
+        allocation_count(|| {
+            decoded_len = decoder
+                .decode_into_with_dictionary(encoded, dictionary, &mut output)
+                .unwrap();
+        }),
+        0
+    );
+    assert_eq!(&output[..decoded_len], expected);
+
     let raw_dictionary = b"alpha beta gamma delta repeated record prefix";
     let raw_input = b"alpha beta gamma delta repeated record prefix: one; alpha beta gamma delta repeated record prefix: two";
     let mut compressor = zstd::bulk::Compressor::with_dictionary(3, raw_dictionary).unwrap();
@@ -266,6 +458,67 @@ fn prepared_decoder_dictionaries_do_not_allocate() {
         recorded_allocation_sizes()
     );
     assert_eq!(&raw_output[..raw_decoded_len], raw_input);
+}
+
+#[test]
+fn decoder_workspace_recovers_after_errors_without_allocating() {
+    let input = alternate_input(48 * 1024, 0x4528_21e6);
+    let encoded = zstd::bulk::compress(&input, 5).unwrap();
+    let window_size = 1 << 18;
+    let mut decoder = DecoderWorkspace::new(window_size, 8).unwrap();
+    let mut output = vec![0_u8; input.len()];
+
+    assert!(matches!(
+        decoder.decode_into(&encoded[..encoded.len() - 1], &mut output),
+        Err(DecoderWorkspaceError::Decode(_))
+    ));
+    assert!(matches!(
+        decoder.decode_into(&encoded, &mut output[..1]),
+        Err(DecoderWorkspaceError::Decode(_))
+    ));
+    assert!(matches!(
+        decoder.decode_into_with_raw_dictionary(&encoded, &[0; 9], &mut output),
+        Err(DecoderWorkspaceError::DictionaryTooLarge {
+            maximum: 8,
+            provided: 9
+        })
+    ));
+
+    let mut decoded_len = 0;
+    assert_eq!(
+        allocation_count(|| {
+            decoded_len = decoder.decode_into(&encoded, &mut output).unwrap();
+        }),
+        0
+    );
+    assert_eq!(&output[..decoded_len], input);
+}
+
+#[test]
+fn decoder_workspace_handles_concatenated_and_skippable_frames_without_allocating() {
+    let first = alternate_input(24 * 1024, 0xbe54_66cf);
+    let second = alternate_input(19 * 1024, 0x34e9_0c6c);
+    let first_frame = zstd::bulk::compress(&first, 3).unwrap();
+    let second_frame = zstd::bulk::compress(&second, 7).unwrap();
+    let skippable_payload = b"workspace-test-metadata";
+    let mut encoded = first_frame;
+    encoded.extend_from_slice(&0x184d_2a50_u32.to_le_bytes());
+    encoded.extend_from_slice(&(skippable_payload.len() as u32).to_le_bytes());
+    encoded.extend_from_slice(skippable_payload);
+    encoded.extend_from_slice(&second_frame);
+    let mut expected = first;
+    expected.extend_from_slice(&second);
+
+    let mut decoder = DecoderWorkspace::new(1 << 18, 0).unwrap();
+    let mut output = vec![0_u8; expected.len()];
+    let mut decoded_len = 0;
+    assert_eq!(
+        allocation_count(|| {
+            decoded_len = decoder.decode_into(&encoded, &mut output).unwrap();
+        }),
+        0
+    );
+    assert_eq!(&output[..decoded_len], expected);
 }
 
 #[test]
